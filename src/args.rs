@@ -85,10 +85,22 @@ pub struct Args {
     #[arg(long, default_value_t = 0.8)]
     pub diffuse: f32,
 
+    /// 使用 Phong 着色（逐像素光照）而非默认的 Flat 着色
+    #[arg(long, default_value_t = false)]
+    pub use_phong: bool,
+
     // --- Texture Arguments ---
     /// Disable texture loading and usage
     #[arg(long, default_value_t = false)]
     pub no_texture: bool,
+
+    /// Explicitly specify a texture file to use, overriding MTL settings.
+    #[arg(long)]
+    pub texture: Option<String>,
+
+    /// Run the full animation loop instead of a single frame render
+    #[arg(long, default_value_t = false)]
+    pub animate: bool,
 }
 
 // Helper function to parse comma-separated floats

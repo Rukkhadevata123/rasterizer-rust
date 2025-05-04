@@ -1,4 +1,4 @@
-use image::{DynamicImage, GenericImageView, ImageError, Rgba, RgbaImage};
+use image::{ImageError, Rgba, RgbaImage};
 use nalgebra::Vector3;
 use std::path::Path;
 

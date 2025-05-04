@@ -1,3 +1,5 @@
+// Updated use statement for model types
+use crate::model_types::Material;
 use nalgebra::{Point3, Vector3};
 
 /// Represents different types of light sources.
@@ -16,6 +18,7 @@ pub enum Light {
         attenuation: (f32, f32, f32),
     },
     /// Ambient light only (or disabled lighting).
+    #[allow(dead_code)]
     Ambient(Vector3<f32>), // Represents the ambient intensity
 }
 
@@ -39,7 +42,20 @@ impl Default for SimpleMaterial {
     }
 }
 
+// Add From trait implementation
+impl From<&Material> for SimpleMaterial {
+    fn from(material: &Material) -> Self {
+        SimpleMaterial {
+            ambient: material.ambient,
+            diffuse: material.diffuse,
+            specular: material.specular,
+            shininess: material.shininess,
+        }
+    }
+}
+
 /// Calculates the color of a point based on Blinn-Phong lighting model.
+/// If the light type is Ambient, returns white (1.0, 1.0, 1.0) to signify no lighting effect.
 ///
 /// # Arguments
 /// * `surface_point_view`: Position of the point on the surface in view space.
@@ -57,21 +73,24 @@ pub fn calculate_blinn_phong(
     light: &Light,
     material: &SimpleMaterial,
 ) -> Vector3<f32> {
-    let ambient_color = material.ambient.component_mul(&match light {
-        // Use light intensity for ambient if available, otherwise just material ambient
-        Light::Ambient(intensity) => *intensity,
-        Light::Directional { intensity, .. } => *intensity,
-        Light::Point { intensity, .. } => *intensity,
-    });
+    // If light is Ambient, return white immediately.
+    if let Light::Ambient(_) = light {
+        return Vector3::new(1.0, 1.0, 1.0);
+    }
+
+    // Calculate ambient component based on material only (light intensity is handled below)
+    // Note: This ambient calculation is technically part of Blinn-Phong,
+    // but since we return early for Light::Ambient, this only applies
+    // when Directional or Point light is active. We can consider
+    // using a separate ambient term if needed outside this function.
+    // For now, let's keep it simple and assume ambient is part of the lit color.
+    let ambient_color = material.ambient; // Use material's ambient property
 
     let (light_dir_view, light_intensity, attenuation) = match light {
         Light::Directional {
             direction,
             intensity,
-        } => {
-            // Direction is *towards* the light source
-            (*direction, *intensity, 1.0)
-        }
+        } => (*direction, *intensity, 1.0),
         Light::Point {
             position,
             intensity,
@@ -80,42 +99,36 @@ pub fn calculate_blinn_phong(
             let light_vec = position - surface_point_view;
             let distance = light_vec.norm();
             if distance < 1e-6 {
-                // At the light source, avoid division by zero, return max intensity? Or handle differently?
-                // For simplicity, treat as directional from Z+ if too close
-                (Vector3::z(), *intensity, 1.0)
+                (Vector3::z(), *intensity, 1.0) // Avoid division by zero
             } else {
                 let dir = light_vec / distance;
                 let att = 1.0
                     / (attenuation.0
                         + attenuation.1 * distance
                         + attenuation.2 * distance * distance);
-                (dir, *intensity, att.max(0.0)) // Ensure non-negative attenuation
+                (dir, *intensity, att.max(0.0))
             }
         }
-        Light::Ambient(_) => {
-            // Only ambient component, return early
-            return ambient_color.map(|c| c.clamp(0.0, 1.0));
-        }
+        Light::Ambient(_) => unreachable!(), // Already handled above
     };
 
-    // Diffuse term (Lambertian)
+    // Diffuse term
     let n_dot_l = normal_view.dot(&light_dir_view).max(0.0);
     let diffuse_color = material.diffuse.component_mul(&light_intensity) * n_dot_l;
 
-    // Specular term (Blinn-Phong)
+    // Specular term
     let specular_color = if n_dot_l > 0.0 {
         let halfway_dir = (light_dir_view + view_dir_view).normalize();
         let n_dot_h = normal_view.dot(&halfway_dir).max(0.0);
         let spec_intensity = n_dot_h.powf(material.shininess);
-        // Use material's specular color multiplied by light intensity
         material.specular.component_mul(&light_intensity) * spec_intensity
     } else {
         Vector3::zeros()
     };
 
-    // Combine components
+    // Combine components: Ambient + Attenuated(Diffuse + Specular)
+    // We use material.ambient directly here.
     let final_color = ambient_color + attenuation * (diffuse_color + specular_color);
 
-    // Clamp final color to [0, 1] range
     final_color.map(|c| c.clamp(0.0, 1.0))
 }

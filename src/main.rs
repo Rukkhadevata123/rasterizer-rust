@@ -4,23 +4,27 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
+// Declare modules
 mod args;
 mod camera;
 mod color_utils;
 mod interpolation;
 mod lighting;
 mod loaders;
+mod model_types; // Added module declaration
 mod rasterizer;
 mod renderer;
 mod texture_utils;
-mod transform; // Declare lighting module
+mod transform;
 
+// Use statements
 use args::{Args, parse_point3, parse_vec3};
 use camera::Camera;
 use color_utils::apply_colormap_jet;
 use lighting::Light;
-use loaders::load_obj_enhanced;
-use renderer::{RenderSettings, Renderer}; // Use Light enum
+use loaders::load_obj_enhanced; // load_obj_enhanced remains in loaders
+use model_types::ModelData; // ModelData is now in model_types
+use renderer::{RenderSettings, Renderer};
 
 // Helper function to save image data to a file
 fn save_image(path: &str, data: &[u8], width: u32, height: u32) {
@@ -30,44 +34,75 @@ fn save_image(path: &str, data: &[u8], width: u32, height: u32) {
     }
 }
 
-// Helper function to normalize depth buffer values for visualization
-fn normalize_depth(depth_buffer: &[f32], near: f32, far: f32) -> Vec<f32> {
-    // Find min/max finite depth values in the buffer
-    let mut min_depth = f32::INFINITY;
-    let mut max_depth = f32::NEG_INFINITY;
-    let mut has_finite = false;
-    for &depth in depth_buffer {
-        if depth.is_finite() {
-            min_depth = min_depth.min(depth);
-            max_depth = max_depth.max(depth);
-            has_finite = true;
+/// Normalizes depth buffer values for visualization using percentile clipping.
+#[allow(dead_code)] // Allow dead code because it's only used when !no_depth
+fn normalize_depth(
+    depth_buffer: &[f32],
+    min_percentile: f32, // e.g., 1.0 for 1st percentile
+    max_percentile: f32, // e.g., 99.0 for 99th percentile
+) -> Vec<f32> {
+    // 1. Collect finite depth values
+    let mut finite_depths: Vec<f32> = depth_buffer
+        .iter()
+        .filter(|&&d| d.is_finite())
+        .cloned()
+        .collect();
+
+    // Declare min_clip and max_clip as mutable
+    let mut min_clip: f32;
+    let mut max_clip: f32;
+
+    // 2. Determine normalization range using percentiles
+    if finite_depths.len() >= 2 {
+        // Need at least two points to define a range
+        // Sort the finite depths
+        finite_depths.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap()); // Use unstable sort for performance
+
+        // Calculate indices for percentiles
+        let min_idx = ((min_percentile / 100.0 * (finite_depths.len() - 1) as f32).round()
+            as usize)
+            .clamp(0, finite_depths.len() - 1);
+        let max_idx = ((max_percentile / 100.0 * (finite_depths.len() - 1) as f32).round()
+            as usize)
+            .clamp(0, finite_depths.len() - 1);
+
+        min_clip = finite_depths[min_idx]; // Initial assignment
+        max_clip = finite_depths[max_idx]; // Initial assignment
+
+        // Ensure min_clip < max_clip
+        if (max_clip - min_clip).abs() < 1e-6 {
+            // If range is too small, expand it slightly or use a default
+            // For simplicity, let's just use the absolute min/max in this edge case
+            min_clip = *finite_depths.first().unwrap(); // Re-assignment is now allowed
+            max_clip = *finite_depths.last().unwrap(); // Re-assignment is now allowed
+            // Ensure max > min even if all values were identical
+            if (max_clip - min_clip).abs() < 1e-6 {
+                max_clip = min_clip + 1.0; // Re-assignment is now allowed
+            }
         }
+        println!(
+            "Normalizing depth using percentiles: [{:.1}%, {:.1}%] -> [{:.3}, {:.3}]",
+            min_percentile, max_percentile, min_clip, max_clip
+        );
+    } else {
+        // Fallback if not enough finite values
+        println!(
+            "Warning: Not enough finite depth values for percentile clipping. Using default range [0.1, 10.0]."
+        );
+        min_clip = 0.1; // Default near // Assignment
+        max_clip = 10.0; // Default far (adjust as needed) // Assignment
     }
 
-    // Handle cases with no finite values or a single finite value
-    if !has_finite {
-        min_depth = near.max(0.0); // Use near/far as fallback range, ensure non-negative
-        max_depth = far.max(min_depth + 1e-6);
-    } else if (max_depth - min_depth).abs() < 1e-6 {
-        // If all finite values are the same, create a small range for normalization
-        min_depth = (min_depth - 0.5).max(0.0); // Adjust min slightly down
-        max_depth = min_depth + 1.0; // Adjust max slightly up
-    }
-
-    let range = max_depth - min_depth;
+    let range = max_clip - min_clip;
     let inv_range = if range > 1e-6 { 1.0 / range } else { 0.0 }; // Avoid division by zero
 
-    println!(
-        "Normalizing depth buffer. Found range: [{:.3}, {:.3}]",
-        min_depth, max_depth
-    );
-
+    // 3. Normalize the original buffer using the calculated range
     depth_buffer
         .iter()
         .map(|&depth| {
             if depth.is_finite() {
-                // Normalize finite values to [0, 1] based on the calculated range
-                ((depth - min_depth) * inv_range).clamp(0.0, 1.0)
+                // Clamp depth to the calculated range and normalize
+                ((depth.clamp(min_clip, max_clip) - min_clip) * inv_range).clamp(0.0, 1.0)
             } else {
                 // Map non-finite values (infinity) to 1.0 (far)
                 1.0
@@ -76,15 +111,287 @@ fn normalize_depth(depth_buffer: &[f32], near: f32, far: f32) -> Vec<f32> {
         .collect()
 }
 
+/// Normalizes and centers the model's vertices in place.
+/// Returns the original center and scaling factor.
+/// Moved from Renderer
+fn normalize_and_center_model(model_data: &mut ModelData) -> (Vector3<f32>, f32) {
+    if model_data.meshes.is_empty() {
+        return (Vector3::zeros(), 1.0);
+    }
+
+    // Calculate bounding box or centroid of all vertices
+    let mut min_coord = Point3::new(f32::MAX, f32::MAX, f32::MAX);
+    let mut max_coord = Point3::new(f32::MIN, f32::MIN, f32::MIN);
+    let mut vertex_sum = Vector3::zeros();
+    let mut vertex_count = 0;
+
+    for mesh in &model_data.meshes {
+        for vertex in &mesh.vertices {
+            min_coord = min_coord.inf(&vertex.position);
+            max_coord = max_coord.sup(&vertex.position);
+            vertex_sum += vertex.position.coords;
+            vertex_count += 1;
+        }
+    }
+
+    if vertex_count == 0 {
+        return (Vector3::zeros(), 1.0);
+    }
+
+    let center = vertex_sum / (vertex_count as f32);
+    let extent = max_coord - min_coord;
+    let max_extent = extent.x.max(extent.y).max(extent.z);
+
+    let scale_factor = if max_extent > 1e-6 {
+        1.6 / max_extent // Scale to fit roughly in [-0.8, 0.8] cube (like Python's 0.8 factor)
+    } else {
+        1.0
+    };
+
+    // Apply transformation to all vertices
+    for mesh in &mut model_data.meshes {
+        for vertex in &mut mesh.vertices {
+            vertex.position = Point3::from((vertex.position.coords - center) * scale_factor);
+        }
+    }
+
+    (center, scale_factor)
+}
+
+/// Sets up the camera, light, and render settings for a given frame.
+fn setup_render_environment(
+    args: &Args,
+    frame_num: Option<usize>, // None for single frame, Some(i) for animation frame i
+) -> Result<(Camera, Light, RenderSettings), String> {
+    let aspect_ratio = args.width as f32 / args.height as f32;
+
+    // --- Camera Setup ---
+    let initial_camera_from = parse_point3(&args.camera_from)
+        .map_err(|e| format!("Invalid camera_from format: {}", e))?;
+    let camera_at =
+        parse_point3(&args.camera_at).map_err(|e| format!("Invalid camera_at format: {}", e))?;
+    let camera_up =
+        parse_vec3(&args.camera_up).map_err(|e| format!("Invalid camera_up format: {}", e))?;
+
+    let mut camera = Camera::new(
+        initial_camera_from,
+        camera_at,
+        camera_up,
+        args.camera_fov,
+        aspect_ratio,
+        0.1,   // near plane distance
+        100.0, // far plane distance
+    );
+
+    if let Some(frame_idx) = frame_num {
+        if frame_idx > 0 {
+            let total_frames = 120; // TODO: Make this configurable or pass it in
+            let rotation_per_frame = 360.0 / total_frames as f32;
+            let current_angle = frame_idx as f32 * rotation_per_frame;
+            camera.orbit_y(current_angle);
+        }
+    }
+
+    // --- Light Setup ---
+    let light = if args.no_lighting {
+        if frame_num.is_none_or(|f| f == 0) {
+            // Print only once or for single frame
+            println!("Lighting disabled. Using ambient only.");
+        }
+        Light::Ambient(Vector3::new(args.ambient, args.ambient, args.ambient))
+    } else {
+        let light_intensity = Vector3::new(1.0, 1.0, 1.0) * args.diffuse;
+        match args.light_type.to_lowercase().as_str() {
+            "point" => {
+                let light_pos = parse_point3(&args.light_pos)
+                    .map_err(|e| format!("Invalid light_pos format: {}", e))?;
+                let atten_parts: Vec<Result<f32, _>> = args
+                    .light_atten
+                    .split(',')
+                    .map(|s| s.trim().parse::<f32>())
+                    .collect();
+                if atten_parts.len() != 3 || atten_parts.iter().any(|r| r.is_err()) {
+                    return Err(format!(
+                        "Invalid light_atten format: '{}'. Expected 'c,l,q'",
+                        args.light_atten
+                    ));
+                }
+                // Use map_or to handle potential errors during parsing, defaulting to 0.0
+                let attenuation = (
+                    atten_parts[0].as_ref().map_or(0.0, |v| *v).max(0.0),
+                    atten_parts[1].as_ref().map_or(0.0, |v| *v).max(0.0),
+                    atten_parts[2].as_ref().map_or(0.0, |v| *v).max(0.0),
+                );
+                if frame_num.is_none_or(|f| f == 0) {
+                    // Print only once or for single frame
+                    println!(
+                        "Using Point Light at {:?}, Intensity Scale: {:.2}, Attenuation: {:?}",
+                        light_pos, args.diffuse, attenuation
+                    );
+                }
+                Light::Point {
+                    position: light_pos,
+                    intensity: light_intensity,
+                    attenuation,
+                }
+            }
+            "directional" => {
+                let mut light_dir = parse_vec3(&args.light_dir)
+                    .map_err(|e| format!("Invalid light_dir format: {}", e))?;
+                light_dir = -light_dir.normalize(); // Direction *towards* light
+                if frame_num.is_none_or(|f| f == 0) {
+                    // Print only once or for single frame
+                    println!(
+                        "Using Directional Light towards {:?}, Intensity Scale: {:.2}",
+                        light_dir, args.diffuse
+                    );
+                }
+                Light::Directional {
+                    direction: light_dir,
+                    intensity: light_intensity,
+                }
+            }
+            _ => {
+                // 默认为定向光
+                let mut light_dir = parse_vec3(&args.light_dir)
+                    .map_err(|e| format!("Invalid light_dir format: {}", e))?;
+                light_dir = -light_dir.normalize(); // Direction *towards* light
+                if frame_num.is_none_or(|f| f == 0) {
+                    // Print only once or for single frame
+                    println!(
+                        "Using Directional Light towards {:?}, Intensity Scale: {:.2}",
+                        light_dir, args.diffuse
+                    );
+                }
+                Light::Directional {
+                    direction: light_dir,
+                    intensity: light_intensity,
+                }
+            }
+        }
+    };
+
+    // --- Render Settings Setup ---
+    let settings = RenderSettings {
+        projection_type: args.projection.clone(),
+        use_zbuffer: !args.no_zbuffer,
+        use_face_colors: args.colorize,
+        use_texture: !args.no_texture,
+        light,
+        use_phong: args.use_phong, // 添加 Phong 着色设置
+    };
+
+    Ok((camera, settings.light, settings))
+}
+
+/// Renders a single frame with the given parameters.
+fn render_single_frame(
+    args: &Args,
+    model_data: &ModelData,
+    camera: &Camera,
+    renderer: &Renderer,
+    settings: &RenderSettings,
+    output_name: &str, // Base name for output files (e.g., "output" or "frame_001")
+) -> Result<(), String> {
+    let frame_start_time = Instant::now();
+    println!("Rendering frame: {}", output_name);
+
+    // --- Render Current Frame ---
+    renderer.render(model_data, camera, settings);
+
+    // --- Save Output Frame ---
+    println!("Saving output images for {}...", output_name);
+    let color_data = renderer.frame_buffer.get_color_buffer_bytes();
+    // Use args.output_dir for saving path
+    let color_path = Path::new(&args.output_dir)
+        .join(format!("{}_color.png", output_name))
+        .to_str()
+        .ok_or("Failed to create color output path string")?
+        .to_string();
+    save_image(
+        &color_path,
+        &color_data,
+        args.width as u32,
+        args.height as u32,
+    );
+
+    // Save depth map if enabled
+    if settings.use_zbuffer && !args.no_depth {
+        let depth_data_raw = renderer.frame_buffer.get_depth_buffer_f32();
+        let depth_normalized = normalize_depth(&depth_data_raw, 1.0, 99.0);
+        let depth_colored = apply_colormap_jet(
+            &depth_normalized
+                .iter()
+                .map(|&d| 1.0 - d) // Invert: closer = hotter
+                .collect::<Vec<_>>(),
+            args.width,
+            args.height,
+        );
+        // Use args.output_dir for saving path
+        let depth_path = Path::new(&args.output_dir)
+            .join(format!("{}_depth.png", output_name))
+            .to_str()
+            .ok_or("Failed to create depth output path string")?
+            .to_string();
+        save_image(
+            &depth_path,
+            &depth_colored,
+            args.width as u32,
+            args.height as u32,
+        );
+    }
+    println!(
+        "Frame {} finished in {:?}",
+        output_name,
+        frame_start_time.elapsed()
+    );
+    Ok(())
+}
+
+/// Runs the animation loop, rendering multiple frames.
+fn run_animation_loop(
+    args: &Args,
+    model_data: &ModelData, // Model is already normalized
+    renderer: &Renderer,
+) -> Result<(), String> {
+    let total_frames = 120; // Define total frames for the animation
+    // Removed redundant aspect_ratio calculation
+
+    println!("Starting animation render ({total_frames} frames)...");
+
+    // Removed redundant initial camera/light parsing
+
+    for frame_num in 0..total_frames {
+        println!("--- Preparing Frame {} ---", frame_num);
+
+        // --- Setup Environment for current frame ---
+        let (camera, _light, settings) = setup_render_environment(args, Some(frame_num))?;
+
+        // --- Render and Save Frame ---
+        let frame_output_name = format!("frame_{:03}", frame_num);
+        render_single_frame(
+            args,
+            model_data,
+            &camera, // Pass the camera for this frame
+            renderer,
+            &settings, // Pass the settings for this frame
+            &frame_output_name,
+        )?;
+    } // End of frame loop
+
+    println!("Animation rendering complete.");
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
     let args = Args::parse();
     let start_time = Instant::now();
 
-    // --- Validate Inputs ---
+    // --- Validate Inputs & Setup ---
     if !Path::new(&args.obj).exists() {
         return Err(format!("Error: Input OBJ file not found: {}", args.obj));
     }
-    // Ensure output directory exists
+    // Ensure the output directory exists (used by both modes)
     fs::create_dir_all(&args.output_dir).map_err(|e| {
         format!(
             "Failed to create output directory '{}': {}",
@@ -95,157 +402,44 @@ fn main() -> Result<(), String> {
     // --- Load Model ---
     println!("Loading model: {}", args.obj);
     let load_start = Instant::now();
-    // Load the model, make it mutable for normalization
-    let mut model_data = load_obj_enhanced(&args.obj)?;
+    // 修改这里，传递 &args 以支持命令行纹理
+    let mut model_data = load_obj_enhanced(&args.obj, &args)?;
     println!("Model loaded in {:?}", load_start.elapsed());
 
-    // --- Setup Camera ---
-    // Parse camera_from, camera_at, and camera_up strings using helper functions
-    let camera_from =
-        parse_point3(&args.camera_from).map_err(|e| format!("Invalid camera_from format: {}", e))?;
-    let camera_at =
-        parse_point3(&args.camera_at).map_err(|e| format!("Invalid camera_at format: {}", e))?;
-    let camera_up =
-        parse_vec3(&args.camera_up).map_err(|e| format!("Invalid camera_up format: {}", e))?;
-    let aspect_ratio = args.width as f32 / args.height as f32;
-    // Create the camera instance
-    let camera = Camera::new(
-        camera_from, // Use the parsed Point3
-        camera_at,
-        camera_up,
-        args.camera_fov,
-        aspect_ratio,
-        0.1,   // near plane distance
-        100.0, // far plane distance
+    // --- Normalize Model (Once) ---
+    println!("Normalizing model...");
+    let norm_start_time = Instant::now();
+    let (original_center, scale_factor) = normalize_and_center_model(&mut model_data);
+    let norm_duration = norm_start_time.elapsed();
+    println!(
+        "Model normalized in {:?}. Original Center: {:.3?}, Scale Factor: {:.3}",
+        norm_duration, original_center, scale_factor
     );
 
-    // --- Setup Lighting ---
-    // Determine the light source based on arguments
-    let light = if args.no_lighting {
-        // If lighting is disabled, use only ambient light
-        println!("Lighting disabled. Using ambient only.");
-        Light::Ambient(Vector3::new(args.ambient, args.ambient, args.ambient))
-    } else {
-        // Default light intensity (white light scaled by diffuse factor)
-        let light_intensity = Vector3::new(1.0, 1.0, 1.0) * args.diffuse;
-
-        match args.light_type.to_lowercase().as_str() {
-            "point" => {
-                // Setup point light
-                let light_pos = parse_point3(&args.light_pos)
-                    .map_err(|e| format!("Invalid light_pos format: {}", e))?;
-                // Parse attenuation factors
-                let atten_parts: Vec<Result<f32, _>> = args
-                    .light_atten
-                    .split(',')
-                    .map(|s| s.trim().parse::<f32>())
-                    .collect();
-                if atten_parts.len() != 3 || atten_parts.iter().any(|r| r.is_err()) {
-                    return Err(format!(
-                        "Invalid light_atten format: '{}'. Expected 'constant,linear,quadratic'",
-                        args.light_atten
-                    ));
-                }
-                let attenuation = (
-                    atten_parts[0].as_ref().unwrap().max(0.0), // constant
-                    atten_parts[1].as_ref().unwrap().max(0.0), // linear
-                    atten_parts[2].as_ref().unwrap().max(0.0), // quadratic
-                );
-                println!(
-                    "Using Point Light at {:?}, Intensity Scale: {:.2}, Attenuation: {:?}",
-                    light_pos, args.diffuse, attenuation
-                );
-                Light::Point {
-                    position: light_pos,
-                    intensity: light_intensity,
-                    attenuation,
-                }
-            }
-            "directional" | _ => {
-                // Default to directional light
-                // Setup directional light
-                let mut light_dir = parse_vec3(&args.light_dir)
-                    .map_err(|e| format!("Invalid light_dir format: {}", e))?;
-                // Direction should be *towards* the light source (negate the direction *from* the source)
-                light_dir = -light_dir.normalize();
-                println!(
-                    "Using Directional Light towards {:?}, Intensity Scale: {:.2}",
-                    light_dir, args.diffuse
-                );
-                Light::Directional {
-                    direction: light_dir,
-                    intensity: light_intensity,
-                }
-            }
-        }
-    };
-
-    // --- Setup Renderer ---
-    // Create the renderer with specified dimensions
+    // --- Create Renderer ---
     let renderer = Renderer::new(args.width, args.height);
-    // Configure render settings based on arguments
-    let settings = RenderSettings {
-        projection_type: args.projection.clone(),
-        use_zbuffer: !args.no_zbuffer,
-        use_face_colors: args.colorize,
-        use_texture: !args.no_texture,
-        light, // Pass the configured light source
-    };
 
-    // --- Render ---
-    // Perform the rendering process
-    println!("Starting render...");
-    renderer.render(&mut model_data, &camera, &settings);
+    // --- Decide Mode: Animation or Single Frame ---
+    if args.animate {
+        // Animation mode uses args.output_dir directly
+        run_animation_loop(&args, &model_data, &renderer)?;
+    } else {
+        // --- Setup for Single Frame Render ---
+        println!("--- Preparing Single Frame Render ---");
+        // Use the new setup function
+        let (camera, _light, settings) = setup_render_environment(&args, None)?;
 
-    // --- Save Output ---
-    println!("Saving output images...");
-    // Get the rendered color buffer data
-    let color_data = renderer.frame_buffer.get_color_buffer_bytes();
-    // Construct the output color image path
-    let color_path = Path::new(&args.output_dir) // Uses --output-dir
-        .join(format!("{}_color.png", args.output)) // Uses --output (e.g., "frame_000")
-        .to_str()
-        .ok_or("Failed to create color output path string")?
-        .to_string();
-    // Save the color image
-    save_image(
-        &color_path, // Should be like "output_rust_bunny_orbit_rust/frame_000_color.png"
-        &color_data,
-        args.width as u32,
-        args.height as u32,
-    );
-
-    // Save depth map if Z-buffer was used and depth output is not disabled
-    if settings.use_zbuffer && !args.no_depth {
-        // Get the raw depth buffer data
-        let depth_data_raw = renderer.frame_buffer.get_depth_buffer_f32();
-        // Normalize depth values for visualization
-        let depth_normalized = normalize_depth(&depth_data_raw, camera.near(), camera.far());
-        // Apply JET colormap (inverting normalized depth so closer is hotter/red)
-        let depth_colored = apply_colormap_jet(
-            &depth_normalized
-                .iter()
-                .map(|&d| 1.0 - d)
-                .collect::<Vec<_>>(),
-            args.width,
-            args.height,
-        );
-        // Construct the output depth image path
-        let depth_path = Path::new(&args.output_dir)
-            .join(format!("{}_depth.png", args.output))
-            .to_str()
-            .ok_or("Failed to create depth output path string")?
-            .to_string();
-        // Save the colored depth map
-        save_image(
-            &depth_path,
-            &depth_colored,
-            args.width as u32,
-            args.height as u32,
-        );
+        // Single frame mode uses args.output as the base name
+        render_single_frame(
+            &args,
+            &model_data,
+            &camera,
+            &renderer,
+            &settings,
+            &args.output, // Use the base output name for single frame
+        )?;
     }
 
     println!("Total execution time: {:?}", start_time.elapsed());
-    println!("Done.");
-    Ok(()) // Indicate successful execution
+    Ok(())
 }

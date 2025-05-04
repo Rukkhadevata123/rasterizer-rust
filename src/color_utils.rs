@@ -38,6 +38,7 @@ pub fn get_face_color(face_index: usize, colorize: bool) -> Color {
 ///
 /// # Returns
 /// A `Vec<u8>` containing the flattened RGB image data (0-255 per channel).
+// #[allow(unused_assignments)]  // 抑制 g 变量的未使用赋值警告
 pub fn apply_colormap_jet(normalized_depth: &[f32], width: usize, height: usize) -> Vec<u8> {
     let num_pixels = width * height;
     if normalized_depth.len() != num_pixels {
@@ -56,7 +57,7 @@ pub fn apply_colormap_jet(normalized_depth: &[f32], width: usize, height: usize)
                 let value = depth.clamp(0.0, 1.0); // Ensure value is in [0, 1]
 
                 let mut r = 0.0;
-                let mut g = 0.0;
+                let g;
                 let mut b = 0.0;
 
                 // Apply JET colormap logic

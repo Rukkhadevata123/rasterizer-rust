@@ -1,4 +1,4 @@
-use nalgebra::{Matrix4, Point3, Unit, Vector3};
+use nalgebra::{Matrix4, Point3, Rotation3, Unit, Vector3};
 
 pub struct Camera {
     pub look_from: Point3<f32>,
@@ -128,50 +128,30 @@ impl Camera {
             "orthographic" | _ => &self.orthographic_matrix, // Default to orthographic if unknown
         }
     }
-    
-    pub fn near(&self) -> f32 {
-        self.near
+
+    /// Rotates the camera around the look_at point on the Y axis (horizontal orbit).
+    /// angle_degrees: The angle to rotate by. Positive values rotate counter-clockwise when looking down the Y axis.
+    pub fn orbit_y(&mut self, angle_degrees: f32) {
+        // 1. Get the vector from the target (look_at) to the current camera position (look_from)
+        let mut current_vector = self.look_from - self.look_at;
+
+        // 2. Create a rotation around the world Y axis
+        let angle_rad = angle_degrees.to_radians();
+        // Use world_up as the axis, assuming it's typically (0, 1, 0) for Y-orbit
+        let rotation = Rotation3::from_axis_angle(&self.world_up, angle_rad);
+
+        // 3. Apply the rotation to the vector
+        current_vector = rotation * current_vector;
+
+        // 4. Calculate the new camera position
+        self.look_from = self.look_at + current_vector;
+
+        // 5. Update the camera's internal matrices (view matrix depends on look_from)
+        // update_camera_basis might not be strictly necessary if only position changes,
+        // but it's safer to recalculate everything.
+        self.update_camera_basis();
+        self.update_matrices();
     }
 
-    pub fn far(&self) -> f32 {
-        self.far
-    }
-
-    /// Transforms vertices from world space to NDC space and also returns view space coordinates.
-    /// Returns (ndc_coords: Vec<Point3<f32>>, view_coords: Vec<Point3<f32>>)
-    pub fn transform_vertices(
-        &self,
-        vertices: &[Point3<f32>],
-        projection_type: &str,
-    ) -> (Vec<Point3<f32>>, Vec<Point3<f32>>) {
-        let view_matrix = self.get_view_matrix();
-        let projection_matrix = self.get_projection_matrix(projection_type);
-        let view_projection_matrix = projection_matrix * view_matrix;
-
-        let mut ndc_coords = Vec::with_capacity(vertices.len());
-        let mut view_coords = Vec::with_capacity(vertices.len());
-
-        for vertex in vertices {
-            // World -> View Space
-            let view_h = view_matrix * vertex.to_homogeneous(); // Point3 -> Point4
-            view_coords.push(Point3::from_homogeneous(view_h).unwrap_or_else(|| Point3::origin())); // Store non-homogeneous view coords
-
-            // World -> Clip Space
-            let clip_h = view_projection_matrix * vertex.to_homogeneous();
-
-            // Clip Space -> NDC Space (Perspective Divide)
-            let w = clip_h.w;
-            if w.abs() > 1e-8 {
-                ndc_coords.push(Point3::new(clip_h.x / w, clip_h.y / w, clip_h.z / w));
-            } else {
-                // Avoid division by zero, handle appropriately (e.g., push origin or a specific value)
-                // Pushing the non-divided coordinates might be useful for clipping later.
-                // For now, just push origin as a placeholder.
-                ndc_coords.push(Point3::origin());
-                // Or maybe: ndc_coords.push(Point3::new(clip_h.x, clip_h.y, clip_h.z));
-            }
-        }
-
-        (ndc_coords, view_coords)
-    }
+    // Removed the unused transform_vertices function
 }

@@ -1,135 +1,158 @@
 # --- Configuration ---
-# Rust executable path
-EXECUTABLE := ./target/release/Rasterizer_rust
+# 构建类型: debug 或 release
+BUILD_TYPE   := release
+CARGO_BUILD_CMD := cargo build --$(BUILD_TYPE)
+EXECUTABLE := ./target/$(BUILD_TYPE)/Rasterizer_rust
 
-# Input model
-OBJ_FILE   := obj/simple/bunny.obj
+# --- 模型配置 --- 
+# 斯坦福兔子模型
+BUNNY_MODEL := obj/simple/bunny.obj
+BUNNY_OUTPUT_DIR := output_bunny_orbit
+BUNNY_VIDEO_NAME := bunny_orbit.mp4
+BUNNY_CAMERA_FROM := "0,0.5,2.5"
+BUNNY_CAMERA_AT := "0,0.1,0"
+BUNNY_LIGHT_DIR := "0,-1,-1"
 
-# Output settings
-MODEL_NAME := bunny_orbit_rust
-OUTPUT_DIR := output_rust_$(MODEL_NAME)
-WIDTH      := 1024
-HEIGHT     := 1024
+# 奶牛模型 (有纹理)
+SPOT_MODEL := obj/models/spot/spot_triangulated.obj
+SPOT_TEXTURE := obj/models/spot/spot_texture.png
+SPOT_OUTPUT_DIR := output_spot_orbit
+SPOT_VIDEO_NAME := spot_orbit.mp4
+SPOT_CAMERA_FROM := "0,1.5,3"
+SPOT_CAMERA_AT := "0,0.5,0"
+SPOT_LIGHT_DIR := "0.5,-1.0,-0.5"
 
-# Animation settings
-FRAMES     := 120
-FPS        := 30
-VIDEO_NAME := $(MODEL_NAME).mp4
-
-# Camera orbit settings
-ORBIT_RADIUS := 2.5
-ORBIT_HEIGHT := 0.5
-LOOK_AT      := 0,0.1,0 # Point the camera looks at (Removed inner quotes)
-CAMERA_UP    := 0,1,0   # Camera up direction (Removed inner quotes)
-
-# Lighting settings (copied from the single command example)
+# --- 通用渲染设置 ---
+# 图像尺寸
+WIDTH      := 2048
+HEIGHT     := 2048
+# 通用相机参数
+CAMERA_UP    := "0,1,0"
+CAMERA_FOV   := 45.0
+PROJECTION   := perspective
+# 光照参数
 LIGHT_TYPE   := directional
-LIGHT_DIR    := "0,-1,0"
+AMBIENT      := 0.2
 DIFFUSE      := 0.8
-AMBIENT      := 0.15
+# 渲染选项
+NO_ZBUFFER   := false
+COLORIZE     := false
+NO_DEPTH     := false
+NO_TEXTURE   := false
+NO_LIGHTING  := false
+USE_PHONG    := true     # 是否使用 Phong 着色（逐像素光照）
 
-# Other rendering flags (copied from the single command example)
-NO_DEPTH     := --no-depth
-NO_TEXTURE   := --no-texture
-COLORIZE     := --colorize
+# --- 动画设置 ---
+ANIM_FPS    := 30
 
-# --- Derived Variables ---
-# Generate frame numbers from 0 to FRAMES-1
-FRAME_NUMS := $(shell seq 0 $(shell expr $(FRAMES) - 1))
-# Define output PNG file paths with 3-digit padding for frame numbers
-FRAME_FILES := $(patsubst %,$(OUTPUT_DIR)/frame_%03d_color.png,$(FRAME_NUMS))
+# --- 默认运行模型 ---
+OBJ_FILE    := $(BUNNY_MODEL)
+OUTPUT_DIR  := $(BUNNY_OUTPUT_DIR)
+OUTPUT_NAME := bunny_render
+CAMERA_FROM := $(BUNNY_CAMERA_FROM)
+LOOK_AT     := $(BUNNY_CAMERA_AT)
+LIGHT_DIR   := $(BUNNY_LIGHT_DIR)
+TEXTURE_FILE:= 
 
-# --- Targets ---
-.PHONY: all frames video clean build
+# --- 编译与渲染目标 ---
+.PHONY: build run clean animate video test bunny_demo spot_demo
 
-# Default target: build the executable and create the video
-all: build video
+# 构建可执行文件
+build:
+	@echo "Building $(BUILD_TYPE) executable..."
+	$(CARGO_BUILD_CMD)
 
-# Target to build the Rust executable
-build: $(EXECUTABLE)
+# 通用渲染参数
+COMMON_ARGS = \
+	-o $(OBJ_FILE) \
+	--output-dir $(OUTPUT_DIR) \
+	--width $(WIDTH) \
+	--height $(HEIGHT) \
+	--projection $(PROJECTION) \
+	--camera-from $(CAMERA_FROM) \
+	--camera-at $(LOOK_AT) \
+	--camera-up $(CAMERA_UP) \
+	--camera-fov $(CAMERA_FOV) \
+	--light-type $(LIGHT_TYPE) \
+	--light-dir $(LIGHT_DIR) \
+	--ambient $(AMBIENT) \
+	--diffuse $(DIFFUSE) \
+	$(if $(filter true,$(NO_ZBUFFER)),--no-zbuffer) \
+	$(if $(filter true,$(COLORIZE)),--colorize) \
+	$(if $(filter true,$(NO_DEPTH)),--no-depth) \
+	$(if $(filter true,$(NO_LIGHTING)),--no-lighting) \
+	$(if $(filter true,$(NO_TEXTURE)),--no-texture) \
+	$(if $(filter true,$(USE_PHONG)),--use-phong) \
+	$(if $(TEXTURE_FILE),--texture $(TEXTURE_FILE))
 
-$(EXECUTABLE): src/*.rs Cargo.toml Cargo.lock
-	@echo "Building Rust executable..."
-	cargo build --release
+# 执行单帧渲染
+run: build
+	@echo "Running single frame render for $(OBJ_FILE)..."
+	$(EXECUTABLE) $(COMMON_ARGS) --output $(OUTPUT_NAME)
+	@echo "Single frame render complete. Output in $(OUTPUT_DIR)/$(OUTPUT_NAME)_*.png"
 
-# Rule to create the output directory if it doesn't exist
-# This is an order-only prerequisite for the frame rendering rule
-$(OUTPUT_DIR):
-	mkdir -p $(OUTPUT_DIR)
+# 渲染动画帧序列
+animate: build
+	@echo "Running animation for $(OBJ_FILE)..."
+	$(EXECUTABLE) $(COMMON_ARGS) --animate
+	@echo "Animation rendering complete. Output frames in $(OUTPUT_DIR)/frame_*.png"
 
-# Rule to render a single frame
-# Depends on the executable being built and the output directory existing
-$(OUTPUT_DIR)/frame_%_color.png: $(EXECUTABLE) | $(OUTPUT_DIR)
-	@frame_num=$*;\
-	echo "Rendering frame $$frame_num of $(FRAMES)...";\
-	# Use awk to calculate camera position for the orbit and generate arguments
-	# Pass LOOK_AT without inner quotes, removed gsub in awk script
-	camera_args=$$(awk -v frame=$$frame_num -v total=$(FRAMES) \
-	                 -v radius=$(ORBIT_RADIUS) -v height=$(ORBIT_HEIGHT) \
-	                 -v look_at=$(LOOK_AT) 'BEGIN { \
-	                    pi = 3.141592653589793; \
-	                    # Split look_at string directly (no need for gsub)
-	                    split(look_at, la, ","); \
-	                    # Calculate angle in radians for the current frame
-	                    angle = frame * 2 * pi / total; \
-	                    # Calculate camera coordinates based on orbit parameters and look_at point
-	                    cam_x = la[1] + radius * cos(angle); \
-	                    cam_y = la[2] + height; \
-	                    cam_z = la[3] + radius * sin(angle); \
-	                    # Output the camera position and output filename arguments for the executable
-	                    # Frame number is padded to 3 digits (%03d)
-	                    printf "--camera-from=\"%.6f,%.6f,%.6f\" --output=\"frame_%03d\"", cam_x, cam_y, cam_z, frame; \
-	                 }'); \
-	# Execute the renderer with all necessary arguments
-	# Ensure LOOK_AT and CAMERA_UP passed to executable are quoted
-	$(EXECUTABLE) \
-	    --obj=$(OBJ_FILE) \
-	    --output-dir=$(OUTPUT_DIR) \
-	    --width=$(WIDTH) \
-	    --height=$(HEIGHT) \
-	    --camera-at="$(LOOK_AT)" \
-	    --camera-up="$(CAMERA_UP)" \
-	    --light-type=$(LIGHT_TYPE) \
-	    --light-dir="$(LIGHT_DIR)" \
-	    --diffuse=$(DIFFUSE) \
-	    --ambient=$(AMBIENT) \
-	    $(NO_DEPTH) \
-	    $(NO_TEXTURE) \
-	    $(COLORIZE) \
-	    $$camera_args # Append the calculated camera arguments
+# 从动画帧创建视频 (需要 ffmpeg)
+video:
+	@echo "Creating video from frames in $(OUTPUT_DIR)..."
+	ffmpeg -y -framerate $(ANIM_FPS) -i $(OUTPUT_DIR)/frame_%03d_color.png -c:v libx264 -pix_fmt yuv420p $(VIDEO_NAME)
+	@echo "Video creation complete: $(VIDEO_NAME)"
 
-# Target to render all frames (leverages Make's implicit parallelism if -j flag is used)
-frames: $(FRAME_FILES)
+# 兔子模型演示
+bunny_demo: build
+	@echo "Running Stanford Bunny animation demo..."
+	$(EXECUTABLE) -o $(BUNNY_MODEL) \
+		--output-dir $(BUNNY_OUTPUT_DIR) \
+		--width $(WIDTH) --height $(HEIGHT) \
+		--camera-from $(BUNNY_CAMERA_FROM) --camera-at $(BUNNY_CAMERA_AT) \
+		--camera-up $(CAMERA_UP) --camera-fov $(CAMERA_FOV) \
+		--light-type $(LIGHT_TYPE) --light-dir $(BUNNY_LIGHT_DIR) \
+		--ambient $(AMBIENT) --diffuse $(DIFFUSE) \
+		--animate
+	@echo "Bunny animation complete. Output frames in $(BUNNY_OUTPUT_DIR)/"
+	@echo "To create video: make bunny_video"
 
-# Rule to create the video from the rendered frames using ffmpeg
-video: frames
-	@echo "Creating video $(VIDEO_NAME)..."
-	ffmpeg -y -framerate $(FPS) -i "$(OUTPUT_DIR)/frame_%03d_color.png" \
-	       -c:v libx264 -pix_fmt yuv420p -vf "scale=$(WIDTH):-2" $(VIDEO_NAME)
-	@echo "Video saved as $(VIDEO_NAME)"
+# 兔子模型视频生成
+bunny_video:
+	@echo "Creating Stanford Bunny video..."
+	ffmpeg -y -framerate $(ANIM_FPS) -i $(BUNNY_OUTPUT_DIR)/frame_%03d_color.png -c:v libx264 -pix_fmt yuv420p $(BUNNY_VIDEO_NAME)
+	@echo "Video creation complete: $(BUNNY_VIDEO_NAME)"
 
-# Rule to clean up generated files
+# 奶牛模型演示
+spot_demo: build
+	@echo "Running Spot (cow) model animation demo with texture..."
+	$(EXECUTABLE) -o $(SPOT_MODEL) \
+		--texture $(SPOT_TEXTURE) \
+		--output-dir $(SPOT_OUTPUT_DIR) \
+		--width $(WIDTH) --height $(HEIGHT) \
+		--camera-from $(SPOT_CAMERA_FROM) --camera-at $(SPOT_CAMERA_AT) \
+		--camera-up $(CAMERA_UP) --camera-fov $(CAMERA_FOV) \
+		--light-type $(LIGHT_TYPE) --light-dir $(SPOT_LIGHT_DIR) \
+		--ambient $(AMBIENT) --diffuse $(DIFFUSE) \
+		--animate
+	@echo "Spot animation complete. Output frames in $(SPOT_OUTPUT_DIR)/"
+	@echo "To create video: make spot_video"
+
+# 奶牛模型视频生成
+spot_video:
+	@echo "Creating Spot (cow) video..."
+	ffmpeg -y -framerate $(ANIM_FPS) -i $(SPOT_OUTPUT_DIR)/frame_%03d_color.png -c:v libx264 -pix_fmt yuv420p $(SPOT_VIDEO_NAME)
+	@echo "Video creation complete: $(SPOT_VIDEO_NAME)"
+
+# 清理构建产物和输出目录/视频
 clean:
-	@echo "Cleaning output directory ($(OUTPUT_DIR)) and video ($(VIDEO_NAME))..."
-	rm -rf $(OUTPUT_DIR)
-	rm -f $(VIDEO_NAME)
+	@echo "Cleaning build artifacts and output..."
+	cargo clean
+	rm -rf $(BUNNY_OUTPUT_DIR) $(SPOT_OUTPUT_DIR)
+	rm -f $(BUNNY_VIDEO_NAME) $(SPOT_VIDEO_NAME)
 	@echo "Clean complete."
 
-# Remove the old single command execution block if it exists
-# The following command block is now handled by the 'frames' and 'video' targets
-# ./target/release/Rasterizer_rust \
-#     --obj=obj/simple/bunny.obj \
-#     --output-dir=output_rust_bunny_orbit_rust \
-#     --width=1024 \
-#     --height=1024 \
-#     --camera-at="0,0.1,0" \
-#     --camera-up="0,1,0" \
-#     --light-type=directional \
-#     --light-dir="0,-1,0" \
-#     --diffuse=0.8 \
-#     --ambient=0.15 \
-#     --no-depth \
-#     --no-texture \
-#     --colorize \
-#     --output="frame_061" \
-#     --camera-from="-0.130840,0.5,-2.496574"
+# 运行测试
+test:
+	@echo "Running tests..."
+	cargo test

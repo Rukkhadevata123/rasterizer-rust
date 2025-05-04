@@ -1,3 +1,4 @@
 /target
 obj/
 python_files/
+output_*/

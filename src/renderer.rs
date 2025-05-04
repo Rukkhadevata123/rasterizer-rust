@@ -1,11 +1,12 @@
 use crate::camera::Camera;
 use crate::color_utils::get_face_color;
 use crate::lighting::{Light, SimpleMaterial, calculate_blinn_phong}; // Import lighting components
-use crate::loaders::{Material, Mesh, ModelData, Vertex};
+// Updated use statement for model types
+use crate::model_types::{Material, ModelData};
 use crate::rasterizer::{TriangleData, rasterize_triangle};
 use crate::transform::ndc_to_pixel;
 use atomic_float::AtomicF32;
-use nalgebra::{Matrix3, Point2, Point3, Vector2, Vector3}; // Import Matrix3
+use nalgebra::{Matrix3, Point2, Point3}; // Removed Vector2, Vector3, Import Matrix3
 use rayon::prelude::*;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
@@ -65,85 +66,28 @@ pub struct RenderSettings {
     pub use_face_colors: bool,
     pub use_texture: bool,
     pub light: Light, // Store the configured light source
+    pub use_phong: bool, // 是否使用 Phong 着色（逐像素光照）
                       // Add more settings like backface culling, wireframe etc.
 }
 
 pub struct Renderer {
-    pub width: usize,
-    pub height: usize,
     pub frame_buffer: FrameBuffer,
 }
 
 impl Renderer {
     pub fn new(width: usize, height: usize) -> Self {
         Renderer {
-            width,
-            height,
             frame_buffer: FrameBuffer::new(width, height),
         }
     }
 
-    /// Normalizes and centers the model's vertices in place.
-    /// Returns the original center and scaling factor.
-    fn normalize_and_center_model(model_data: &mut ModelData) -> (Vector3<f32>, f32) {
-        if model_data.meshes.is_empty() {
-            return (Vector3::zeros(), 1.0);
-        }
-
-        // Calculate bounding box or centroid of all vertices
-        let mut min_coord = Point3::new(f32::MAX, f32::MAX, f32::MAX);
-        let mut max_coord = Point3::new(f32::MIN, f32::MIN, f32::MIN);
-        let mut vertex_sum = Vector3::zeros();
-        let mut vertex_count = 0;
-
-        for mesh in &model_data.meshes {
-            for vertex in &mesh.vertices {
-                min_coord = min_coord.inf(&vertex.position);
-                max_coord = max_coord.sup(&vertex.position);
-                vertex_sum += vertex.position.coords;
-                vertex_count += 1;
-            }
-        }
-
-        if vertex_count == 0 {
-            return (Vector3::zeros(), 1.0);
-        }
-
-        let center = vertex_sum / (vertex_count as f32);
-        let extent = max_coord - min_coord;
-        let max_extent = extent.x.max(extent.y).max(extent.z);
-
-        let scale_factor = if max_extent > 1e-6 {
-            1.6 / max_extent // Scale to fit roughly in [-0.8, 0.8] cube (like Python's 0.8 factor)
-        } else {
-            1.0
-        };
-
-        // Apply transformation to all vertices
-        for mesh in &mut model_data.meshes {
-            for vertex in &mut mesh.vertices {
-                vertex.position = Point3::from((vertex.position.coords - center) * scale_factor);
-            }
-        }
-
-        (center, scale_factor)
-    }
-
-    pub fn render(&self, model_data: &mut ModelData, camera: &Camera, settings: &RenderSettings) {
+    // Change model_data to be an immutable reference
+    pub fn render(&self, model_data: &ModelData, camera: &Camera, settings: &RenderSettings) {
         let start_time = Instant::now();
 
         println!("Clearing buffers...");
         self.frame_buffer.clear();
         let clear_duration = start_time.elapsed();
-
-        println!("Normalizing model...");
-        let norm_start_time = Instant::now();
-        let (original_center, scale_factor) = Self::normalize_and_center_model(model_data);
-        let norm_duration = norm_start_time.elapsed();
-        println!(
-            "Model normalized. Original Center: {:.3?}, Scale Factor: {:.3}",
-            original_center, scale_factor
-        );
 
         println!("Transforming vertices...");
         let transform_start_time = Instant::now();
@@ -167,7 +111,8 @@ impl Renderer {
                 println!("Warning: View matrix not invertible, using identity for normals.");
                 Matrix3::identity()
             },
-            |inv_view| inv_view.transpose().fixed_slice::<3, 3>(0, 0).into_owned(),
+            // Use fixed_view instead of deprecated fixed_slice
+            |inv_view| inv_view.transpose().fixed_view::<3, 3>(0, 0).into_owned(),
         );
 
         let mut all_ndc_coords = Vec::with_capacity(all_vertices_world.len());
@@ -204,7 +149,7 @@ impl Renderer {
         }
 
         // Perform viewport transformation: NDC -> Pixel
-        let all_pixel_coords = ndc_to_pixel(&all_ndc_coords, self.width as f32, self.height as f32);
+        let all_pixel_coords = ndc_to_pixel(&all_ndc_coords, self.frame_buffer.width as f32, self.frame_buffer.height as f32);
         let transform_duration = transform_start_time.elapsed();
         println!(
             "View space Z range: [{:.3}, {:.3}]",
@@ -229,18 +174,25 @@ impl Renderer {
         let all_view_normals_ref = &all_view_normals; // Reference to view-space normals
         let mesh_vertex_offsets_ref = &mesh_vertex_offsets;
         let model_materials_ref = &model_data.materials;
-        // Define view direction (from origin towards +Z in view space)
-        // More accurately, it's the direction from the point being shaded to the camera origin (0,0,0 in view space)
-        // let view_dir_view = Vector3::z(); // This is direction camera is looking, not towards camera
 
         let triangles_to_render: Vec<_> = model_data
             .meshes
-            .iter()
+            .par_iter() // Parallelize mesh iteration
             .enumerate()
             .flat_map(|(mesh_idx, mesh)| {
                 let vertex_offset = mesh_vertex_offsets_ref[mesh_idx];
                 let material_opt: Option<&Material> =
                     mesh.material_id.and_then(|id| model_materials_ref.get(id));
+
+                // Use From trait for SimpleMaterial conversion
+                // Use Material::default() if material_opt is None
+                let simple_material =
+                    material_opt.map_or_else(SimpleMaterial::default, SimpleMaterial::from);
+                let default_color = simple_material.diffuse; // Use material diffuse as default
+
+                // 克隆一份 SimpleMaterial 和 Light，避免使用引用
+                let simple_material_clone = simple_material.clone();
+                let light_clone = settings.light.clone();
 
                 let texture = if settings.use_texture {
                     material_opt.and_then(|m| m.diffuse_texture.as_ref())
@@ -248,20 +200,12 @@ impl Renderer {
                     None
                 };
 
-                // Get material properties for lighting, or use default
-                let simple_material =
-                    material_opt.map_or_else(SimpleMaterial::default, |m| SimpleMaterial {
-                        ambient: m.ambient,
-                        diffuse: m.diffuse,
-                        specular: m.specular,
-                        shininess: m.shininess,
-                    });
-                let default_color = simple_material.diffuse; // Use diffuse as fallback color
-
+                // Process indices in parallel chunks for potential further optimization if needed
+                // For now, keep chunk processing within the flat_map
                 mesh.indices
                     .chunks_exact(3)
                     .enumerate()
-                    .map(move |(face_idx_in_mesh, indices)| {
+                    .filter_map(move |(face_idx_in_mesh, indices)| {
                         let i0 = indices[0] as usize;
                         let i1 = indices[1] as usize;
                         let i2 = indices[2] as usize;
@@ -282,87 +226,78 @@ impl Renderer {
                         let view_pos1 = all_view_coords_ref[global_i1];
                         let view_pos2 = all_view_coords_ref[global_i2];
 
-                        // --- Basic Flat Shading (using face normal) ---
-                        // Calculate geometric face normal in view space for flat shading / backface culling
+                        // --- Backface Culling --- (remains the same)
                         let edge1 = view_pos1 - view_pos0;
                         let edge2 = view_pos2 - view_pos0;
                         let face_normal_view = edge1.cross(&edge2).normalize();
-
-                        // Backface Culling (Optional but recommended)
-                        // If dot product of face normal and view direction is positive, face is pointing away
-                        let view_dir_to_face = (view_pos0 - Point3::origin()).normalize(); // Vector from origin to face
-                        if face_normal_view.dot(&view_dir_to_face) > -1e-6 { // Use negative epsilon for tolerance
-                            // Skip this triangle (return None or a special marker)
-                            return None; // Uncomment for backface culling
+                        let view_dir_to_face = (view_pos0 - Point3::origin()).normalize();
+                        if face_normal_view.dot(&view_dir_to_face) > -1e-6 {
+                            return None; // Backface culling
                         }
 
-                        // Use average vertex normal for simple smooth shading approximation
+                        // --- Lighting Calculation --- (remains the same, using average normal)
                         let avg_normal_view = (all_view_normals_ref[global_i0]
                             + all_view_normals_ref[global_i1]
                             + all_view_normals_ref[global_i2])
                             .normalize();
-
-                        // Calculate lighting at face center (approximation)
                         let face_center_view = Point3::from(
                             (view_pos0.coords + view_pos1.coords + view_pos2.coords) / 3.0,
                         );
-                        // Direction from the surface point towards the camera (origin in view space)
                         let view_dir_from_face = (-face_center_view.coords).normalize();
-
                         let lit_color = calculate_blinn_phong(
                             face_center_view,
-                            avg_normal_view, // Use averaged vertex normal
+                            avg_normal_view,
                             view_dir_from_face,
-                            &settings.light,
-                            &simple_material,
+                            &light_clone,
+                            &simple_material_clone,
                         );
 
-                        // Determine final base color before lighting/texturing
+                        // --- Base Color Determination ---
                         let base_color = if settings.use_face_colors {
                             get_face_color(mesh_idx * 1000 + face_idx_in_mesh, true)
                         } else {
                             default_color // Use material diffuse or default grey
                         };
 
-                        // If texturing, lighting modifies the *sampled texture color*.
-                        // If not texturing, lighting modifies the *base color*.
-                        let final_color_or_signal = if texture.is_some() {
-                            // Signal to use texture. Lighting will be applied *after* sampling in rasterizer.
-                            // For now, just pass None and let rasterizer use texture color directly (no lighting yet for textured surfaces)
-                            None // Signal texture usage
-                        } else {
-                            // Apply lighting to the base color
-                            // Multiply base_color by light intensity components
-                            Some(base_color.component_mul(&lit_color)) // Modulate base color by calculated light color
-                        };
-
-                        // Some(...) is used here because flat_map requires Option
+                        // --- Prepare TriangleData ---
+                        // 构建三角形数据，包括 Phong 着色所需的额外数据
                         Some(TriangleData {
                             v1_pix: Point2::new(pix0.x, pix0.y),
                             v2_pix: Point2::new(pix1.x, pix1.y),
                             v3_pix: Point2::new(pix2.x, pix2.y),
-                            z1_view: view_pos0.z, // Use view space Z
+                            z1_view: view_pos0.z,
                             z2_view: view_pos1.z,
                             z3_view: view_pos2.z,
-                            color: final_color_or_signal, // Pass lit color or None (for texture)
+                            base_color, // 传递基础颜色
+                            lit_color,  // 传递预计算的光照颜色（用于非 Phong 着色）
                             tc1: texture.map(|_| v0.texcoord),
                             tc2: texture.map(|_| v1.texcoord),
                             tc3: texture.map(|_| v2.texcoord),
-                            texture: texture,
+                            texture,
                             is_perspective: settings.projection_type == "perspective",
                             use_zbuffer: settings.use_zbuffer,
+                            // Phong 着色所需的额外数据
+                            n1_view: Some(all_view_normals_ref[global_i0]),
+                            n2_view: Some(all_view_normals_ref[global_i1]),
+                            n3_view: Some(all_view_normals_ref[global_i2]),
+                            v1_view: Some(view_pos0),
+                            v2_view: Some(view_pos1),
+                            v3_view: Some(view_pos2),
+                            material: Some(simple_material_clone), // 使用克隆的材质的值，而不是引用
+                            light: Some(light_clone),              // 使用克隆的光源的值，而不是引用
+                            use_phong: settings.use_phong,
                         })
                     })
+                    .collect::<Vec<_>>() // Collect triangles for this mesh before flattening
             })
-            .filter_map(|x| x) // Filter out None values if backface culling is enabled
             .collect();
 
-        // Parallel loop over triangles
+        // Parallel loop over triangles (remains the same)
         triangles_to_render.par_iter().for_each(|triangle_data| {
             rasterize_triangle(
                 triangle_data,
-                self.width,
-                self.height,
+                self.frame_buffer.width,
+                self.frame_buffer.height,
                 &self.frame_buffer.depth_buffer,
                 &self.frame_buffer.color_buffer,
             );
@@ -372,8 +307,8 @@ impl Renderer {
         let total_duration = start_time.elapsed();
 
         println!(
-            "Rendering finished. Clear: {:?}, Norm: {:?}, Transform: {:?}, Raster: {:?}, Total: {:?}",
-            clear_duration, norm_duration, transform_duration, raster_duration, total_duration
+            "Rendering finished. Clear: {:?}, Transform: {:?}, Raster: {:?}, Total: {:?}",
+            clear_duration, transform_duration, raster_duration, total_duration
         );
         println!("Rendered {} triangles.", triangles_to_render.len());
     }

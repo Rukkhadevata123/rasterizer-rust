@@ -152,3 +152,114 @@ pub fn interpolate_texcoords(
         }
     }
 }
+
+/// Interpolates normal vectors using barycentric coordinates, with perspective correction.
+/// Takes view-space Z values for correction.
+pub fn interpolate_normal(
+    bary: Vector3<f32>,
+    n1: Vector3<f32>,
+    n2: Vector3<f32>,
+    n3: Vector3<f32>,
+    is_perspective: bool,
+    z1_view: f32,
+    z2_view: f32,
+    z3_view: f32,
+) -> Vector3<f32> {
+    if !is_perspective {
+        // 仿射插值
+        let result = n1 * bary.x + n2 * bary.y + n3 * bary.z;
+        if result.norm_squared() > EPSILON {
+            result.normalize()
+        } else {
+            Vector3::z() // 使用默认 Z 方向作为备用
+        }
+    } else {
+        // 透视校正插值
+        let inv_z1 = if z1_view.abs() > EPSILON {
+            1.0 / z1_view
+        } else {
+            0.0
+        };
+        let inv_z2 = if z2_view.abs() > EPSILON {
+            1.0 / z2_view
+        } else {
+            0.0
+        };
+        let inv_z3 = if z3_view.abs() > EPSILON {
+            1.0 / z3_view
+        } else {
+            0.0
+        };
+
+        let interpolated_inv_z = bary.x * inv_z1 + bary.y * inv_z2 + bary.z * inv_z3;
+
+        if interpolated_inv_z.abs() > EPSILON {
+            let inv_z = 1.0 / interpolated_inv_z;
+            // 插值 n/z 并乘以插值后的 z
+            let result =
+                (n1 * (bary.x * inv_z1) + n2 * (bary.y * inv_z2) + n3 * (bary.z * inv_z3)) * inv_z;
+            if result.norm_squared() > EPSILON {
+                result.normalize()
+            } else {
+                Vector3::z() // 备用法线
+            }
+        } else {
+            // 回退到线性插值
+            let result = n1 * bary.x + n2 * bary.y + n3 * bary.z;
+            if result.norm_squared() > EPSILON {
+                result.normalize()
+            } else {
+                Vector3::z() // 备用法线
+            }
+        }
+    }
+}
+
+/// Interpolates view space positions using barycentric coordinates, with perspective correction.
+/// Takes view-space Z values for correction.
+pub fn interpolate_position(
+    bary: Vector3<f32>,
+    p1: Point3<f32>,
+    p2: Point3<f32>,
+    p3: Point3<f32>,
+    is_perspective: bool,
+    z1_view: f32,
+    z2_view: f32,
+    z3_view: f32,
+) -> Point3<f32> {
+    if !is_perspective {
+        // 仿射插值
+        Point3::from(p1.coords * bary.x + p2.coords * bary.y + p3.coords * bary.z)
+    } else {
+        // 透视校正插值
+        let inv_z1 = if z1_view.abs() > EPSILON {
+            1.0 / z1_view
+        } else {
+            0.0
+        };
+        let inv_z2 = if z2_view.abs() > EPSILON {
+            1.0 / z2_view
+        } else {
+            0.0
+        };
+        let inv_z3 = if z3_view.abs() > EPSILON {
+            1.0 / z3_view
+        } else {
+            0.0
+        };
+
+        let interpolated_inv_z = bary.x * inv_z1 + bary.y * inv_z2 + bary.z * inv_z3;
+
+        if interpolated_inv_z.abs() > EPSILON {
+            let inv_z = 1.0 / interpolated_inv_z;
+            // 插值 p/z 并乘以插值后的 z
+            let interp_p_over_z = p1.coords * (bary.x * inv_z1)
+                + p2.coords * (bary.y * inv_z2)
+                + p3.coords * (bary.z * inv_z3);
+            Point3::from(interp_p_over_z * inv_z)
+        } else {
+            // 回退到线性插值
+            Point3::from(p1.coords * bary.x + p2.coords * bary.y + p3.coords * bary.z)
+        }
+    }
+}

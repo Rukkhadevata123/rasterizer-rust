@@ -1,10 +1,16 @@
 use crate::color_utils::Color;
 use crate::interpolation::{
-    barycentric_coordinates, interpolate_depth, interpolate_texcoords, is_inside_triangle,
+    barycentric_coordinates,
+    interpolate_depth,
+    interpolate_normal,
+    interpolate_position, // 添加新的插值函数
+    interpolate_texcoords,
+    is_inside_triangle,
 };
+use crate::lighting::{Light, SimpleMaterial, calculate_blinn_phong}; // 添加光照计算
 use crate::texture_utils::Texture;
 use atomic_float::AtomicF32;
-use nalgebra::{Point2, Point3, Vector2, Vector3};
+use nalgebra::{Point2, Point3, Vector2, Vector3}; // 添加 Point3, Vector3
 use std::sync::Mutex;
 use std::sync::atomic::Ordering; // Using Mutex for color buffer for simplicity first
 
@@ -18,7 +24,8 @@ pub struct TriangleData<'a> {
     pub z2_view: f32,
     pub z3_view: f32,
     // Attributes
-    pub color: Option<Color>,      // Used if no texture
+    pub base_color: Color, // Base color (material diffuse or face color)
+    pub lit_color: Color,  // Calculated light contribution
     pub tc1: Option<Vector2<f32>>, // Texture coordinates
     pub tc2: Option<Vector2<f32>>,
     pub tc3: Option<Vector2<f32>>,
@@ -26,6 +33,17 @@ pub struct TriangleData<'a> {
     // Settings
     pub is_perspective: bool,
     pub use_zbuffer: bool,
+
+    // Phong 着色所需的额外数据
+    pub n1_view: Option<Vector3<f32>>, // 视图空间法线
+    pub n2_view: Option<Vector3<f32>>,
+    pub n3_view: Option<Vector3<f32>>,
+    pub v1_view: Option<Point3<f32>>, // 视图空间位置
+    pub v2_view: Option<Point3<f32>>,
+    pub v3_view: Option<Point3<f32>>,
+    pub material: Option<SimpleMaterial>, // 材质信息 - 直接持有值，不是引用
+    pub light: Option<Light>,             // 光源信息 - 直接持有值，不是引用
+    pub use_phong: bool,                  // 是否使用 Phong 着色
 }
 
 /// Rasterizes a single triangle onto the frame buffers.
@@ -116,12 +134,57 @@ pub fn rasterize_triangle(
                             // Only write color if *this thread* successfully updated the depth
                             if !triangle.use_zbuffer || old_depth_before_update > interpolated_depth
                             {
-                                // 7. Calculate final color (Texture or Flat)
-                                let final_color: Color =
+                                // 7. Calculate final color
+                                let final_color: Color = if triangle.use_phong
+                                    && triangle.n1_view.is_some()
+                                    && triangle.material.is_some()
+                                    && triangle.light.is_some()
+                                    && triangle.v1_view.is_some()
+                                {
+                                    // --- Phong 着色（逐像素光照）---
+
+                                    // 插值法线
+                                    let interp_normal = interpolate_normal(
+                                        bary,
+                                        triangle.n1_view.unwrap(),
+                                        triangle.n2_view.unwrap(),
+                                        triangle.n3_view.unwrap(),
+                                        triangle.is_perspective,
+                                        triangle.z1_view,
+                                        triangle.z2_view,
+                                        triangle.z3_view,
+                                    );
+
+                                    // 插值视图空间位置
+                                    let interp_position = interpolate_position(
+                                        bary,
+                                        triangle.v1_view.unwrap(),
+                                        triangle.v2_view.unwrap(),
+                                        triangle.v3_view.unwrap(),
+                                        triangle.is_perspective,
+                                        triangle.z1_view,
+                                        triangle.z2_view,
+                                        triangle.z3_view,
+                                    );
+
+                                    // 计算视线方向
+                                    let view_dir = (-interp_position.coords).normalize();
+
+                                    // 计算 Phong/Blinn-Phong 光照
+                                    let light = triangle.light.as_ref().unwrap();
+                                    let material = triangle.material.as_ref().unwrap();
+                                    let pixel_lit_color = calculate_blinn_phong(
+                                        interp_position,
+                                        interp_normal,
+                                        view_dir,
+                                        light,
+                                        material,
+                                    );
+
+                                    // 应用纹理（如果有）
                                     if let (Some(tex), Some(tc1), Some(tc2), Some(tc3)) =
                                         (triangle.texture, triangle.tc1, triangle.tc2, triangle.tc3)
                                     {
-                                        // Interpolate texture coordinates
                                         let interp_tc = interpolate_texcoords(
                                             bary,
                                             tc1,
@@ -132,14 +195,39 @@ pub fn rasterize_triangle(
                                             triangle.z3_view,
                                             triangle.is_perspective,
                                         );
-                                        // Sample texture
                                         let texel = tex.sample(interp_tc.x, interp_tc.y);
-                                        // Use RGB from texel (assuming RGBA f32 format)
-                                        Color::new(texel[0], texel[1], texel[2])
+                                        let texel_color = Color::new(texel[0], texel[1], texel[2]);
+                                        texel_color.component_mul(&pixel_lit_color)
                                     } else {
-                                        // Use flat face color
-                                        triangle.color.unwrap_or_else(|| Color::new(1.0, 0.0, 1.0)) // Default magenta if no color/texture
-                                    };
+                                        // 没有纹理，使用基础颜色
+                                        triangle.base_color.component_mul(&pixel_lit_color)
+                                    }
+                                } else {
+                                    // --- 使用预计算的面光照（Flat/Gouraud 着色） ---
+                                    if let (Some(tex), Some(tc1), Some(tc2), Some(tc3)) =
+                                        (triangle.texture, triangle.tc1, triangle.tc2, triangle.tc3)
+                                    {
+                                        // 插值纹理坐标
+                                        let interp_tc = interpolate_texcoords(
+                                            bary,
+                                            tc1,
+                                            tc2,
+                                            tc3,
+                                            triangle.z1_view,
+                                            triangle.z2_view,
+                                            triangle.z3_view,
+                                            triangle.is_perspective,
+                                        );
+                                        // 采样纹理
+                                        let texel = tex.sample(interp_tc.x, interp_tc.y);
+                                        let texel_color = Color::new(texel[0], texel[1], texel[2]);
+                                        // 应用光照到纹理颜色
+                                        texel_color.component_mul(&triangle.lit_color)
+                                    } else {
+                                        // 应用光照到基础颜色
+                                        triangle.base_color.component_mul(&triangle.lit_color)
+                                    }
+                                };
 
                                 // 8. Write color to buffer (using Mutex)
                                 {
