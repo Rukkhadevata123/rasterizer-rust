@@ -1,0 +1,14 @@
+[package]
+name = "Rasterizer_rust"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rayon = "1"
+image = "0.25"
+rand = "0.9"
+indicatif = "0.17"
+nalgebra = "0.33"
+clap = { version = "4.5", features = ["derive"] }
+atomic_float = "1"
+tobj = "4"
