@@ -41,6 +41,7 @@ NO_DEPTH     := false
 NO_TEXTURE   := false
 NO_LIGHTING  := false
 USE_PHONG    := true     # 是否使用 Phong 着色（逐像素光照）
+NO_GAMMA     := false    # 是否禁用gamma矫正
 
 # --- 动画设置 ---
 ANIM_FPS    := 30
@@ -83,6 +84,7 @@ COMMON_ARGS = \
 	$(if $(filter true,$(NO_LIGHTING)),--no-lighting) \
 	$(if $(filter true,$(NO_TEXTURE)),--no-texture) \
 	$(if $(filter true,$(USE_PHONG)),--use-phong) \
+	$(if $(filter true,$(NO_GAMMA)),--no-gamma) \
 	$(if $(TEXTURE_FILE),--texture $(TEXTURE_FILE))
 
 # 执行单帧渲染

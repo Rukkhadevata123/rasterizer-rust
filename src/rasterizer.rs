@@ -1,4 +1,4 @@
-use crate::color_utils::Color;
+use crate::color_utils::{Color, linear_rgb_to_u8, srgb_to_linear};
 use crate::interpolation::{
     barycentric_coordinates,
     interpolate_depth,
@@ -32,7 +32,7 @@ pub struct TriangleData<'a> {
     pub texture: Option<&'a Texture>,
     // Settings
     pub is_perspective: bool,
-    pub use_zbuffer: bool,
+    // 移除未使用的 use_zbuffer 字段
 
     // Phong 着色所需的额外数据
     pub n1_view: Option<Vector3<f32>>, // 视图空间法线
@@ -46,6 +46,29 @@ pub struct TriangleData<'a> {
     pub use_phong: bool,                  // 是否使用 Phong 着色
 }
 
+/// Rasterizer的配置参数
+pub struct RasterizerConfig {
+    pub use_zbuffer: bool,
+    pub use_lighting: bool,
+    pub use_perspective: bool,
+    pub use_phong: bool,
+    pub use_texture: bool,
+    pub apply_gamma_correction: bool, // 新增：是否应用gamma矫正
+}
+
+impl Default for RasterizerConfig {
+    fn default() -> Self {
+        Self {
+            use_zbuffer: true,
+            use_lighting: true,
+            use_perspective: true,
+            use_phong: false,
+            use_texture: true,
+            apply_gamma_correction: true, // 默认启用gamma矫正
+        }
+    }
+}
+
 /// Rasterizes a single triangle onto the frame buffers.
 /// Uses atomic operations for depth buffer and mutex for color buffer.
 pub fn rasterize_triangle(
@@ -54,6 +77,7 @@ pub fn rasterize_triangle(
     height: usize,
     depth_buffer: &[AtomicF32],    // Use slice of atomics
     color_buffer: &Mutex<Vec<u8>>, // Use Mutex for simplicity first
+    config: &RasterizerConfig,     // 使用完整的RasterizerConfig
 ) {
     // 1. Calculate bounding box
     let min_x = (triangle
@@ -116,7 +140,7 @@ pub fn rasterize_triangle(
                         triangle.z1_view,
                         triangle.z2_view,
                         triangle.z3_view,
-                        triangle.is_perspective,
+                        config.use_perspective && triangle.is_perspective, // 使用配置中的参数
                     );
 
                     // Check if depth is valid (not behind camera / too far)
@@ -125,17 +149,18 @@ pub fn rasterize_triangle(
                         let current_depth_atomic = &depth_buffer[pixel_index];
                         let previous_depth = current_depth_atomic.load(Ordering::Relaxed);
 
-                        if !triangle.use_zbuffer || interpolated_depth < previous_depth {
+                        if !config.use_zbuffer || interpolated_depth < previous_depth {
+                            // 使用配置中的参数
                             // Attempt to update depth atomically
                             // fetch_min returns the *previous* value before the potential update
                             let old_depth_before_update = current_depth_atomic
                                 .fetch_min(interpolated_depth, Ordering::Relaxed);
 
                             // Only write color if *this thread* successfully updated the depth
-                            if !triangle.use_zbuffer || old_depth_before_update > interpolated_depth
-                            {
+                            if !config.use_zbuffer || old_depth_before_update > interpolated_depth {
+                                // 使用配置中的参数
                                 // 7. Calculate final color
-                                let final_color: Color = if triangle.use_phong
+                                let final_color: Color = if config.use_phong && triangle.use_phong // 使用配置中的参数
                                     && triangle.n1_view.is_some()
                                     && triangle.material.is_some()
                                     && triangle.light.is_some()
@@ -181,10 +206,18 @@ pub fn rasterize_triangle(
                                         material,
                                     );
 
-                                    // 应用纹理（如果有）
-                                    if let (Some(tex), Some(tc1), Some(tc2), Some(tc3)) =
-                                        (triangle.texture, triangle.tc1, triangle.tc2, triangle.tc3)
+                                    // 应用纹理（如果有且配置允许）
+                                    if config.use_texture
+                                        && triangle.texture.is_some()
+                                        && triangle.tc1.is_some()
+                                        && triangle.tc2.is_some()
+                                        && triangle.tc3.is_some()
                                     {
+                                        let tc1 = triangle.tc1.unwrap();
+                                        let tc2 = triangle.tc2.unwrap();
+                                        let tc3 = triangle.tc3.unwrap();
+                                        let tex = triangle.texture.unwrap();
+
                                         let interp_tc = interpolate_texcoords(
                                             bary,
                                             tc1,
@@ -193,20 +226,44 @@ pub fn rasterize_triangle(
                                             triangle.z1_view,
                                             triangle.z2_view,
                                             triangle.z3_view,
-                                            triangle.is_perspective,
+                                            config.use_perspective && triangle.is_perspective, // 使用配置中的参数
                                         );
                                         let texel = tex.sample(interp_tc.x, interp_tc.y);
                                         let texel_color = Color::new(texel[0], texel[1], texel[2]);
-                                        texel_color.component_mul(&pixel_lit_color)
+
+                                        // 如果需要色彩校正，将sRGB纹理颜色转换为线性空间
+                                        let corrected_texel = if config.apply_gamma_correction {
+                                            srgb_to_linear(&texel_color) // 使用srgb_to_linear函数
+                                        } else {
+                                            texel_color
+                                        };
+
+                                        if config.use_lighting {
+                                            corrected_texel.component_mul(&pixel_lit_color)
+                                        } else {
+                                            corrected_texel
+                                        }
                                     } else {
                                         // 没有纹理，使用基础颜色
-                                        triangle.base_color.component_mul(&pixel_lit_color)
+                                        if config.use_lighting {
+                                            triangle.base_color.component_mul(&pixel_lit_color)
+                                        } else {
+                                            triangle.base_color
+                                        }
                                     }
                                 } else {
                                     // --- 使用预计算的面光照（Flat/Gouraud 着色） ---
-                                    if let (Some(tex), Some(tc1), Some(tc2), Some(tc3)) =
-                                        (triangle.texture, triangle.tc1, triangle.tc2, triangle.tc3)
+                                    if config.use_texture
+                                        && triangle.texture.is_some()
+                                        && triangle.tc1.is_some()
+                                        && triangle.tc2.is_some()
+                                        && triangle.tc3.is_some()
                                     {
+                                        let tc1 = triangle.tc1.unwrap();
+                                        let tc2 = triangle.tc2.unwrap();
+                                        let tc3 = triangle.tc3.unwrap();
+                                        let tex = triangle.texture.unwrap();
+
                                         // 插值纹理坐标
                                         let interp_tc = interpolate_texcoords(
                                             bary,
@@ -216,16 +273,32 @@ pub fn rasterize_triangle(
                                             triangle.z1_view,
                                             triangle.z2_view,
                                             triangle.z3_view,
-                                            triangle.is_perspective,
+                                            config.use_perspective && triangle.is_perspective, // 使用配置中的参数
                                         );
                                         // 采样纹理
                                         let texel = tex.sample(interp_tc.x, interp_tc.y);
                                         let texel_color = Color::new(texel[0], texel[1], texel[2]);
+
+                                        // 如果需要色彩校正，将sRGB纹理颜色转换为线性空间
+                                        let corrected_texel = if config.apply_gamma_correction {
+                                            srgb_to_linear(&texel_color) // 使用srgb_to_linear函数
+                                        } else {
+                                            texel_color
+                                        };
+
                                         // 应用光照到纹理颜色
-                                        texel_color.component_mul(&triangle.lit_color)
+                                        if config.use_lighting {
+                                            corrected_texel.component_mul(&triangle.lit_color)
+                                        } else {
+                                            corrected_texel
+                                        }
                                     } else {
                                         // 应用光照到基础颜色
-                                        triangle.base_color.component_mul(&triangle.lit_color)
+                                        if config.use_lighting {
+                                            triangle.base_color.component_mul(&triangle.lit_color)
+                                        } else {
+                                            triangle.base_color
+                                        }
                                     }
                                 };
 
@@ -235,12 +308,14 @@ pub fn rasterize_triangle(
                                     let mut cbuf_guard = color_buffer.lock().unwrap();
                                     let buffer_start_index = pixel_index * 3;
                                     if buffer_start_index + 2 < cbuf_guard.len() {
-                                        cbuf_guard[buffer_start_index] =
-                                            (final_color.x * 255.0).clamp(0.0, 255.0) as u8;
-                                        cbuf_guard[buffer_start_index + 1] =
-                                            (final_color.y * 255.0).clamp(0.0, 255.0) as u8;
-                                        cbuf_guard[buffer_start_index + 2] =
-                                            (final_color.z * 255.0).clamp(0.0, 255.0) as u8;
+                                        // 使用gamma矫正函数转换颜色
+                                        let [r, g, b] = linear_rgb_to_u8(
+                                            &final_color,
+                                            config.apply_gamma_correction,
+                                        );
+                                        cbuf_guard[buffer_start_index] = r;
+                                        cbuf_guard[buffer_start_index + 1] = g;
+                                        cbuf_guard[buffer_start_index + 2] = b;
                                     }
                                 } // MutexGuard dropped here
                             }

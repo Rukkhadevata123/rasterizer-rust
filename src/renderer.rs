@@ -3,7 +3,7 @@ use crate::color_utils::get_face_color;
 use crate::lighting::{Light, SimpleMaterial, calculate_blinn_phong}; // Import lighting components
 // Updated use statement for model types
 use crate::model_types::{Material, ModelData};
-use crate::rasterizer::{TriangleData, rasterize_triangle};
+use crate::rasterizer::{RasterizerConfig, TriangleData, rasterize_triangle}; // 导入 RasterizerConfig
 use crate::transform::ndc_to_pixel;
 use atomic_float::AtomicF32;
 use nalgebra::{Matrix3, Point2, Point3}; // Removed Vector2, Vector3, Import Matrix3
@@ -65,9 +65,24 @@ pub struct RenderSettings {
     pub use_zbuffer: bool,
     pub use_face_colors: bool,
     pub use_texture: bool,
-    pub light: Light, // Store the configured light source
+    pub light: Light,    // Store the configured light source
     pub use_phong: bool, // 是否使用 Phong 着色（逐像素光照）
-                      // Add more settings like backface culling, wireframe etc.
+    pub apply_gamma: bool, // 是否应用gamma矫正
+                         // Add more settings like backface culling, wireframe etc.
+}
+
+impl RenderSettings {
+    // 新增：将 RenderSettings 转换为 RasterizerConfig
+    pub fn to_rasterizer_config(&self) -> RasterizerConfig {
+        RasterizerConfig {
+            use_zbuffer: self.use_zbuffer,
+            use_lighting: true, // 总是启用光照
+            use_perspective: self.projection_type == "perspective",
+            use_phong: self.use_phong,
+            use_texture: self.use_texture,
+            apply_gamma_correction: self.apply_gamma,
+        }
+    }
 }
 
 pub struct Renderer {
@@ -149,7 +164,11 @@ impl Renderer {
         }
 
         // Perform viewport transformation: NDC -> Pixel
-        let all_pixel_coords = ndc_to_pixel(&all_ndc_coords, self.frame_buffer.width as f32, self.frame_buffer.height as f32);
+        let all_pixel_coords = ndc_to_pixel(
+            &all_ndc_coords,
+            self.frame_buffer.width as f32,
+            self.frame_buffer.height as f32,
+        );
         let transform_duration = transform_start_time.elapsed();
         println!(
             "View space Z range: [{:.3}, {:.3}]",
@@ -167,6 +186,9 @@ impl Renderer {
 
         println!("Rasterizing meshes...");
         let raster_start_time = Instant::now();
+
+        // 创建 RasterizerConfig
+        let rasterizer_config = settings.to_rasterizer_config();
 
         // --- Parallel Rasterization using Rayon ---
         let all_pixel_coords_ref = &all_pixel_coords;
@@ -194,7 +216,9 @@ impl Renderer {
                 let simple_material_clone = simple_material.clone();
                 let light_clone = settings.light.clone();
 
-                let texture = if settings.use_texture {
+                // 使用 RasterizerConfig 中的设置
+                let use_texture = rasterizer_config.use_texture;
+                let texture = if use_texture {
                     material_opt.and_then(|m| m.diffuse_texture.as_ref())
                 } else {
                     None
@@ -274,8 +298,8 @@ impl Renderer {
                             tc2: texture.map(|_| v1.texcoord),
                             tc3: texture.map(|_| v2.texcoord),
                             texture,
-                            is_perspective: settings.projection_type == "perspective",
-                            use_zbuffer: settings.use_zbuffer,
+                            is_perspective: rasterizer_config.use_perspective,
+                            // 删除这行: use_zbuffer: rasterizer_config.use_zbuffer,
                             // Phong 着色所需的额外数据
                             n1_view: Some(all_view_normals_ref[global_i0]),
                             n2_view: Some(all_view_normals_ref[global_i1]),
@@ -285,14 +309,14 @@ impl Renderer {
                             v3_view: Some(view_pos2),
                             material: Some(simple_material_clone), // 使用克隆的材质的值，而不是引用
                             light: Some(light_clone),              // 使用克隆的光源的值，而不是引用
-                            use_phong: settings.use_phong,
+                            use_phong: rasterizer_config.use_phong,
                         })
                     })
                     .collect::<Vec<_>>() // Collect triangles for this mesh before flattening
             })
             .collect();
 
-        // Parallel loop over triangles (remains the same)
+        // Parallel loop over triangles
         triangles_to_render.par_iter().for_each(|triangle_data| {
             rasterize_triangle(
                 triangle_data,
@@ -300,6 +324,7 @@ impl Renderer {
                 self.frame_buffer.height,
                 &self.frame_buffer.depth_buffer,
                 &self.frame_buffer.color_buffer,
+                &rasterizer_config, // 修改：传递整个 RasterizerConfig 对象的引用，而不是单独的布尔值
             );
         });
 

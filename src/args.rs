@@ -98,6 +98,10 @@ pub struct Args {
     #[arg(long)]
     pub texture: Option<String>,
 
+    /// 禁用gamma矫正（默认启用）
+    #[arg(long, default_value_t = false)]
+    pub no_gamma: bool,
+
     /// Run the full animation loop instead of a single frame render
     #[arg(long, default_value_t = false)]
     pub animate: bool,

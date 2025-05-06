@@ -221,6 +221,7 @@ impl Camera {
     /// 实现通用罗德里格斯旋转
     /// axis: 旋转轴(单位向量)
     /// angle_degrees: 旋转角度(度)
+    #[allow(dead_code)]
     pub fn orbit_around_axis(&mut self, axis: &Vector3<f32>, angle_degrees: f32) {
         // 1. 获取从目标点到相机的向量
         let mut current_vector = self.look_from - self.look_at;

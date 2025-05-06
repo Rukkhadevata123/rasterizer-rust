@@ -278,7 +278,8 @@ fn setup_render_environment(
         use_face_colors: args.colorize,
         use_texture: !args.no_texture,
         light,
-        use_phong: args.use_phong, // 添加 Phong 着色设置
+        use_phong: args.use_phong,   // Phong 着色设置
+        apply_gamma: !args.no_gamma, // 传递gamma矫正设置（默认启用，除非指定no_gamma）
     };
 
     Ok((camera, settings.light, settings))
@@ -326,6 +327,7 @@ fn render_single_frame(
                 .collect::<Vec<_>>(),
             args.width,
             args.height,
+            settings.apply_gamma, // 添加缺少的apply_gamma参数
         );
         // Use args.output_dir for saving path
         let depth_path = Path::new(&args.output_dir)
