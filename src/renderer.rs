@@ -4,9 +4,13 @@ use crate::lighting::{Light, SimpleMaterial, calculate_blinn_phong}; // Import l
 // Updated use statement for model types
 use crate::model_types::{Material, ModelData};
 use crate::rasterizer::{RasterizerConfig, TriangleData, rasterize_triangle}; // 导入 RasterizerConfig
-use crate::transform::ndc_to_pixel;
+// 更新 transform 的导入，引入所有坐标变换函数
+use crate::transform::{
+    compute_normal_matrix, ndc_to_pixel, transform_normals, 
+    world_to_ndc, world_to_view
+};
 use atomic_float::AtomicF32;
-use nalgebra::{Matrix3, Point2, Point3}; // Removed Vector2, Vector3, Import Matrix3
+use nalgebra::{Point2, Point3, Vector3}; // 移除 Matrix3 导入
 use rayon::prelude::*;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
@@ -109,66 +113,39 @@ impl Renderer {
 
         // Collect all vertices from all meshes for batch transformation
         let mut all_vertices_world: Vec<Point3<f32>> = Vec::new();
+        let mut all_normals_world: Vec<Vector3<f32>> = Vec::new();
         let mut mesh_vertex_offsets: Vec<usize> = vec![0];
         for mesh in &model_data.meshes {
             all_vertices_world.extend(mesh.vertices.iter().map(|v| v.position));
+            all_normals_world.extend(mesh.vertices.iter().map(|v| v.normal));
             mesh_vertex_offsets.push(all_vertices_world.len());
         }
 
-        // Perform transformations: World -> View -> NDC
-        // Also transform normals to View space for lighting
+        // 获取变换矩阵
         let view_matrix = camera.get_view_matrix();
         let projection_matrix = camera.get_projection_matrix(&settings.projection_type);
         let view_projection_matrix = projection_matrix * view_matrix;
-        // Normal matrix: transpose(inverse(view_matrix)) - for transforming normals correctly
-        let normal_matrix = view_matrix.try_inverse().map_or_else(
-            || {
-                println!("Warning: View matrix not invertible, using identity for normals.");
-                Matrix3::identity()
-            },
-            // Use fixed_view instead of deprecated fixed_slice
-            |inv_view| inv_view.transpose().fixed_view::<3, 3>(0, 0).into_owned(),
-        );
+        
+        // 计算法线变换矩阵
+        let normal_matrix = compute_normal_matrix(&view_matrix);
 
-        let mut all_ndc_coords = Vec::with_capacity(all_vertices_world.len());
-        let mut all_view_coords = Vec::with_capacity(all_vertices_world.len());
-        let mut all_view_normals = Vec::with_capacity(all_vertices_world.len()); // Store view-space normals
+        // 使用 transform.rs 中的函数进行坐标变换
+        // 世界坐标 -> 视图坐标
+        let all_view_coords = world_to_view(&all_vertices_world, &view_matrix);
+        
+        // 变换法线向量（世界坐标 -> 视图坐标）
+        let all_view_normals = transform_normals(&all_normals_world, &normal_matrix);
+        
+        // 世界坐标 -> NDC坐标
+        let all_ndc_coords = world_to_ndc(&all_vertices_world, &view_projection_matrix);
 
-        // Transform vertices and normals
-        for (mesh_idx, mesh) in model_data.meshes.iter().enumerate() {
-            let vertex_offset = mesh_vertex_offsets[mesh_idx];
-            for i in 0..mesh.vertices.len() {
-                let world_vertex = all_vertices_world[vertex_offset + i];
-                let world_normal = mesh.vertices[i].normal; // Get normal from original mesh data
-
-                // World -> View Space (Position)
-                let view_h = view_matrix * world_vertex.to_homogeneous();
-                let view_pos = Point3::from_homogeneous(view_h).unwrap_or_else(|| Point3::origin());
-                all_view_coords.push(view_pos);
-
-                // World -> View Space (Normal) - Use normal matrix
-                let view_normal = (normal_matrix * world_normal).normalize();
-                all_view_normals.push(view_normal);
-
-                // World -> Clip Space
-                let clip_h = view_projection_matrix * world_vertex.to_homogeneous();
-
-                // Clip Space -> NDC Space (Perspective Divide)
-                let w = clip_h.w;
-                if w.abs() > 1e-8 {
-                    all_ndc_coords.push(Point3::new(clip_h.x / w, clip_h.y / w, clip_h.z / w));
-                } else {
-                    all_ndc_coords.push(Point3::origin()); // Avoid division by zero
-                }
-            }
-        }
-
-        // Perform viewport transformation: NDC -> Pixel
+        // NDC坐标 -> 像素坐标
         let all_pixel_coords = ndc_to_pixel(
             &all_ndc_coords,
             self.frame_buffer.width as f32,
             self.frame_buffer.height as f32,
         );
+
         let transform_duration = transform_start_time.elapsed();
         println!(
             "View space Z range: [{:.3}, {:.3}]",
