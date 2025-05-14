@@ -1,50 +1,36 @@
 use crate::args::Args;
+use crate::model_types::{Material, Mesh, ModelData, Vertex};
 use crate::texture_utils::{Texture, load_texture};
 use nalgebra::{Point3, Vector2, Vector3};
 use std::collections::HashMap;
 use std::path::Path;
-use tobj; // 添加 Args 导入
 
-// Moved Vertex, Material, Mesh, ModelData to model_types.rs
-use crate::model_types::{Material, Mesh, ModelData, Vertex};
-
-// Function remains in loaders.rs
-/// Calculates smooth vertex normals by averaging face normals.
-/// Mimics the Python function `generate_vertex_normals`.
-///
-/// # Arguments
-/// * `vertices`: Slice of vertex positions.
-/// * `indices`: Slice of triangle indices (groups of 3).
-///
-/// # Returns
-/// A vector containing the calculated normal for each vertex, or an error string.
+/// 生成平滑的顶点法线，通过平均面法线实现
 fn generate_smooth_vertex_normals(
     vertices: &[Point3<f32>],
     indices: &[u32],
 ) -> Result<Vec<Vector3<f32>>, String> {
+    // 验证输入数据
     if indices.len() % 3 != 0 {
-        return Err("Indices length must be a multiple of 3 for triangles.".to_string());
+        return Err("三角形索引数量必须是3的倍数".to_string());
     }
     if vertices.is_empty() {
-        return Ok(Vec::new()); // No vertices, no normals
+        return Ok(Vec::new()); // 没有顶点，不计算法线
     }
 
     let num_vertices = vertices.len();
     let num_faces = indices.len() / 3;
     let mut vertex_normals = vec![Vector3::zeros(); num_vertices];
 
-    // 1. Calculate face normals and accumulate them onto vertices
+    // 1. 计算面法线并累加到顶点
     for i in 0..num_faces {
         let idx0 = indices[i * 3] as usize;
         let idx1 = indices[i * 3 + 1] as usize;
         let idx2 = indices[i * 3 + 2] as usize;
 
-        // Basic bounds check
+        // 边界检查
         if idx0 >= num_vertices || idx1 >= num_vertices || idx2 >= num_vertices {
-            println!(
-                "Warning: Face {} has out-of-bounds vertex index. Skipping.",
-                i
-            );
+            println!("警告: 面 {} 包含越界的顶点索引，跳过", i);
             continue;
         }
 
@@ -56,31 +42,28 @@ fn generate_smooth_vertex_normals(
         let edge2 = v2 - v0;
         let face_normal = edge1.cross(&edge2);
 
-        // No need to normalize face normal before accumulation,
-        // magnitude contributes to weighting (larger triangles have more influence).
-        // Accumulate directly. This is safe in Rust's single-threaded context.
+        // 累加法线（较大面积的三角形权重更大）
         vertex_normals[idx0] += face_normal;
         vertex_normals[idx1] += face_normal;
         vertex_normals[idx2] += face_normal;
     }
 
-    // 2. Normalize vertex normals
+    // 2. 归一化顶点法线
     let mut zero_norm_count = 0;
     for normal in vertex_normals.iter_mut() {
         let norm_squared = normal.norm_squared();
         if norm_squared > 1e-12 {
-            // Use squared norm to avoid sqrt
-            normal.normalize_mut(); // Normalize in place
+            normal.normalize_mut();
         } else {
-            // Handle zero-length normals (e.g., vertex not used or part of degenerate faces)
-            *normal = Vector3::y(); // Default to up vector
+            // 处理零长度法线（顶点未使用或属于退化面）
+            *normal = Vector3::y(); // 默认使用向上向量
             zero_norm_count += 1;
         }
     }
 
     if zero_norm_count > 0 {
         println!(
-            "Warning: {} vertices had zero normals, set to default [0, 1, 0].",
+            "警告: {} 个顶点的法线为零，设置为默认值 [0, 1, 0]",
             zero_norm_count
         );
     }
@@ -88,19 +71,18 @@ fn generate_smooth_vertex_normals(
     Ok(vertex_normals)
 }
 
-// Function remains in loaders.rs
+/// 加载并处理 OBJ 模型文件
 pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<ModelData, String> {
     let obj_path_ref = obj_path.as_ref();
-    println!("Loading OBJ file: {:?}", obj_path_ref);
+    println!("加载 OBJ 文件: {:?}", obj_path_ref);
 
-    // Determine the base path for loading materials and textures
+    // 确定加载材质和纹理的基础路径
     let base_path = obj_path_ref.parent().unwrap_or_else(|| Path::new("."));
 
-    // --- 检查是否有命令行指定的纹理 ---
+    // 检查命令行指定的纹理
     let cli_texture: Option<Texture> = if let Some(tex_path_str) = &args.texture {
         let tex_path = Path::new(tex_path_str);
-        println!("Using texture specified via command line: {:?}", tex_path);
-        // 将材质的漫反射颜色用作默认颜色（如果纹理加载失败）
+        println!("使用命令行指定的纹理: {:?}", tex_path);
         let default_color = Vector3::new(0.8, 0.8, 0.8);
         Some(load_texture(tex_path, default_color))
     } else {
@@ -108,37 +90,39 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
     };
 
     let load_options = tobj::LoadOptions {
-        triangulate: true,
-        single_index: false, // Important: Keep false to handle separate indices
-        ignore_points: true,
-        ignore_lines: true,
+        triangulate: true,   // 将所有面转换为三角形
+        single_index: false, // 保持独立的索引以处理分开的纹理/法线坐标
+        ignore_points: true, // 忽略点元素
+        ignore_lines: true,  // 忽略线元素
     };
 
-    // Load OBJ and associated MTL files
-    let (models, materials_result) = tobj::load_obj(obj_path_ref, &load_options)
-        .map_err(|e| format!("Failed to load OBJ: {}", e))?;
+    // 加载 OBJ 和关联的 MTL 文件
+    let (models, materials_result) =
+        tobj::load_obj(obj_path_ref, &load_options).map_err(|e| format!("加载 OBJ 失败: {}", e))?;
 
-    // --- Load Materials --- (Simplified: Only loads diffuse texture for now)
+    // 加载材质
     let mut loaded_materials: Vec<Material> = match materials_result {
         Ok(mats) => {
             if !mats.is_empty() {
-                println!("Loaded {} materials from MTL.", mats.len());
+                println!("从 MTL 加载了 {} 个材质", mats.len());
                 mats.into_iter()
                     .map(|mat| {
-                        // 如果命令行指定了纹理，优先使用它，否则尝试加载 MTL 中指定的纹理
+                        // 优先使用命令行指定的纹理
                         let diffuse_texture = if cli_texture.is_some() {
                             if mat.diffuse_texture.is_some() {
-                                println!("Note: Command-line texture overrides texture '{}' from MTL for material '{}'.", 
-                                    mat.diffuse_texture.unwrap(), mat.name);
+                                println!(
+                                    "注意: 命令行指定的纹理覆盖了材质 '{}' 中的纹理 '{}'",
+                                    mat.name,
+                                    mat.diffuse_texture.unwrap()
+                                );
                             }
                             cli_texture.clone()
                         } else {
-                            mat.diffuse_texture.and_then(|tex_name| {
-                                // Determine the default color (use material's diffuse if available, else a fallback)
-                                let default_color = Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8]));
+                            mat.diffuse_texture.map(|tex_name| {
+                                let default_color =
+                                    Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8]));
                                 let texture_path = base_path.join(tex_name);
-                                // Call load_texture with path and default color. load_texture handles errors internally.
-                                Some(load_texture(&texture_path, default_color))
+                                load_texture(&texture_path, default_color)
                             })
                         };
 
@@ -150,37 +134,35 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                             shininess: mat.shininess.unwrap_or(10.0),
                             dissolve: mat.dissolve.unwrap_or(1.0),
                             diffuse_texture,
+                            pbr_material: None, // 默认不使用PBR材质
                         }
                     })
                     .collect()
             } else {
-                println!("MTL file loaded but contained no materials.");
-                Vec::new() // 空向量
+                println!("MTL 文件中没有材质");
+                Vec::new()
             }
         }
         Err(e) => {
-            println!("Warning: Failed to load materials: {}.", e);
-            Vec::new() // 空向量
+            println!("警告: 加载材质失败: {}", e);
+            Vec::new()
         }
     };
 
-    // 处理无 MTL 材质或 MTL 文件加载失败的情况
+    // 处理无材质的情况
     if loaded_materials.is_empty() {
-        // 如果命令行指定了纹理，创建一个带该纹理的默认材质
         if let Some(texture) = cli_texture {
-            println!(
-                "No MTL materials found/loaded. Creating default material with command-line texture."
-            );
+            println!("未找到 MTL 材质，创建带命令行纹理的默认材质");
             let mut default_mat = Material::default();
             default_mat.diffuse_texture = Some(texture);
             loaded_materials.push(default_mat);
         } else {
-            // 没有材质且没有指定纹理，创建纯色默认材质
-            println!("No MTL materials or command-line texture. Using plain default material.");
+            println!("无 MTL 材质且无指定纹理，使用纯色默认材质");
             loaded_materials.push(Material::default());
         }
     }
 
+    // 处理网格数据
     let mut loaded_meshes: Vec<Mesh> = Vec::with_capacity(models.len());
 
     for model in models.iter() {
@@ -188,69 +170,59 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
         let num_vertices_in_obj = mesh.positions.len() / 3;
 
         if mesh.indices.is_empty() {
-            println!("Skipping mesh '{}' with no indices.", model.name);
+            println!("跳过没有索引的网格 '{}'", model.name);
             continue;
         }
 
         let has_normals = !mesh.normals.is_empty();
         let has_texcoords = !mesh.texcoords.is_empty();
 
-        // --- Generate Smooth Normals if needed ---
+        // 如果需要，生成平滑顶点法线
         let generated_normals: Option<Vec<Vector3<f32>>> = if !has_normals {
-            println!(
-                "Warning: Mesh '{}' is missing normals. Calculating smooth vertex normals.",
-                model.name
-            );
-            // Create a temporary Vec<Point3<f32>> for the function
+            println!("警告: 网格 '{}' 缺少法线，计算平滑顶点法线", model.name);
+
             let positions: Vec<Point3<f32>> = mesh
                 .positions
                 .chunks_exact(3)
                 .map(|p| Point3::new(p[0], p[1], p[2]))
                 .collect();
+
             match generate_smooth_vertex_normals(&positions, &mesh.indices) {
                 Ok(normals) => Some(normals),
                 Err(e) => {
-                    println!(
-                        "Error generating smooth normals: {}. Using default [0,1,0].",
-                        e
-                    );
-                    // Fallback: create a vector of default normals
+                    println!("生成平滑法线错误: {}，使用默认法线 [0,1,0]", e);
                     Some(vec![Vector3::y(); num_vertices_in_obj])
                 }
             }
         } else {
-            // println!("Mesh '{}' has normals.", model.name);
-            None // Use normals from OBJ
+            None // 使用 OBJ 中的法线
         };
 
         if !has_texcoords {
             println!(
-                "Warning: Mesh '{}' is missing texture coordinates. Texturing might not work correctly.",
+                "警告: 网格 '{}' 缺少纹理坐标，纹理映射可能不正确",
                 model.name
             );
         }
 
-        // --- Process Vertices and Indices (Vertex Deduplication) ---
-        // Create unique vertices based on (position_idx, normal_idx, texcoord_idx)
+        // 顶点去重和索引处理
         let mut vertices: Vec<Vertex> = Vec::new();
-        // Map from original (pos_idx, norm_idx, tc_idx) tuple to the index in our `vertices` Vec
         let mut index_map: HashMap<(u32, Option<u32>, Option<u32>), u32> = HashMap::new();
         let mut final_indices: Vec<u32> = Vec::with_capacity(mesh.indices.len());
 
-        // Iterate through the original face indices provided by tobj
+        // 遍历原始面索引
         for i in 0..mesh.indices.len() {
             let pos_idx = mesh.indices[i];
-            // tobj might not provide normal/texcoord indices if they don't exist
             let norm_idx_opt = mesh.normal_indices.get(i).copied();
             let tc_idx_opt = mesh.texcoord_indices.get(i).copied();
 
             let key = (pos_idx, norm_idx_opt, tc_idx_opt);
 
             if let Some(&final_idx) = index_map.get(&key) {
-                // Vertex already exists, just add its index
+                // 顶点已存在，仅添加索引
                 final_indices.push(final_idx);
             } else {
-                // Create a new unique vertex
+                // 创建新的唯一顶点
                 let p_start = pos_idx as usize * 3;
                 let position = if p_start + 2 < mesh.positions.len() {
                     Point3::new(
@@ -259,29 +231,23 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                         mesh.positions[p_start + 2],
                     )
                 } else {
-                    println!(
-                        "Warning: Invalid OBJ position index {} encountered.",
-                        pos_idx
-                    );
-                    Point3::origin() // Fallback
+                    println!("警告: 遇到无效的 OBJ 位置索引 {}", pos_idx);
+                    Point3::origin() // 回退值
                 };
 
                 let normal = match norm_idx_opt {
                     Some(normal_source_idx) => {
                         if let Some(ref gen_normals) = generated_normals {
-                            // Use generated normal if available (index matches position index)
+                            // 使用生成的法线
                             gen_normals
                                 .get(pos_idx as usize)
                                 .copied()
                                 .unwrap_or_else(|| {
-                                    println!(
-                                        "Warning: Generated normal index {} out of bounds.",
-                                        pos_idx
-                                    );
+                                    println!("警告: 生成的法线索引 {} 越界", pos_idx);
                                     Vector3::y()
                                 })
                         } else {
-                            // Use normal from OBJ file
+                            // 使用 OBJ 文件中的法线
                             let n_start = normal_source_idx as usize * 3;
                             if n_start + 2 < mesh.normals.len() {
                                 Vector3::new(
@@ -289,32 +255,25 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                                     mesh.normals[n_start + 1],
                                     mesh.normals[n_start + 2],
                                 )
-                                .normalize() // Normalize OBJ normals too
+                                .normalize()
                             } else {
-                                println!(
-                                    "Warning: Invalid OBJ normal index {} encountered.",
-                                    normal_source_idx
-                                );
-                                Vector3::y() // Fallback
+                                println!("警告: 遇到无效的 OBJ 法线索引 {}", normal_source_idx);
+                                Vector3::y() // 回退值
                             }
                         }
                     }
                     None => {
-                        // No normal index, try using generated normal based on position index
+                        // 无法线索引，尝试使用基于位置索引的生成法线
                         if let Some(ref gen_normals) = generated_normals {
-                            gen_normals.get(pos_idx as usize).copied().unwrap_or_else(|| {
-                                println!(
-                                    "Warning: Generated normal index {} out of bounds (fallback).",
-                                    pos_idx
-                                );
-                                Vector3::y()
-                            })
+                            gen_normals
+                                .get(pos_idx as usize)
+                                .copied()
+                                .unwrap_or_else(|| {
+                                    println!("警告: 生成的法线索引 {} 越界（回退）", pos_idx);
+                                    Vector3::y()
+                                })
                         } else {
-                            // Should not happen if generated_normals logic is correct
-                            println!(
-                                "Warning: Missing normal index and generated normals for vertex {}.",
-                                pos_idx
-                            );
+                            println!("警告: 缺少顶点 {} 的法线索引和生成法线", pos_idx);
                             Vector3::y()
                         }
                     }
@@ -323,15 +282,13 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                 let texcoord = if let Some(idx) = tc_idx_opt {
                     let t_start = idx as usize * 2;
                     if t_start + 1 < mesh.texcoords.len() {
-                        // 不翻转 V 坐标，直接使用 OBJ 中的原始值
-                        // 原来的代码：Vector2::new(mesh.texcoords[t_start], 1.0 - mesh.texcoords[t_start + 1])
                         Vector2::new(mesh.texcoords[t_start], mesh.texcoords[t_start + 1])
                     } else {
-                        println!("Warning: Invalid OBJ texcoord index {} encountered.", idx);
-                        Vector2::zeros() // Fallback
+                        println!("警告: 遇到无效的 OBJ 纹理坐标索引 {}", idx);
+                        Vector2::zeros() // 回退值
                     }
                 } else {
-                    Vector2::zeros() // Fallback if no texcoords
+                    Vector2::zeros() // 无纹理坐标时的回退值
                 };
 
                 let new_vertex = Vertex {
@@ -348,16 +305,14 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
 
         // 确定最终的材质 ID
         let material_id = mesh.material_id;
-        // 确保 material_id 有效或为 None
         let mut final_material_id = material_id.filter(|&id| id < loaded_materials.len());
 
-        // 如果网格没有有效的材质 ID，但我们有加载/创建的材质（例如从命令行纹理创建的默认材质），
-        // 则分配材质 ID 0
+        // 若网格没有有效的材质 ID，但我们有加载的材质，则分配材质 ID 0
         if final_material_id.is_none() && !loaded_materials.is_empty() {
             final_material_id = Some(0);
             if material_id.is_some() {
                 println!(
-                    "Warning: Mesh '{}' had invalid material ID {}. Assigning default material ID 0.",
+                    "警告: 网格 '{}' 有无效的材质 ID {}。分配默认材质 ID 0",
                     model.name,
                     material_id.unwrap()
                 );
@@ -370,7 +325,7 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
             material_id: final_material_id,
         });
         println!(
-            "Processed mesh '{}': {} unique vertices, {} triangles, Material ID: {:?}",
+            "处理网格 '{}': {} 个唯一顶点, {} 个三角形, 材质 ID: {:?}",
             model.name,
             loaded_meshes.last().unwrap().vertices.len(),
             loaded_meshes.last().unwrap().indices.len() / 3,
@@ -379,7 +334,7 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
     }
 
     if loaded_meshes.is_empty() {
-        return Err("No processable meshes found in the OBJ file.".to_string());
+        return Err("OBJ 文件中没有可处理的网格".to_string());
     }
 
     Ok(ModelData {

@@ -3,7 +3,7 @@ use nalgebra::Vector3;
 use std::path::Path;
 
 /// Represents a texture with dimensions and RGBA pixel data (f32, 0.0-1.0).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Texture {
     pub width: u32,
     pub height: u32,

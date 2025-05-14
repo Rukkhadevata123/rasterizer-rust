@@ -46,6 +46,7 @@ pub fn is_inside_triangle(bary: Vector3<f32>) -> bool {
 }
 
 /// 通用的透视校正插值函数，适用于任意可线性组合的类型
+#[allow(clippy::too_many_arguments)]
 fn perspective_correct_interpolate<T>(
     bary: Vector3<f32>,
     v1: T,
@@ -129,6 +130,7 @@ pub fn interpolate_depth(
 
 /// 使用重心坐标插值纹理坐标(UV)，带透视校正
 /// 采用视空间Z值进行校正
+#[allow(clippy::too_many_arguments)]
 pub fn interpolate_texcoords(
     bary: Vector3<f32>,
     tc1: Vector2<f32>,
@@ -153,6 +155,7 @@ pub fn interpolate_texcoords(
 
 /// 使用重心坐标插值法线向量，带透视校正
 /// 采用视空间Z值进行校正
+#[allow(clippy::too_many_arguments)]
 pub fn interpolate_normal(
     bary: Vector3<f32>,
     n1: Vector3<f32>,
@@ -184,6 +187,7 @@ pub fn interpolate_normal(
 
 /// 使用重心坐标插值视空间位置，带透视校正
 /// 采用视空间Z值进行校正
+#[allow(clippy::too_many_arguments)]
 pub fn interpolate_position(
     bary: Vector3<f32>,
     p1: Point3<f32>,

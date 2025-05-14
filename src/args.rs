@@ -4,7 +4,7 @@ use clap::Parser;
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// Path to the input OBJ file
-    #[arg(short, long)]
+    #[arg(long)]
     pub obj: String,
 
     /// Base name for output files (e.g., "render" -> "render_color.png", "render_depth.png")
@@ -89,7 +89,30 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub use_phong: bool,
 
-    // --- Texture Arguments ---
+    /// 使用基于物理的渲染 (PBR) 而不是传统 Blinn-Phong
+    #[arg(long, default_value_t = false)]
+    pub use_pbr: bool,
+
+    /// 材质的金属度 (0.0-1.0，仅在PBR模式下有效)
+    #[arg(long, default_value_t = 0.0)]
+    pub metallic: f32,
+
+    /// 材质的粗糙度 (0.0-1.0，仅在PBR模式下有效)
+    #[arg(long, default_value_t = 0.5)]
+    pub roughness: f32,
+
+    /// 材质的基础颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内 (仅在PBR模式下有效)
+    #[arg(long, default_value = "0.8,0.8,0.8")]
+    pub base_color: String,
+
+    /// 环境光遮蔽系数 (0.0-1.0，仅在PBR模式下有效)
+    #[arg(long, default_value_t = 1.0)]
+    pub ambient_occlusion: f32,
+
+    /// 材质的自发光颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内 (仅在PBR模式下有效)
+    #[arg(long, default_value = "0.0,0.0,0.0")]
+    pub emissive: String,
+
     /// Disable texture loading and usage
     #[arg(long, default_value_t = false)]
     pub no_texture: bool,
@@ -102,9 +125,33 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub no_gamma: bool,
 
+    /// 场景中要创建的对象实例数量
+    #[arg(long)]
+    pub object_count: Option<String>,
+
     /// Run the full animation loop instead of a single frame render
     #[arg(long, default_value_t = false)]
     pub animate: bool,
+
+    /// 动画的总帧数
+    #[arg(long, default_value_t = 120)]
+    pub total_frames: usize,
+
+    /// 是否显示额外的调试信息
+    #[arg(long, default_value_t = false)]
+    pub show_debug_info: bool,
+
+    /// 是否测试场景管理功能
+    #[arg(long, default_value_t = false)]
+    pub test_scene_management: bool,
+
+    /// 是否测试场景清除功能
+    #[arg(long, default_value_t = false)]
+    pub test_clear_scene: bool,
+
+    /// 是否测试材质操作功能
+    #[arg(long, default_value_t = false)]
+    pub test_materials: bool,
 }
 
 // Helper function to parse comma-separated floats

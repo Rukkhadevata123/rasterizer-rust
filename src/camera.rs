@@ -3,6 +3,8 @@
 // 不同于Python版本的手动矩阵计算，Rust版本利用nalgebra的高性能实现
 use nalgebra::{Matrix4, Point3, Rotation3, Unit, Vector3};
 
+/// 相机类，负责管理视角和投影
+#[derive(Debug, Clone)]
 pub struct Camera {
     pub look_from: Point3<f32>,
     pub look_at: Point3<f32>,
@@ -155,73 +157,24 @@ impl Camera {
     pub fn get_projection_matrix(&self, projection_type: &str) -> &Matrix4<f32> {
         match projection_type.to_lowercase().as_str() {
             "perspective" => &self.perspective_matrix,
-            "orthographic" | _ => &self.orthographic_matrix, // Default to orthographic if unknown
+            _ => &self.orthographic_matrix, // Default to orthographic if unknown
         }
     }
 
     /// 使相机围绕look_at点在Y轴上旋转（水平轨道运动）
     /// angle_degrees: 旋转角度。正值在俯视Y轴时表示逆时针旋转。
-    /// 使用nalgebra的Rotation3类型创建并应用旋转
+    /// 使用orbit_around_axis方法实现，指定世界Y轴作为旋转轴
     pub fn orbit_y(&mut self, angle_degrees: f32) {
-        // 1. 获取从目标点(look_at)到当前相机位置(look_from)的向量
-        let mut current_vector = self.look_from - self.look_at;
-
-        // 2. 围绕世界Y轴创建旋转
-        let angle_rad = angle_degrees.to_radians();
-
-        // 罗德里格斯旋转公式的详细说明:
-        // 给定旋转轴k(单位向量)、旋转角度θ和待旋转向量v，旋转后的向量v_rot计算如下:
-        // v_rot = v·cos(θ) + (k×v)·sin(θ) + k·(k·v)·(1-cos(θ))
-        //
-        // 对于绕Y轴的旋转，k = [0,1,0]，则公式简化为:
-        // 假设v = [x,y,z]
-        // k×v = [0,1,0]×[x,y,z] = [z,0,-x]
-        // k·v = y
-        // v_rot = [x·cos(θ) + z·sin(θ), y, z·cos(θ) - x·sin(θ)]
-        //
-        // 这与Y轴旋转矩阵的效果相同:
-        // R_y(θ) = [ cos(θ), 0, sin(θ)]
-        //          [      0, 1,      0]
-        //          [-sin(θ), 0, cos(θ)]
-        //
-        // Rust代码使用nalgebra的Rotation3::from_axis_angle自动处理这些计算
-        let rotation = Rotation3::from_axis_angle(&self.world_up, angle_rad);
-
-        // 3. 应用旋转到向量 - 等效于手动应用罗德里格斯公式
-        current_vector = rotation * current_vector;
-
-        // 以下是不使用nalgebra库的罗德里格斯公式实现 (仅作参考):
-        // let cos_angle = angle_rad.cos();
-        // let sin_angle = angle_rad.sin();
-        // let k = self.world_up.into_inner(); // 获取旋转轴向量
-        // let v = current_vector;
-        //
-        // // 计算k×v (叉积)
-        // let cross = Vector3::new(
-        //     k.y * v.z - k.z * v.y,
-        //     k.z * v.x - k.x * v.z,
-        //     k.x * v.y - k.y * v.x
-        // );
-        //
-        // // 计算k·v (点积)
-        // let dot = k.dot(&v);
-        //
-        // // 应用罗德里格斯公式
-        // current_vector = v * cos_angle + cross * sin_angle + k * dot * (1.0 - cos_angle);
-
-        // 4. 计算新的相机位置
-        self.look_from = self.look_at + current_vector;
-
-        // 5. 更新相机的内部矩阵（视图矩阵依赖于look_from）
-        self.update_camera_basis();
-        self.update_matrices();
+        // 使用世界坐标系的Y轴作为旋转轴
+        let y_axis = Vector3::new(0.0, 1.0, 0.0);
+        // 调用更通用的orbit_around_axis方法
+        self.orbit_around_axis(&y_axis, angle_degrees);
     }
 
     /// 使相机围绕look_at点在任意轴上旋转
     /// 实现通用罗德里格斯旋转
     /// axis: 旋转轴(单位向量)
     /// angle_degrees: 旋转角度(度)
-    #[allow(dead_code)]
     pub fn orbit_around_axis(&mut self, axis: &Vector3<f32>, angle_degrees: f32) {
         // 1. 获取从目标点到相机的向量
         let mut current_vector = self.look_from - self.look_at;

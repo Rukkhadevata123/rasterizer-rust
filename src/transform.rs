@@ -13,7 +13,7 @@ pub fn world_to_view(world_coords: &[Point3<f32>], view_matrix: &Matrix4<f32>) -
         .iter()
         .map(|world_point| {
             let view_h = view_matrix * world_point.to_homogeneous();
-            Point3::from_homogeneous(view_h).unwrap_or_else(|| Point3::origin())
+            Point3::from_homogeneous(view_h).unwrap_or_else(Point3::origin)
         })
         .collect()
 }
@@ -26,12 +26,13 @@ pub fn world_to_view(world_coords: &[Point3<f32>], view_matrix: &Matrix4<f32>) -
 ///
 /// # 返回值
 /// 裁剪坐标（齐次坐标）
-pub fn world_to_clip(world_coords: &[Point3<f32>], view_projection_matrix: &Matrix4<f32>) -> Vec<Vector4<f32>> {
+pub fn world_to_clip(
+    world_coords: &[Point3<f32>],
+    view_projection_matrix: &Matrix4<f32>,
+) -> Vec<Vector4<f32>> {
     world_coords
         .iter()
-        .map(|world_point| {
-            view_projection_matrix * world_point.to_homogeneous()
-        })
+        .map(|world_point| view_projection_matrix * world_point.to_homogeneous())
         .collect()
 }
 
@@ -82,12 +83,13 @@ pub fn compute_normal_matrix(view_matrix: &Matrix4<f32>) -> Matrix3<f32> {
 ///
 /// # 返回值
 /// 变换后的法线向量数组（通常是视图空间中的法线）
-pub fn transform_normals(world_normals: &[Vector3<f32>], normal_matrix: &Matrix3<f32>) -> Vec<Vector3<f32>> {
+pub fn transform_normals(
+    world_normals: &[Vector3<f32>],
+    normal_matrix: &Matrix3<f32>,
+) -> Vec<Vector3<f32>> {
     world_normals
         .iter()
-        .map(|normal| {
-            (normal_matrix * normal).normalize()
-        })
+        .map(|normal| (normal_matrix * normal).normalize())
         .collect()
 }
 
@@ -99,10 +101,13 @@ pub fn transform_normals(world_normals: &[Vector3<f32>], normal_matrix: &Matrix3
 ///
 /// # 返回值
 /// 归一化设备坐标(NDC)
-pub fn world_to_ndc(world_coords: &[Point3<f32>], view_projection_matrix: &Matrix4<f32>) -> Vec<Point3<f32>> {
+pub fn world_to_ndc(
+    world_coords: &[Point3<f32>],
+    view_projection_matrix: &Matrix4<f32>,
+) -> Vec<Point3<f32>> {
     // 使用 world_to_clip 函数将世界坐标转换为裁剪坐标
     let clip_coords = world_to_clip(world_coords, view_projection_matrix);
-    
+
     // 使用 clip_to_ndc 函数将裁剪坐标转换为NDC坐标
     clip_to_ndc(&clip_coords)
 }

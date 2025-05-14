@@ -16,6 +16,7 @@ use crate::interpolation::{
     interpolate_texcoords, is_inside_triangle,
 };
 use crate::lighting::{Light, SimpleMaterial, calculate_blinn_phong};
+use crate::material_system::IMaterial; // 添加 IMaterial trait 导入
 use crate::texture_utils::Texture;
 use atomic_float::AtomicF32;
 use nalgebra::{Point2, Point3, Vector2, Vector3};
@@ -69,7 +70,10 @@ pub struct TriangleData<'a> {
     pub light: Option<Light>,             // 光源信息（位置、强度、颜色等）
 
     pub use_phong: bool, // 是否对此三角形使用 Phong 着色（逐像素光照计算）
-                         // 若为 false，则使用 lit_color（预计算的面或顶点光照）
+    // 若为 false，则使用 lit_color（预计算的面或顶点光照）
+
+    // 添加 PBR 材质支持
+    pub pbr_material: Option<&'a crate::material_system::PBRMaterial>, // PBR 材料引用
 }
 
 /// 光栅化器配置参数
@@ -85,6 +89,8 @@ pub struct RasterizerConfig {
     pub use_perspective: bool,
     /// 是否使用Phong着色（逐像素光照计算）
     pub use_phong: bool,
+    /// 是否使用基于物理的渲染 (PBR)
+    pub use_pbr: bool,
     /// 是否使用纹理映射
     pub use_texture: bool,
     /// 是否应用gamma校正（sRGB空间转换）
@@ -98,6 +104,7 @@ impl Default for RasterizerConfig {
             use_lighting: true,
             use_perspective: true,
             use_phong: false,
+            use_pbr: false,
             use_texture: true,
             apply_gamma_correction: true,
         }
@@ -240,9 +247,10 @@ pub fn rasterize_triangle(
 /// 计算像素的最终颜色值
 ///
 /// 根据三角形数据、重心坐标和配置参数计算像素颜色。
-/// 处理两种主要的着色模式：
-/// 1. Phong着色（逐像素光照计算）
-/// 2. 预计算光照（Flat或Gouraud着色）
+/// 处理三种主要的着色模式：
+/// 1. PBR 着色（基于物理的渲染）
+/// 2. Phong着色（逐像素光照计算）
+/// 3. 预计算光照（Flat或Gouraud着色）
 ///
 /// # 参数
 /// * `triangle` - 三角形数据
@@ -256,8 +264,116 @@ fn calculate_pixel_color(
     bary: Vector3<f32>,
     config: &RasterizerConfig,
 ) -> Color {
+    // 首先检查是否使用 PBR 渲染
+    if config.use_pbr && triangle.pbr_material.is_some() && triangle.light.is_some() {
+        // --- PBR 着色（基于物理的渲染）---
+        // 获取 PBR 材质和光源
+        let pbr_material = triangle.pbr_material.unwrap();
+        let light = triangle.light.as_ref().unwrap();
+
+        // 确保有法线和位置数据
+        if triangle.n1_view.is_none() || triangle.v1_view.is_none() {
+            // 如果缺少法线或位置数据，回退到基本着色
+            return if config.use_lighting {
+                triangle.base_color.component_mul(&triangle.lit_color)
+            } else {
+                triangle.base_color
+            };
+        }
+
+        // 插值法线
+        let interp_normal = interpolate_normal(
+            bary,
+            triangle.n1_view.unwrap(),
+            triangle.n2_view.unwrap(),
+            triangle.n3_view.unwrap(),
+            triangle.is_perspective,
+            triangle.z1_view,
+            triangle.z2_view,
+            triangle.z3_view,
+        );
+
+        // 插值视图空间位置
+        let interp_position = interpolate_position(
+            bary,
+            triangle.v1_view.unwrap(),
+            triangle.v2_view.unwrap(),
+            triangle.v3_view.unwrap(),
+            triangle.is_perspective,
+            triangle.z1_view,
+            triangle.z2_view,
+            triangle.z3_view,
+        );
+
+        // 计算视线方向
+        let view_dir = (-interp_position.coords).normalize();
+
+        // 根据光源类型计算光照方向和强度
+        let (light_dir, light_intensity) = match light {
+            Light::Directional {
+                direction,
+                intensity,
+            } => (direction.normalize(), *intensity),
+            Light::Point {
+                position,
+                intensity,
+                attenuation,
+            } => {
+                let dir_to_light = (*position - interp_position).normalize();
+                let distance = (*position - interp_position).magnitude();
+
+                // 计算衰减
+                let (a, b, c) = *attenuation;
+                let attenuation_factor = 1.0 / (a + b * distance + c * distance * distance);
+
+                (dir_to_light, *intensity * attenuation_factor)
+            }
+            Light::Ambient(intensity) => {
+                // 环境光没有明确的方向，使用法线作为方向
+                (interp_normal, *intensity)
+            }
+        };
+
+        // 计算 PBR 光照响应
+        let pbr_response = pbr_material.compute_response(&light_dir, &view_dir, &interp_normal);
+
+        // 将 Vector3 转换为 Color 并应用光照强度
+        let pbr_color = Color::new(
+            pbr_response.x * light_intensity.x,
+            pbr_response.y * light_intensity.y,
+            pbr_response.z * light_intensity.z,
+        );
+
+        // 处理纹理（如果有）
+        if should_use_texture(triangle, config) {
+            let texel_color = sample_texture(triangle, bary, config);
+
+            // 将纹理颜色与 PBR 光照结果相乘
+            if config.use_lighting {
+                texel_color.component_mul(&pbr_color)
+            } else {
+                texel_color
+            }
+        } else {
+            // 无纹理，直接使用 PBR 光照结果
+            if config.use_lighting {
+                let base_pbr_color = Color::new(
+                    pbr_material.base_color.x,
+                    pbr_material.base_color.y,
+                    pbr_material.base_color.z,
+                );
+                base_pbr_color.component_mul(&pbr_color)
+            } else {
+                Color::new(
+                    pbr_material.base_color.x,
+                    pbr_material.base_color.y,
+                    pbr_material.base_color.z,
+                )
+            }
+        }
+    }
     // 判断是否使用Phong着色
-    if config.use_phong
+    else if config.use_phong
         && triangle.use_phong
         && triangle.n1_view.is_some()
         && triangle.material.is_some()
