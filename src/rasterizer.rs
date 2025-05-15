@@ -310,7 +310,7 @@ fn calculate_pixel_color(
 
         // 获取环境光颜色
         let ambient_color = material_view.get_ambient_color();
-        
+
         // 根据光源类型计算光照方向和强度
         let light_dir = light.get_direction(&interp_position);
         let light_intensity = light.get_intensity(&interp_position);
@@ -324,7 +324,7 @@ fn calculate_pixel_color(
             response.y * light_intensity.y,
             response.z * light_intensity.z,
         );
-        
+
         // 如果是环境光源，使用环境光颜色
         if let Light::Ambient(intensity) = light {
             // 添加环境光贡献
@@ -415,7 +415,7 @@ fn calculate_pixel_color(
 
         // 获取环境光颜色
         let ambient_color = material_view.get_ambient_color();
-        
+
         // 计算光照方向和强度
         let light_dir = light.get_direction(&interp_position);
         let light_intensity = light.get_intensity(&interp_position);
@@ -429,7 +429,7 @@ fn calculate_pixel_color(
             response.y * light_intensity.y,
             response.z * light_intensity.z,
         );
-        
+
         // 如果是环境光源，使用环境光颜色
         if let Light::Ambient(intensity) = light {
             // 添加环境光贡献

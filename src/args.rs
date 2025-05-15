@@ -27,17 +27,17 @@ pub struct Args {
     #[arg(long, default_value = "perspective")]
     pub projection: String,
 
-    /// 禁用Z缓冲（深度测试）
-    #[arg(long, default_value_t = false)]
-    pub no_zbuffer: bool,
+    /// 启用Z缓冲（深度测试）
+    #[arg(long, default_value_t = true)]
+    pub use_zbuffer: bool,
 
     /// 使用伪随机面颜色而非材质颜色
     #[arg(long, default_value_t = false)]
     pub colorize: bool,
 
-    /// 禁用渲染和保存深度图
-    #[arg(long, default_value_t = false)]
-    pub no_depth: bool,
+    /// 启用渲染和保存深度图
+    #[arg(long, default_value_t = true)]
+    pub save_depth: bool,
 
     // --- 相机参数 ---
     /// 相机位置（视点），格式为"x,y,z"
@@ -57,9 +57,9 @@ pub struct Args {
     pub camera_fov: f32,
 
     // --- 光照参数 ---
-    /// 禁用光照计算
-    #[arg(long, default_value_t = false)]
-    pub no_lighting: bool,
+    /// 启用光照计算
+    #[arg(long, default_value_t = true)]
+    pub use_lighting: bool,
 
     /// 光源类型："directional"（定向光）或"point"（点光源）
     #[arg(long, default_value = "directional")]
@@ -117,17 +117,17 @@ pub struct Args {
     #[arg(long, default_value = "0.0,0.0,0.0")]
     pub emissive: String,
 
-    /// 禁用纹理加载和使用
-    #[arg(long, default_value_t = false)]
-    pub no_texture: bool,
+    /// 启用纹理加载和使用
+    #[arg(long, default_value_t = true)]
+    pub use_texture: bool,
 
     /// 显式指定要使用的纹理文件，覆盖MTL设置
     #[arg(long)]
     pub texture: Option<String>,
 
-    /// 禁用gamma矫正（默认启用）
-    #[arg(long, default_value_t = false)]
-    pub no_gamma: bool,
+    /// 启用gamma矫正
+    #[arg(long, default_value_t = true)]
+    pub use_gamma: bool,
 
     /// 场景中要创建的对象实例数量
     #[arg(long)]
@@ -149,9 +149,9 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub wireframe: bool,
 
-    /// 禁用多线程渲染
-    #[arg(long, default_value_t = false)]
-    pub no_multithreading: bool,
+    /// 启用多线程渲染
+    #[arg(long, default_value_t = true)]
+    pub use_multithreading: bool,
 
     /// 启用小三角形剔除
     #[arg(long, default_value_t = false)]
@@ -160,7 +160,7 @@ pub struct Args {
     /// 小三角形剔除的最小面积阈值
     #[arg(long, default_value_t = 1e-3)]
     pub min_triangle_area: f32,
-    
+
     /// 测试API模式 - 仅用于测试未使用的变换API
     #[arg(long, default_value_t = false)]
     pub test_api: bool,

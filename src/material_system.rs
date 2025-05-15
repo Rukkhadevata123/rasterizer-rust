@@ -158,7 +158,7 @@ impl<'a> MaterialView<'a> {
                 let metallic = material.metallic;
                 let roughness = material.roughness;
                 let ao = material.ambient_occlusion;
-                
+
                 // 使用原始法线
                 let n = *normal;
 

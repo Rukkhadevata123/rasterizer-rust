@@ -466,7 +466,8 @@ impl Renderer {
                         let material_view = if rasterizer_config.use_pbr {
                             material_opt.map(|m| MaterialView::from_material(m, MaterialMode::PBR))
                         } else {
-                            material_opt.map(|m| MaterialView::from_material(m, MaterialMode::BlinnPhong))
+                            material_opt
+                                .map(|m| MaterialView::from_material(m, MaterialMode::BlinnPhong))
                         };
 
                         // --- 准备TriangleData ---

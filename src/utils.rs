@@ -129,4 +129,3 @@ pub fn normalize_and_center_model(model_data: &mut ModelData) -> (Vector3<f32>, 
 
     (center, scale_factor)
 }
-

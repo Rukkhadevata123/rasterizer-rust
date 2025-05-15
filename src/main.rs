@@ -98,7 +98,7 @@ fn apply_pbr_parameters(model_data: &mut ModelData, args: &Args) {
 
 /// 设置场景光源
 fn setup_lights(scene: &mut Scene, args: &Args) -> Result<(), String> {
-    if args.no_lighting {
+    if !args.use_lighting {
         // 使用环境光
         let ambient_intensity = if let Ok(ambient_color) = parse_vec3(&args.ambient_color) {
             println!("使用RGB环境光强度: {:?}", ambient_color);
@@ -205,17 +205,17 @@ fn create_render_config(scene: &Scene, args: &Args) -> RenderConfig {
 
     RenderConfig::default()
         .with_projection(&args.projection)
-        .with_zbuffer(!args.no_zbuffer)
+        .with_zbuffer(args.use_zbuffer)
         .with_face_colors(args.colorize)
-        .with_texture(!args.no_texture)
+        .with_texture(args.use_texture)
         .with_light(light)
-        .with_lighting(!args.no_lighting)
+        .with_lighting(args.use_lighting)
         .with_phong(args.use_phong)
-        .with_gamma_correction(!args.no_gamma)
+        .with_gamma_correction(args.use_gamma)
         .with_pbr(args.use_pbr)
         .with_backface_culling(args.backface_culling)
         .with_wireframe(args.wireframe)
-        .with_multithreading(!args.no_multithreading)
+        .with_multithreading(args.use_multithreading)
         .with_small_triangle_culling(args.cull_small_triangles, args.min_triangle_area)
 }
 
@@ -242,7 +242,7 @@ fn save_render_result(
     );
 
     // 保存深度图（如果启用）
-    if config.use_zbuffer && !args.no_depth {
+    if config.use_zbuffer && args.save_depth {
         let depth_data_raw = renderer.frame_buffer.get_depth_buffer_f32();
         let depth_normalized = normalize_depth(&depth_data_raw, 1.0, 99.0);
         let depth_colored = apply_colormap_jet(
@@ -293,13 +293,9 @@ fn render_single_frame(
     // 打印材质信息（调试用）
     if let Some(model) = scene.models.first() {
         for (i, material) in model.materials.iter().enumerate() {
-            if i == 0 || !material.is_opaque() {
+            if i == 0 {
                 println!("材质 #{}: {}", i, material.get_name());
                 println!("  漫反射颜色: {:?}", material.diffuse);
-
-                if !material.is_opaque() {
-                    println!("  透明度: {:.2}", material.get_opacity());
-                }
             }
         }
     }
@@ -383,18 +379,21 @@ fn run_animation_loop(args: &Args, scene: &mut Scene, renderer: &Renderer) -> Re
 fn test_transformation_api(obj_path: &str) -> Result<(), String> {
     println!("测试变换API和未使用的方法...");
     let test_start = Instant::now();
-    
+
     // --- 加载模型 ---
     let args = Args::parse_from(vec![
-        "rasterizer", 
-        "--obj", obj_path,
-        "--width", "800",
-        "--height", "600"
+        "rasterizer",
+        "--obj",
+        obj_path,
+        "--width",
+        "800",
+        "--height",
+        "600",
     ]);
-    
+
     let mut model_data = load_obj_enhanced(obj_path, &args)?;
     normalize_and_center_model(&mut model_data);
-    
+
     // --- 测试相机操作 ---
     println!("测试相机变换方法...");
     let mut camera = Camera::new(
@@ -404,39 +403,46 @@ fn test_transformation_api(obj_path: &str) -> Result<(), String> {
         45.0,
         1.333,
         0.1,
-        100.0
+        100.0,
     );
-    
+
     // 测试Camera中未使用的方法
-    camera.pan(0.1, 0.2);  // 测试相机平移
-    camera.dolly(-0.5);    // 测试相机前后移动
-    camera.set_fov(60.0);  // 测试设置视场角
+    camera.pan(0.1, 0.2); // 测试相机平移
+    camera.dolly(-0.5); // 测试相机前后移动
+    camera.set_fov(60.0); // 测试设置视场角
     camera.set_aspect_ratio(1.5); // 测试设置宽高比
-    
+
     // --- 测试场景对象变换 ---
     println!("测试场景对象变换方法...");
     let mut scene = Scene::new(camera.clone());
     let model_id = scene.add_model(model_data);
-    
+
     // 创建一个使用with_transform的对象
-    let transform = transform::TransformFactory::translation(&nalgebra::Vector3::new(1.0, 0.0, 0.0));
+    let transform =
+        transform::TransformFactory::translation(&nalgebra::Vector3::new(1.0, 0.0, 0.0));
     let mut obj1 = SceneObject::with_transform(model_id, transform, None);
-    
+
     // 使用SceneObject的set_position方法
     obj1.set_position(nalgebra::Point3::new(0.5, 0.5, 0.0));
-    
+
     // 使用Transformable的get_transform方法
     let current_transform = obj1.get_transform();
     println!("当前变换矩阵: {:?}", current_transform);
-    
+
     // 使用Transformable的apply_local方法
     let local_transform = transform::TransformFactory::rotation_x(45.0_f32.to_radians());
     obj1.apply_local(local_transform);
-    
+
     // 测试TransformOperations中未使用的方法
     obj1.translate_local(&nalgebra::Vector3::new(0.1, 0.2, 0.3));
-    obj1.rotate_local(&nalgebra::Vector3::new(0.0, 1.0, 0.0), 30.0_f32.to_radians());
-    obj1.rotate_global(&nalgebra::Vector3::new(1.0, 0.0, 0.0), 45.0_f32.to_radians());
+    obj1.rotate_local(
+        &nalgebra::Vector3::new(0.0, 1.0, 0.0),
+        30.0_f32.to_radians(),
+    );
+    obj1.rotate_global(
+        &nalgebra::Vector3::new(1.0, 0.0, 0.0),
+        45.0_f32.to_radians(),
+    );
     obj1.rotate_local_x(15.0_f32.to_radians());
     obj1.rotate_local_y(15.0_f32.to_radians());
     obj1.rotate_local_z(15.0_f32.to_radians());
@@ -445,16 +451,16 @@ fn test_transformation_api(obj_path: &str) -> Result<(), String> {
     obj1.scale_local(&nalgebra::Vector3::new(1.2, 1.2, 1.2));
     obj1.scale_local_uniform(1.5);
     obj1.scale_global_uniform(0.8);
-    
+
     // 添加对象到场景
     scene.add_object(obj1, Some("test_object"));
-    
+
     // --- 测试TransformFactory中未使用的方法 ---
     println!("测试TransformFactory未使用的方法...");
     let _rotation_x = transform::TransformFactory::rotation_x(30.0_f32.to_radians());
     let _rotation_z = transform::TransformFactory::rotation_z(30.0_f32.to_radians());
     let _scaling = transform::TransformFactory::scaling(1.5);
-    
+
     // --- 测试坐标变换函数 ---
     println!("测试坐标变换函数...");
     let test_points = vec![
@@ -462,27 +468,27 @@ fn test_transformation_api(obj_path: &str) -> Result<(), String> {
         nalgebra::Point3::new(1.0, 0.0, 0.0),
         nalgebra::Point3::new(0.0, 1.0, 0.0),
     ];
-    
+
     // 测试world_to_screen函数 - 修复：使用view_projection_matrix作为字段而非方法
     let view_proj = &camera.view_projection_matrix;
     let screen_points = transform::world_to_screen(&test_points, view_proj, 800.0, 600.0);
     println!("世界坐标点转换为屏幕坐标: {:?}", screen_points);
-    
+
     println!("变换API测试完成，耗时 {:?}", test_start.elapsed());
     println!("所有方法均正常工作");
-    
+
     Ok(())
 }
 
 // 在main函数中添加对test_transformation_api的条件调用
 fn main() -> Result<(), String> {
     let args = Args::parse();
-    
+
     // 如果指定了test_api参数，则运行API测试
     if args.test_api {
         return test_transformation_api(&args.obj);
     }
-    
+
     let start_time = Instant::now();
 
     // --- 验证输入和设置 ---

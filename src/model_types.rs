@@ -24,7 +24,7 @@ pub enum MaterialMode {
 pub struct Material {
     // --- 通用属性 ---
     pub name: String,
-    pub dissolve: f32, // 透明度 (1.0 = 不透明)
+    pub dissolve: f32, // 透明度 (1.0 = 不透明) // TODO
 
     // --- 传统Blinn-Phong属性 ---
     pub ambient: Vector3<f32>,
@@ -63,16 +63,6 @@ impl Material {
     /// 获取材质名称
     pub fn get_name(&self) -> &str {
         &self.name
-    }
-
-    /// 检查材质是否完全不透明
-    pub fn is_opaque(&self) -> bool {
-        self.dissolve >= 0.999
-    }
-    
-    /// 获取材质不透明度
-    pub fn get_opacity(&self) -> f32 {
-        self.dissolve
     }
 }
 
