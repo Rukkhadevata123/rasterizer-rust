@@ -18,6 +18,7 @@ use crate::interpolation::{
 use crate::material_system::{Light, MaterialView};
 use crate::model_types::{Material, MaterialMode};
 use crate::texture_utils::Texture;
+use crate::renderer::RenderConfig;  // 直接导入 RenderConfig
 use atomic_float::AtomicF32;
 use nalgebra::{Point2, Point3, Vector2, Vector3};
 use std::sync::Mutex;
@@ -76,42 +77,6 @@ pub struct TriangleData<'a> {
     pub material_view: Option<MaterialView<'a>>,
 }
 
-/// 光栅化器配置参数
-///
-/// 控制光栅化过程中的各种功能开关，包括深度测试、光照计算、透视校正等。
-/// 此结构体是从 RenderConfig 转换而来，便于光栅化器模块的使用。
-#[derive(Debug, Clone, Copy)]
-pub struct RasterizerConfig {
-    /// 是否启用深度缓冲和深度测试
-    pub use_zbuffer: bool,
-    /// 是否应用光照计算
-    pub use_lighting: bool,
-    /// 是否使用透视校正插值
-    pub use_perspective: bool,
-    /// 是否使用Phong着色（逐像素光照计算）
-    pub use_phong: bool,
-    /// 是否使用基于物理的渲染 (PBR)
-    pub use_pbr: bool,
-    /// 是否使用纹理映射
-    pub use_texture: bool,
-    /// 是否应用gamma校正（sRGB空间转换）
-    pub apply_gamma_correction: bool,
-}
-
-impl Default for RasterizerConfig {
-    fn default() -> Self {
-        Self {
-            use_zbuffer: true,
-            use_lighting: true,
-            use_perspective: true,
-            use_phong: false,
-            use_pbr: false,
-            use_texture: true,
-            apply_gamma_correction: true,
-        }
-    }
-}
-
 /// 光栅化单个三角形到帧缓冲区
 ///
 /// 该函数实现了三角形光栅化的核心算法，包括：
@@ -135,7 +100,7 @@ pub fn rasterize_triangle(
     height: usize,
     depth_buffer: &[AtomicF32],
     color_buffer: &Mutex<Vec<u8>>,
-    config: &RasterizerConfig,
+    config: &RenderConfig, // 直接使用 RenderConfig
 ) {
     // 1. 计算三角形包围盒
     let min_x = triangle
@@ -199,7 +164,7 @@ pub fn rasterize_triangle(
                         triangle.z1_view,
                         triangle.z2_view,
                         triangle.z3_view,
-                        config.use_perspective && triangle.is_perspective,
+                        config.is_perspective() && triangle.is_perspective,
                     );
 
                     // 检查深度是否有效（不在相机后方且不太远）
@@ -263,7 +228,7 @@ pub fn rasterize_triangle(
 fn calculate_pixel_color(
     triangle: &TriangleData,
     bary: Vector3<f32>,
-    config: &RasterizerConfig,
+    config: &RenderConfig,
 ) -> Color {
     // 首先检查是否使用材质视图进行渲染
     if config.use_pbr && triangle.material_view.is_some() && triangle.light.is_some() {
@@ -490,7 +455,7 @@ fn calculate_pixel_color(
 ///
 /// # 返回值
 /// 如果应该使用纹理，返回true
-fn should_use_texture(triangle: &TriangleData, config: &RasterizerConfig) -> bool {
+fn should_use_texture(triangle: &TriangleData, config: &RenderConfig) -> bool {
     config.use_texture
         && triangle.texture.is_some()
         && triangle.tc1.is_some()
@@ -507,7 +472,7 @@ fn should_use_texture(triangle: &TriangleData, config: &RasterizerConfig) -> boo
 ///
 /// # 返回值
 /// 采样得到的纹理颜色（线性RGB空间）
-fn sample_texture(triangle: &TriangleData, bary: Vector3<f32>, config: &RasterizerConfig) -> Color {
+fn sample_texture(triangle: &TriangleData, bary: Vector3<f32>, config: &RenderConfig) -> Color {
     // 获取三角形的纹理坐标
     let tc1 = triangle.tc1.unwrap();
     let tc2 = triangle.tc2.unwrap();
@@ -523,7 +488,7 @@ fn sample_texture(triangle: &TriangleData, bary: Vector3<f32>, config: &Rasteriz
         triangle.z1_view,
         triangle.z2_view,
         triangle.z3_view,
-        config.use_perspective && triangle.is_perspective,
+        config.is_perspective() && triangle.is_perspective,
     );
 
     // 采样纹理

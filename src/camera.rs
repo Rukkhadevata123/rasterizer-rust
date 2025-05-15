@@ -121,7 +121,7 @@ impl Camera {
         // 如果不是正交投影，则更新透视投影矩阵
         if self.fov_y > 0.0 {
             self.projection_matrix =
-                TransformFactory::perspective(self.fov_y, self.aspect_ratio, self.near, self.far);
+                TransformFactory::perspective(self.aspect_ratio, self.fov_y, self.near, self.far);
         }
 
         // 计算组合的视图-投影矩阵
@@ -195,7 +195,7 @@ impl Camera {
 
         // 更新投影矩阵和视图-投影矩阵
         self.projection_matrix =
-            TransformFactory::perspective(self.fov_y, self.aspect_ratio, self.near, self.far);
+            TransformFactory::perspective(self.aspect_ratio, self.fov_y, self.near, self.far);
         self.view_projection_matrix = self.projection_matrix * self.view_matrix;
     }
 
@@ -206,7 +206,7 @@ impl Camera {
         // 更新投影矩阵和视图-投影矩阵
         if self.fov_y > 0.0 {
             self.projection_matrix =
-                TransformFactory::perspective(self.fov_y, self.aspect_ratio, self.near, self.far);
+                TransformFactory::perspective(self.aspect_ratio, self.fov_y, self.near, self.far);
         } else {
             // 如果是正交投影，根据宽高比调整投影矩阵
             let height = 2.0;
@@ -247,8 +247,8 @@ impl Camera {
         } else if projection_type == "perspective" && self.fov_y <= 0.0 {
             // 需要创建透视投影矩阵
             TransformFactory::perspective(
-                60.0f32.to_radians(),
                 self.aspect_ratio,
+                60.0f32.to_radians(),
                 self.near,
                 self.far,
             )

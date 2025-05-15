@@ -44,7 +44,7 @@ impl TransformFactory {
     }
 
     /// 创建透视投影矩阵
-    pub fn perspective(fov_y_rad: f32, aspect_ratio: f32, near: f32, far: f32) -> Matrix4<f32> {
+    pub fn perspective(aspect_ratio: f32, fov_y_rad: f32, near: f32, far: f32) -> Matrix4<f32> {
         Matrix4::new_perspective(aspect_ratio, fov_y_rad, near, far)
     }
 

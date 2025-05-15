@@ -211,18 +211,12 @@ impl RenderConfig {
         self
     }
 
-    /// 转换为光栅化器配置
-    pub fn to_rasterizer_config(&self) -> crate::rasterizer::RasterizerConfig {
-        crate::rasterizer::RasterizerConfig {
-            use_zbuffer: self.use_zbuffer,
-            use_lighting: self.use_lighting,
-            use_perspective: self.projection_type == "perspective",
-            use_phong: self.use_phong,
-            use_pbr: self.use_pbr,
-            use_texture: self.use_texture,
-            apply_gamma_correction: self.apply_gamma_correction,
-        }
+    /// 判断是否使用透视投影
+    pub fn is_perspective(&self) -> bool {
+        self.projection_type == "perspective"
     }
+    
+    // 注意：to_rasterizer_config() 方法已被移除，现在直接使用 RenderConfig
 }
 
 pub struct Renderer {
@@ -336,8 +330,7 @@ impl Renderer {
         println!("光栅化网格...");
         let raster_start_time = Instant::now();
 
-        // 创建 RasterizerConfig
-        let rasterizer_config = config.to_rasterizer_config();
+        // 注意：不再需要创建RasterizerConfig，直接使用config
 
         // --- 使用Rayon进行并行光栅化 ---
         let all_pixel_coords_ref = &all_pixel_coords;
@@ -379,7 +372,7 @@ impl Renderer {
                 let light_clone = config.light;
 
                 // 使用RasterizerConfig中的设置
-                let use_texture = rasterizer_config.use_texture;
+                let use_texture = config.use_texture;
                 let texture = if use_texture {
                     material_opt.and_then(|m| m.diffuse_texture.as_ref())
                 } else {
@@ -463,7 +456,7 @@ impl Renderer {
                         };
 
                         // 创建材质视图
-                        let material_view = if rasterizer_config.use_pbr {
+                        let material_view = if config.use_pbr {
                             material_opt.map(|m| MaterialView::from_material(m, MaterialMode::PBR))
                         } else {
                             material_opt
@@ -484,7 +477,7 @@ impl Renderer {
                             tc2: texture.map(|_| v1.texcoord),
                             tc3: texture.map(|_| v2.texcoord),
                             texture,
-                            is_perspective: rasterizer_config.use_perspective,
+                            is_perspective: config.is_perspective(),
                             // Phong着色所需的额外数据
                             n1_view: Some(all_view_normals_ref[global_i0]),
                             n2_view: Some(all_view_normals_ref[global_i1]),
@@ -494,7 +487,7 @@ impl Renderer {
                             v3_view: Some(view_pos2),
                             material: material_opt,   // 传递材质引用
                             light: Some(light_clone), // 使用克隆的光源的值，而不是引用
-                            use_phong: rasterizer_config.use_phong,
+                            use_phong: config.use_phong,
                             material_view, // 使用新的材质视图
                         })
                     })
@@ -512,7 +505,7 @@ impl Renderer {
                     self.frame_buffer.height,
                     &self.frame_buffer.depth_buffer,
                     &self.frame_buffer.color_buffer,
-                    &rasterizer_config,
+                    config,  // 直接传递config，不再使用rasterizer_config
                 );
             });
         } else {
@@ -524,7 +517,7 @@ impl Renderer {
                     self.frame_buffer.height,
                     &self.frame_buffer.depth_buffer,
                     &self.frame_buffer.color_buffer,
-                    &rasterizer_config,
+                    config,  // 直接传递config，不再使用rasterizer_config
                 );
             });
         }
