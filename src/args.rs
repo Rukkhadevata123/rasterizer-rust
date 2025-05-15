@@ -3,121 +3,125 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// Path to the input OBJ file
+    /// 输入OBJ文件的路径
     #[arg(long)]
     pub obj: String,
 
-    /// Base name for output files (e.g., "render" -> "render_color.png", "render_depth.png")
+    /// 输出文件的基础名称（例如: "render" -> "render_color.png", "render_depth.png"）
     #[arg(short, long, default_value = "output")]
     pub output: String,
 
-    /// Directory for output images
+    /// 输出图像的目录
     #[arg(long, default_value = "output_rust")]
     pub output_dir: String,
 
-    /// Width of the output image
+    /// 输出图像的宽度
     #[arg(long, default_value_t = 1024)]
     pub width: usize,
 
-    /// Height of the output image
+    /// 输出图像的高度
     #[arg(long, default_value_t = 1024)]
     pub height: usize,
 
-    /// Projection type: "perspective" or "orthographic"
+    /// 投影类型："perspective"（透视投影）或"orthographic"（正交投影）
     #[arg(long, default_value = "perspective")]
     pub projection: String,
 
-    /// Disable Z-buffer (depth testing)
+    /// 禁用Z缓冲（深度测试）
     #[arg(long, default_value_t = false)]
     pub no_zbuffer: bool,
 
-    /// Use pseudo-random face colors instead of material colors
+    /// 使用伪随机面颜色而非材质颜色
     #[arg(long, default_value_t = false)]
     pub colorize: bool,
 
-    /// Disable rendering and saving the depth map
+    /// 禁用渲染和保存深度图
     #[arg(long, default_value_t = false)]
     pub no_depth: bool,
 
-    // --- Camera Arguments ---
-    /// Camera position (eye) as "x,y,z"
+    // --- 相机参数 ---
+    /// 相机位置（视点），格式为"x,y,z"
     #[arg(long, default_value = "0,0,3", allow_negative_numbers = true)]
     pub camera_from: String,
 
-    /// Camera target (look at) as "x,y,z"
+    /// 相机目标（观察点），格式为"x,y,z"
     #[arg(long, default_value = "0,0,0", allow_negative_numbers = true)]
     pub camera_at: String,
 
-    /// Camera world up direction as "x,y,z"
+    /// 相机世界坐标系上方向，格式为"x,y,z"
     #[arg(long, default_value = "0,1,0", allow_negative_numbers = true)]
     pub camera_up: String,
 
-    /// Camera vertical field of view in degrees (for perspective)
+    /// 相机垂直视场角（度，用于透视投影）
     #[arg(long, default_value_t = 45.0)]
     pub camera_fov: f32,
 
-    // --- Lighting Arguments ---
-    /// Disable lighting calculations
+    // --- 光照参数 ---
+    /// 禁用光照计算
     #[arg(long, default_value_t = false)]
     pub no_lighting: bool,
 
-    /// Type of light source: "directional" or "point"
+    /// 光源类型："directional"（定向光）或"point"（点光源）
     #[arg(long, default_value = "directional")]
     pub light_type: String,
 
-    /// Direction *from* the light source (for directional light) as "x,y,z"
+    /// 光源方向（来自光源的方向，用于定向光），格式为"x,y,z"
     #[arg(long, default_value = "0,-1,-1", allow_negative_numbers = true)]
     pub light_dir: String,
 
-    /// Position of the light source (for point light) as "x,y,z"
+    /// 光源位置（用于点光源），格式为"x,y,z"
     #[arg(long, default_value = "0,5,5", allow_negative_numbers = true)]
     pub light_pos: String,
 
-    /// Attenuation factors (constant, linear, quadratic) for point light as "c,l,q"
+    /// 点光源的衰减因子（常数项,线性项,二次项），格式为"c,l,q"
     #[arg(long, default_value = "1.0,0.09,0.032", allow_negative_numbers = true)]
     pub light_atten: String,
 
-    /// Ambient light intensity factor
+    /// 环境光强度因子
     #[arg(long, default_value_t = 0.1)]
     pub ambient: f32,
 
-    /// Diffuse light intensity factor
+    /// 环境光强度RGB值，格式为"r,g,b"，优先级高于ambient参数
+    #[arg(long, default_value = "0.1,0.1,0.1")]
+    pub ambient_color: String,
+
+    /// 漫反射光强度因子
     #[arg(long, default_value_t = 0.8)]
     pub diffuse: f32,
 
-    /// 使用 Phong 着色（逐像素光照）而非默认的 Flat 着色
+    /// 使用Phong着色（逐像素光照）而非默认的Flat着色
     #[arg(long, default_value_t = false)]
     pub use_phong: bool,
 
-    /// 使用基于物理的渲染 (PBR) 而不是传统 Blinn-Phong
+    /// 使用基于物理的渲染(PBR)而不是传统Blinn-Phong
     #[arg(long, default_value_t = false)]
     pub use_pbr: bool,
 
-    /// 材质的金属度 (0.0-1.0，仅在PBR模式下有效)
+    /// 材质的金属度(0.0-1.0，仅在PBR模式下有效)
     #[arg(long, default_value_t = 0.0)]
     pub metallic: f32,
 
-    /// 材质的粗糙度 (0.0-1.0，仅在PBR模式下有效)
+    /// 材质的粗糙度(0.0-1.0，仅在PBR模式下有效)
     #[arg(long, default_value_t = 0.5)]
     pub roughness: f32,
 
-    /// 材质的基础颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内 (仅在PBR模式下有效)
+    /// 材质的基础颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(仅在PBR模式下有效)
     #[arg(long, default_value = "0.8,0.8,0.8")]
     pub base_color: String,
 
-    /// 环境光遮蔽系数 (0.0-1.0，仅在PBR模式下有效)
+    /// 环境光遮蔽系数(0.0-1.0，仅在PBR模式下有效)
     #[arg(long, default_value_t = 1.0)]
     pub ambient_occlusion: f32,
 
-    /// 材质的自发光颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内 (仅在PBR模式下有效)
+    /// 材质的自发光颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(仅在PBR模式下有效)
     #[arg(long, default_value = "0.0,0.0,0.0")]
     pub emissive: String,
 
-    /// Disable texture loading and usage
+    /// 禁用纹理加载和使用
     #[arg(long, default_value_t = false)]
     pub no_texture: bool,
 
-    /// Explicitly specify a texture file to use, overriding MTL settings.
+    /// 显式指定要使用的纹理文件，覆盖MTL设置
     #[arg(long)]
     pub texture: Option<String>,
 
@@ -129,7 +133,7 @@ pub struct Args {
     #[arg(long)]
     pub object_count: Option<String>,
 
-    /// Run the full animation loop instead of a single frame render
+    /// 运行完整动画循环而非单帧渲染
     #[arg(long, default_value_t = false)]
     pub animate: bool,
 
@@ -137,42 +141,50 @@ pub struct Args {
     #[arg(long, default_value_t = 120)]
     pub total_frames: usize,
 
-    /// 是否显示额外的调试信息
+    /// 启用背面剔除
     #[arg(long, default_value_t = false)]
-    pub show_debug_info: bool,
+    pub backface_culling: bool,
 
-    /// 是否测试场景管理功能
+    /// 以线框模式渲染
     #[arg(long, default_value_t = false)]
-    pub test_scene_management: bool,
+    pub wireframe: bool,
 
-    /// 是否测试场景清除功能
+    /// 禁用多线程渲染
     #[arg(long, default_value_t = false)]
-    pub test_clear_scene: bool,
+    pub no_multithreading: bool,
 
-    /// 是否测试材质操作功能
+    /// 启用小三角形剔除
     #[arg(long, default_value_t = false)]
-    pub test_materials: bool,
+    pub cull_small_triangles: bool,
+
+    /// 小三角形剔除的最小面积阈值
+    #[arg(long, default_value_t = 1e-3)]
+    pub min_triangle_area: f32,
+    
+    /// 测试API模式 - 仅用于测试未使用的变换API
+    #[arg(long, default_value_t = false)]
+    pub test_api: bool,
 }
 
-// Helper function to parse comma-separated floats
-// Standard parse should handle negatives, no special logic needed here
+// 辅助函数用于解析逗号分隔的浮点数
+// 标准解析应该能处理负数，这里不需要特殊逻辑
 pub fn parse_vec3(s: &str) -> Result<nalgebra::Vector3<f32>, String> {
     let parts: Vec<&str> = s.split(',').collect();
     if parts.len() != 3 {
-        return Err("Expected 3 comma-separated values".to_string());
+        return Err("需要3个逗号分隔的值".to_string());
     }
     let x = parts[0]
         .trim()
         .parse::<f32>()
-        .map_err(|e| format!("Invalid number '{}': {}", parts[0], e))?;
+        .map_err(|e| format!("无效数字 '{}': {}", parts[0], e))?;
     let y = parts[1]
         .trim()
         .parse::<f32>()
-        .map_err(|e| format!("Invalid number '{}': {}", parts[1], e))?;
+        .map_err(|e| format!("无效数字 '{}': {}", parts[1], e))?;
     let z = parts[2]
         .trim()
         .parse::<f32>()
-        .map_err(|e| format!("Invalid number '{}': {}", parts[2], e))?;
+        .map_err(|e| format!("无效数字 '{}': {}", parts[2], e))?;
     Ok(nalgebra::Vector3::new(x, y, z))
 }
 

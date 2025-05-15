@@ -11,6 +11,7 @@
 - **3D模型加载**: 支持OBJ格式模型的加载和渲染
 - **多种投影方式**: 支持透视投影和正交投影
 - **光照模型**: 实现了环境光、方向光和点光源，以及Blinn-Phong着色模型
+- **环境光设置**: 支持RGB格式环境光强度设置，实现更精确的环境光色调控制
 - **基于物理的渲染(PBR)**: 实现了基于金属度/粗糙度的PBR着色模型，可精确控制材质外观
 - **纹理映射**: 支持图片纹理加载和UV映射
 - **多种着色方式**: 支持平面着色(Flat Shading)、Phong着色(逐像素光照)和PBR着色
@@ -137,18 +138,15 @@ pub fn interpolate_texcoords(
 
 ### 2. 光照计算
 
-实现了Blinn-Phong光照模型，支持环境光、漫反射和镜面反射计算：
+实现了Blinn-Phong光照模型和PBR材质系统，支持环境光、漫反射和镜面反射计算：
 
 ```rust
-pub fn calculate_blinn_phong(
-    point: Point3<f32>,
-    normal: Vector3<f32>,
-    view_dir: Vector3<f32>,
-    light: &Light,
-    material: &SimpleMaterial,
-) -> Color {
-    // Blinn-Phong 光照计算...
-}
+// Blinn-Phong 光照计算（在MaterialView实现中）
+let diffuse = material.diffuse * n_dot_l;
+let halfway_dir = (light_dir + view_dir).normalize();
+let n_dot_h = normal.dot(&halfway_dir).max(0.0);
+let spec_intensity = n_dot_h.powf(material.shininess);
+let specular = material.specular * spec_intensity;
 ```
 
 ### 3. 线程安全的Z缓冲
@@ -198,17 +196,25 @@ scene.create_object_ring(model_id, count - 1, radius, Some("satellite"));
 实现了基于金属度/粗糙度工作流的简化版 PBR 渲染系统，提供更真实的材质表现：
 
 ```rust
-// PBR 材质定义
-pub struct PBRMaterial {
-    /// 基础色/反照率，非金属材质时代表漫反射颜色
+// Material 结构体同时支持传统材质和PBR材质属性
+pub struct Material {
+    // --- 通用属性 ---
+    pub name: String,
+    pub dissolve: f32,
+    
+    // --- 传统Blinn-Phong属性 ---
+    pub ambient: Vector3<f32>,
+    pub diffuse: Vector3<f32>,
+    pub specular: Vector3<f32>,
+    pub shininess: f32,
+    pub diffuse_texture: Option<Texture>,
+
+    // --- PBR属性 ---
     pub base_color: Vector3<f32>,
-    /// 金属度，0.0 为绝缘体，1.0 为金属
     pub metallic: f32,
-    /// 粗糙度，影响微表面分布，0.0 为完全光滑，1.0 为非常粗糙
     pub roughness: f32,
-    /// 环境光遮蔽
     pub ambient_occlusion: f32,
-    // ...其他PBR相关属性
+    pub emissive: Vector3<f32>,
 }
 
 // Cook-Torrance BRDF 计算
@@ -220,21 +226,21 @@ let g = geometry_smith(n_dot_v, n_dot_l, roughness); // 几何遮蔽函数
 let specular = (d * g * f) / (4.0 * n_dot_v * n_dot_l).max(0.001);
 ```
 
-### 7. 全局与局部坐标系变换
+### 7. 统一的坐标变换系统
 
-支持不同坐标系下的对象变换，实现更灵活的场景构建：
+实现了完整、统一的坐标变换系统，支持局部和全局变换操作：
 
 ```rust
 // 在局部坐标系旋转（后乘变换矩阵）
-pub fn rotate_local(&mut self, axis: &Vector3<f32>, angle_rad: f32) {
-    let rotation_matrix = Matrix4::from_axis_angle(&Unit::new_normalize(*axis), angle_rad);
-    self.transform *= rotation_matrix; // 后乘以实现局部旋转
+fn rotate_local(&mut self, axis: &Vector3<f32>, angle_rad: f32) {
+    let rotation_matrix = TransformFactory::rotation(axis, angle_rad);
+    self.apply_local(rotation_matrix);
 }
 
 // 在世界坐标系旋转（前乘变换矩阵）
-pub fn rotate_global(&mut self, axis: &Vector3<f32>, angle_rad: f32) {
-    let rotation_matrix = Matrix4::from_axis_angle(&Unit::new_normalize(*axis), angle_rad);
-    self.transform = rotation_matrix * self.transform; // 前乘以实现全局旋转
+fn rotate_global(&mut self, axis: &Vector3<f32>, angle_rad: f32) {
+    let rotation_matrix = TransformFactory::rotation(axis, angle_rad);
+    self.apply_global(rotation_matrix);
 }
 ```
 
@@ -297,7 +303,7 @@ cargo run --release -- --obj obj/simple/bunny.obj --camera-from "0,1,3" --camera
 # 生成轨道动画（相机绕模型旋转）
 cargo run --release -- --obj obj/simple/bunny.obj --animate --output-dir bunny_orbit
 
-# 多对象渲染（在场景中创建多个实例）
+# 多对象渲染（在同一场景中创建多个实例）
 cargo run --release -- --obj obj/simple/bunny.obj --object-count 5 --animate --output-dir multi_bunny
 
 # 禁用Gamma校正
@@ -322,31 +328,19 @@ make run
 make animate
 
 # 运行斯坦福兔子模型演示（带轨道动画）
-make bunny_demo
+make bunny_orbit
 
 # 为兔子动画生成视频（需要安装ffmpeg）
-make bunny_video
+make bunny_orbit_video
 
 # 运行带纹理的奶牛模型演示
-make spot_demo
+make spot_orbit
 
 # 为奶牛模型动画生成视频
-make spot_video
+make spot_orbit_video
 
-# Gamma校正对比演示
-make bunny_gamma
-
-# 透视和正交投影对比演示
-make bunny_ortho
-
-# 多对象渲染演示
-make multi_objects
-
-# 奶牛模型Phong着色对比演示
-make spot_phong
-
-# 球体金属材质效果对比演示
-make sphere_metal
+# 岩石模型PBR渲染演示
+make pbr_rock
 
 # 清理构建和输出文件
 make clean
@@ -364,8 +358,8 @@ make run OBJ_FILE=obj/models/your_model.obj CAMERA_FROM="0,2,5" CAMERA_FOV=60.0
 # 使用点光源而非方向光
 make run LIGHT_TYPE=point LIGHT_POS="2,2,2"
 
-# 禁用特定功能
-make run NO_ZBUFFER=true NO_TEXTURE=true
+# 启用PBR渲染
+make run USE_PBR=true METALLIC=0.7 ROUGHNESS=0.3 BASE_COLOR="0.9,0.8,0.7"
 ```
 
 ## 渲染示例命令一览
@@ -417,7 +411,7 @@ make run OBJ_FILE=obj/collect1/sphere.obj \
   OUTPUT_NAME=sphere_nonmetal
 
 # 同时使用不同PBR材质参数对比（使用预设的make目标）
-make sphere_metal
+make pbr_rock
 ```
 
 ### 4. 自定义场景渲染
@@ -436,10 +430,10 @@ make run OBJ_FILE=obj/simple/bunny.obj \
 
 ```bash
 # 分步执行以下命令可以生成高质量演示视频
-make bunny_demo
-make bunny_video
-make spot_demo
-make spot_video
+make bunny_orbit
+make bunny_orbit_video
+make spot_orbit
+make spot_orbit_video
 ```
 
 ## 项目结构
@@ -453,8 +447,7 @@ src/
 ├── camera.rs     # 相机设置和矩阵计算
 ├── scene.rs      # 场景管理系统
 ├── scene_object.rs # 场景对象定义和变换
-├── lighting.rs   # 光照模型实现
-├── material_system.rs # 材质系统实现
+├── material_system.rs # 材质系统和光照实现
 ├── texture_utils.rs # 纹理加载和采样
 ├── color_utils.rs # 颜色处理工具
 ├── interpolation.rs # 属性插值功能
@@ -475,11 +468,10 @@ graph LR
     C --> F[rasterizer.rs]
     C --> G[camera.rs]
     D --> H[scene_object.rs]
-    D --> I[lighting.rs]
+    D --> I[material_system.rs]
     F --> J[interpolation.rs]
     C --> K[texture_utils.rs]
-    I --> L[material_system.rs]
-    E --> M[model_types.rs]
+    I --> L[model_types.rs]
     C --> N[transform.rs]
     C --> O[color_utils.rs]
     A --> P[utils.rs]
@@ -488,7 +480,7 @@ graph LR
     classDef utils fill:#9cf,stroke:#333,stroke-width:1px;
     
     class C,D,F,I core;
-    class B,J,K,L,M,N,O,P utils;
+    class B,J,K,L,N,O,P utils;
 ```
 
 ## 性能优化
@@ -503,7 +495,7 @@ graph LR
 
 ## 代码状态
 
-该项目是一个功能完整的软件渲染器。当前实现了所有基本的渲染功能，包括模型加载、光栅化、光照计算、材质系统和纹理映射等。
+该项目是一个功能完整的软件渲染器。当前实现了所有基本的渲染功能，包括模型加载、光栅化、光照计算、材质系统和纹理映射等。项目采用了统一的坐标变换系统和精简的材质实现，确保代码的一致性和可维护性。
 
 ## 未来改进方向
 
@@ -520,3 +512,163 @@ graph LR
 ## 许可证
 
 本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+
+## 环境光颜色设置示例
+
+以下是使用环境光颜色参数的示例命令：
+
+```bash
+# 使用RGB环境光强度
+cargo run --release -- --obj obj/simple/bunny.obj --ambient-color "0.1,0.2,0.3" --output bunny_blue_ambient
+
+# 使用Makefile设置RGB环境光强度
+make run AMBIENT_COLOR="0.3,0.3,0.5" OUTPUT_NAME=bunny_custom_ambient
+```
+
+## 对象关系与坐标变换系统
+
+本渲染器采用了清晰的对象关系和统一的坐标变换体系，使用trait和工厂模式实现灵活的对象变换：
+
+```mermaid
+classDiagram
+    class Transformable {
+        <<trait>>
+        +get_transform() -> &Matrix4
+        +set_transform(Matrix4)
+        +apply_local(Matrix4)
+        +apply_global(Matrix4)
+    }
+    
+    class TransformFactory {
+        <<struct>>
+        +rotation(axis, angle) -> Matrix4
+        +rotation_x(angle) -> Matrix4
+        +rotation_y(angle) -> Matrix4
+        +rotation_z(angle) -> Matrix4
+        +translation(vector) -> Matrix4
+        +scaling(factor) -> Matrix4
+        +scaling_nonuniform(vector) -> Matrix4
+        +view(eye, target, up) -> Matrix4
+        +perspective(fov, aspect, near, far) -> Matrix4
+        +orthographic(left, right, bottom, top, near, far) -> Matrix4
+    }
+    
+    class SceneObject {
+        +model_id: usize
+        +transform: Matrix4
+        +material_id: Option<usize>
+        +new(...) -> Self
+        +new_default(model_id) -> Self
+        +with_transform(...) -> Self
+        +translate(...) 
+        +rotate_local(...)
+        +scale_local(...)
+        ...
+    }
+    
+    class Camera {
+        +position: Point3
+        +target: Point3
+        +up: Vector3
+        +view_matrix: Matrix4
+        +projection_matrix: Matrix4
+        ...
+        +new_perspective(...) -> Self
+        +new_orthographic(...) -> Self
+        +orbit(axis, angle)
+        +update_matrices()
+        ...
+    }
+    
+    class Scene {
+        +models: Vec<ModelData>
+        +objects: Vec<SceneObject>
+        +active_camera: Camera
+        +lights: Vec<Light>
+        +add_model(...) -> usize
+        +add_object(...) -> usize
+        +create_object_ring(...)
+        ...
+    }
+    
+    Transformable <|.. SceneObject : implements
+    Transformable <|.. Camera : implements
+    SceneObject --> TransformFactory : uses
+    Camera --> TransformFactory : uses
+    Scene o-- SceneObject : contains
+    Scene o-- Camera : contains
+    Scene "1" *-- "*" ModelData : owns
+    
+    class CoordinateSpace {
+        <<enum>>
+        Local
+        World
+        View
+        Clip
+        Ndc
+        Screen
+    }
+    
+    class ModelData {
+        +meshes: Vec<Mesh>
+        +materials: Vec<Material>
+    }
+    
+    class Renderer {
+        +frame_buffer: FrameBuffer
+        +render_scene(Scene, RenderConfig)
+    }
+    
+    Renderer --> Scene : renders
+    Renderer --> TransformFactory : uses coordinate transforms
+```
+
+### 坐标变换流程
+
+渲染过程中的坐标变换遵循标准的3D渲染流水线，通过一系列矩阵变换将模型从局部坐标系转换到屏幕坐标系：
+
+```mermaid
+graph LR
+    A[模型空间坐标] -->|模型矩阵| B[世界空间坐标]
+    B -->|视图矩阵| C[相机空间坐标]
+    C -->|投影矩阵| D[裁剪空间坐标]
+    D -->|透视除法| E[NDC坐标]
+    E -->|视口变换| F[屏幕坐标]
+    
+    subgraph "坐标变换函数"
+    T1[transform::world_to_view]
+    T2[transform::world_to_clip]
+    T3[transform::clip_to_ndc]
+    T4[transform::ndc_to_pixel]
+    T5[transform::world_to_ndc]
+    end
+    
+    subgraph "变换矩阵创建"
+    M1[TransformFactory::rotation]
+    M2[TransformFactory::translation]
+    M3[TransformFactory::scaling_nonuniform]
+    M4[TransformFactory::view]
+    M5[TransformFactory::perspective/orthographic]
+    end
+```
+
+### 变换系统的关键特性
+
+- **统一的变换接口**：所有可变换对象都实现了`Transformable` trait，提供了一致的变换接口
+- **全局与局部变换**：支持两种坐标系下的变换操作，增强了场景构建的灵活性
+  - 全局变换（前乘变换矩阵）：`apply_global`、`translate_global`、`rotate_global`等
+  - 局部变换（后乘变换矩阵）：`apply_local`、`translate_local`、`rotate_local`等
+- **变换工厂**：`TransformFactory`提供了创建各种变换矩阵的静态方法，简化了矩阵构建
+- **相机系统**：相机也实现了`Transformable`接口，支持轨道运动、平移等高级相机操作
+- **完整的坐标转换**：支持从模型空间到屏幕空间的所有标准坐标转换
+
+### 对象与变换关系
+
+对象的变换和场景管理遵循以下原则：
+
+1. 每个`SceneObject`都有一个变换矩阵，定义了其在世界空间中的位置、旋转和缩放
+2. 相机有视图矩阵和投影矩阵，分别定义了从世界空间到相机空间，以及从相机空间到裁剪空间的变换
+3. 场景管理器(`Scene`)持有所有对象和相机，并协调它们的交互
+4. 渲染器使用变换系统将模型顶点从模型空间转换到屏幕空间进行光栅化
+
+这种设计实现了高度的模块化和灵活性，使得渲染器能够支持复杂的场景构建和动画效果。

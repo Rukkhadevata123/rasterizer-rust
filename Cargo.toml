@@ -12,3 +12,12 @@ nalgebra = "0.33"
 clap = { version = "4.5", features = ["derive"] }
 atomic_float = "1"
 tobj = "4"
+sdl3 = { version = "0", features = ["ttf"] }
+
+[[bin]]
+name = "rasterizer"
+path = "src/main.rs"
+
+[[bin]]
+name = "sdl-demo"
+path = "src/SDL3-demo.rs"

@@ -1,116 +1,183 @@
-use crate::material_system::IMaterial;
-use crate::texture_utils::Texture; // 添加Texture的导入
 use clap::Parser;
-use nalgebra::{Matrix4, Point3, Vector3};
+use nalgebra::{Matrix4, Vector3}; // 保留Point3因为在函数参数中使用
 use std::fs;
 use std::path::Path;
-use std::time::Instant; // 添加IMaterial导入
+use std::time::Instant;
 
-// Declare modules
+// 声明模块
 mod args;
 mod camera;
 mod color_utils;
 mod interpolation;
-mod lighting;
 mod loaders;
-mod material_system; // 添加这一行，声明新的材质系统模块
-mod model_types; // Added module declaration
+mod material_system;
+mod model_types;
 mod rasterizer;
 mod renderer;
 mod scene;
-mod scene_object; // Add this line
+mod scene_object;
 mod texture_utils;
 mod transform;
-mod utils; // Add this line // 添加这一行，声明新的场景管理模块
+mod utils;
 
-// Use statements
+// 导入语句
 use args::{Args, parse_point3, parse_vec3};
 use camera::Camera;
 use color_utils::apply_colormap_jet;
-use lighting::Light; // Existing Light import
 use loaders::load_obj_enhanced;
+use material_system::Light;
 use model_types::ModelData;
-use renderer::{RenderSettings, Renderer};
-use scene::Scene; // 添加 Scene 导入
-use scene_object::SceneObject;
+use renderer::{RenderConfig, Renderer};
+use scene::Scene;
+use scene_object::{SceneObject, TransformOperations, Transformable};
 use utils::{normalize_and_center_model, normalize_depth, save_image};
 
-/// 创建并设置场景
-fn setup_scene(mut model_data: ModelData, args: &Args) -> Result<Scene, String> {
-    // 创建相机
+/// 创建场景相机
+fn create_camera(args: &Args) -> Result<Camera, String> {
     let aspect_ratio = args.width as f32 / args.height as f32;
-    let camera_from = parse_point3(&args.camera_from)
-        .map_err(|e| format!("Invalid camera_from format: {}", e))?;
+    let camera_from =
+        parse_point3(&args.camera_from).map_err(|e| format!("无效的相机位置格式: {}", e))?;
     let camera_at =
-        parse_point3(&args.camera_at).map_err(|e| format!("Invalid camera_at format: {}", e))?;
+        parse_point3(&args.camera_at).map_err(|e| format!("无效的相机目标格式: {}", e))?;
     let camera_up =
-        parse_vec3(&args.camera_up).map_err(|e| format!("Invalid camera_up format: {}", e))?;
+        parse_vec3(&args.camera_up).map_err(|e| format!("无效的相机上方向格式: {}", e))?;
 
-    let camera = Camera::new(
+    Ok(Camera::new(
         camera_from,
         camera_at,
         camera_up,
         args.camera_fov,
         aspect_ratio,
-        0.1,   // near plane distance
-        100.0, // far plane distance
-    );
+        0.1,   // 近平面距离
+        100.0, // 远平面距离
+    ))
+}
+
+/// 应用PBR材质参数
+fn apply_pbr_parameters(model_data: &mut ModelData, args: &Args) {
+    if !args.use_pbr {
+        return;
+    }
+
+    for material in &mut model_data.materials {
+        // material.sync_with_mode(model_types::MaterialMode::PBR); // 已同步，无需ensure_pbr_material
+        material.metallic = args.metallic;
+        material.roughness = args.roughness;
+        material.ambient_occlusion = args.ambient_occlusion;
+
+        // 解析并设置基础颜色
+        if let Ok(base_color) = parse_vec3(&args.base_color) {
+            material.base_color = base_color;
+        } else {
+            println!(
+                "警告: 无法解析基础颜色, 使用默认值: {:?}",
+                material.base_color
+            );
+        }
+
+        // 解析并设置自发光颜色
+        if let Ok(emissive) = parse_vec3(&args.emissive) {
+            material.emissive = emissive;
+        } else {
+            println!(
+                "警告: 无法解析自发光颜色, 使用默认值: {:?}",
+                material.emissive
+            );
+        }
+
+        println!(
+            "应用PBR材质 - 基础色: {:?}, 金属度: {:.2}, 粗糙度: {:.2}, 环境光遮蔽: {:.2}, 自发光: {:?}",
+            material.base_color,
+            material.metallic,
+            material.roughness,
+            material.ambient_occlusion,
+            material.emissive
+        );
+    }
+}
+
+/// 设置场景光源
+fn setup_lights(scene: &mut Scene, args: &Args) -> Result<(), String> {
+    if args.no_lighting {
+        // 使用环境光
+        let ambient_intensity = if let Ok(ambient_color) = parse_vec3(&args.ambient_color) {
+            println!("使用RGB环境光强度: {:?}", ambient_color);
+            ambient_color
+        } else {
+            Vector3::new(args.ambient, args.ambient, args.ambient)
+        };
+
+        scene.create_ambient_light(ambient_intensity);
+        return Ok(());
+    }
+
+    // 使用漫反射光源
+    let light_intensity = Vector3::new(1.0, 1.0, 1.0) * args.diffuse;
+
+    match args.light_type.to_lowercase().as_str() {
+        "point" => {
+            let light_pos =
+                parse_point3(&args.light_pos).map_err(|e| format!("无效的光源位置格式: {}", e))?;
+
+            let atten_parts: Vec<Result<f32, _>> = args
+                .light_atten
+                .split(',')
+                .map(|s| s.trim().parse::<f32>())
+                .collect();
+
+            if atten_parts.len() != 3 || atten_parts.iter().any(|r| r.is_err()) {
+                return Err(format!(
+                    "无效的光衰减格式: '{}'. 应为 'c,l,q'",
+                    args.light_atten
+                ));
+            }
+
+            let attenuation = (
+                atten_parts[0].as_ref().map_or(0.0, |v| *v).max(0.0),
+                atten_parts[1].as_ref().map_or(0.0, |v| *v).max(0.0),
+                atten_parts[2].as_ref().map_or(0.0, |v| *v).max(0.0),
+            );
+
+            println!(
+                "使用点光源，位置: {:?}, 强度系数: {:.2}, 衰减: {:?}",
+                light_pos, args.diffuse, attenuation
+            );
+            scene.create_point_light(light_pos, light_intensity, attenuation);
+        }
+        _ => {
+            // 默认为定向光
+            let mut light_dir =
+                parse_vec3(&args.light_dir).map_err(|e| format!("无效的光源方向格式: {}", e))?;
+            light_dir = -light_dir.normalize(); // 朝向光源的方向
+
+            println!(
+                "使用定向光，方向: {:?}, 强度系数: {:.2}",
+                light_dir, args.diffuse
+            );
+            scene.create_directional_light(light_dir, light_intensity);
+        }
+    }
+
+    Ok(())
+}
+
+/// 创建并设置场景
+fn setup_scene(mut model_data: ModelData, args: &Args) -> Result<Scene, String> {
+    // 创建相机
+    let camera = create_camera(args)?;
 
     // 创建场景并设置相机
     let mut scene = Scene::new(camera);
 
-    // 如果启用了PBR，为模型材质设置金属度和粗糙度
-    if args.use_pbr {
-        for material in &mut model_data.materials {
-            // 确保PBR材质存在
-            let pbr_material = material.ensure_pbr_material();
+    // 应用PBR材质参数(如果需要)
+    apply_pbr_parameters(&mut model_data, args);
 
-            // 使用命令行参数设置金属度和粗糙度
-            pbr_material.metallic = args.metallic;
-            pbr_material.roughness = args.roughness;
-
-            // 解析并设置基础颜色
-            if let Ok(base_color) = parse_vec3(&args.base_color) {
-                pbr_material.base_color = base_color;
-            } else {
-                println!(
-                    "警告: 无法解析基础颜色, 使用默认值: {:?}",
-                    pbr_material.base_color
-                );
-            }
-
-            // 设置环境光遮蔽
-            pbr_material.ambient_occlusion = args.ambient_occlusion;
-
-            // 解析并设置自发光颜色
-            if let Ok(emissive) = parse_vec3(&args.emissive) {
-                pbr_material.emissive = emissive;
-            } else {
-                println!(
-                    "警告: 无法解析自发光颜色, 使用默认值: {:?}",
-                    pbr_material.emissive
-                );
-            }
-
-            println!(
-                "应用PBR材质 - 基础色: {:?}, 金属度: {:.2}, 粗糙度: {:.2}, 环境光遮蔽: {:.2}, 自发光: {:?}",
-                pbr_material.base_color,
-                pbr_material.metallic,
-                pbr_material.roughness,
-                pbr_material.ambient_occlusion,
-                pbr_material.emissive
-            );
-        }
-    }
-
-    // 添加模型
+    // 添加模型和主对象
     let model_id = scene.add_model(model_data);
-
-    // 添加主对象
     let main_object = SceneObject::new_default(model_id);
     scene.add_object(main_object, Some("main"));
 
-    // 如果需要，添加更多对象实例
+    // 添加多个对象实例(如果需要)
     if let Some(count_str) = &args.object_count {
         if let Ok(count) = count_str.parse::<usize>() {
             if count > 1 {
@@ -123,87 +190,50 @@ fn setup_scene(mut model_data: ModelData, args: &Args) -> Result<Scene, String> 
     }
 
     // 设置光照
-    if args.no_lighting {
-        println!("光照已禁用。使用环境光。");
-        let _ambient_light =
-            scene.create_ambient_light(Vector3::new(args.ambient, args.ambient, args.ambient));
-
-        // 使用 get_type_name 方法 (解决警告)
-        if let Some(light) = scene.lights.first() {
-            println!("光源类型: {}", light.get_type_name());
-        }
-    } else {
-        let light_intensity = Vector3::new(1.0, 1.0, 1.0) * args.diffuse;
-
-        match args.light_type.to_lowercase().as_str() {
-            "point" => {
-                let light_pos = parse_point3(&args.light_pos)
-                    .map_err(|e| format!("Invalid light_pos format: {}", e))?;
-                let atten_parts: Vec<Result<f32, _>> = args
-                    .light_atten
-                    .split(',')
-                    .map(|s| s.trim().parse::<f32>())
-                    .collect();
-
-                if atten_parts.len() != 3 || atten_parts.iter().any(|r| r.is_err()) {
-                    return Err(format!(
-                        "Invalid light_atten format: '{}'. Expected 'c,l,q'",
-                        args.light_atten
-                    ));
-                }
-
-                let attenuation = (
-                    atten_parts[0].as_ref().map_or(0.0, |v| *v).max(0.0),
-                    atten_parts[1].as_ref().map_or(0.0, |v| *v).max(0.0),
-                    atten_parts[2].as_ref().map_or(0.0, |v| *v).max(0.0),
-                );
-
-                println!(
-                    "使用点光源，位置: {:?}, 强度系数: {:.2}, 衰减: {:?}",
-                    light_pos, args.diffuse, attenuation
-                );
-                scene.create_point_light(light_pos, light_intensity, attenuation);
-            }
-            _ => {
-                // 默认为定向光
-                let mut light_dir = parse_vec3(&args.light_dir)
-                    .map_err(|e| format!("Invalid light_dir format: {}", e))?;
-                light_dir = -light_dir.normalize(); // 朝向光源的方向
-
-                println!(
-                    "使用定向光，方向: {:?}, 强度系数: {:.2}",
-                    light_dir, args.diffuse
-                );
-                scene.create_directional_light(light_dir, light_intensity);
-            }
-        }
-    }
+    setup_lights(&mut scene, args)?;
 
     Ok(scene)
 }
 
-/// 渲染单帧
-fn render_single_frame(
-    args: &Args,
-    scene: &Scene,
+/// 创建渲染配置
+fn create_render_config(scene: &Scene, args: &Args) -> RenderConfig {
+    let light = scene
+        .lights
+        .first()
+        .cloned() // 使用clone而不是to_light_enum
+        .unwrap_or_else(|| Light::Ambient(Vector3::new(args.ambient, args.ambient, args.ambient)));
+
+    RenderConfig::default()
+        .with_projection(&args.projection)
+        .with_zbuffer(!args.no_zbuffer)
+        .with_face_colors(args.colorize)
+        .with_texture(!args.no_texture)
+        .with_light(light)
+        .with_lighting(!args.no_lighting)
+        .with_phong(args.use_phong)
+        .with_gamma_correction(!args.no_gamma)
+        .with_pbr(args.use_pbr)
+        .with_backface_culling(args.backface_culling)
+        .with_wireframe(args.wireframe)
+        .with_multithreading(!args.no_multithreading)
+        .with_small_triangle_culling(args.cull_small_triangles, args.min_triangle_area)
+}
+
+/// 保存渲染结果
+fn save_render_result(
     renderer: &Renderer,
-    settings: &RenderSettings,
+    args: &Args,
+    config: &RenderConfig,
     output_name: &str,
 ) -> Result<(), String> {
-    let frame_start_time = Instant::now();
-    println!("渲染帧: {}", output_name);
-
-    // 使用 renderer.render_scene 渲染整个场景
-    renderer.render_scene(scene, settings);
-
-    // --- 保存输出帧 ---
-    println!("保存 {} 的输出图像...", output_name);
+    // 保存彩色图像
     let color_data = renderer.frame_buffer.get_color_buffer_bytes();
     let color_path = Path::new(&args.output_dir)
         .join(format!("{}_color.png", output_name))
         .to_str()
-        .ok_or("Failed to create color output path string")?
+        .ok_or("创建彩色输出路径字符串失败")?
         .to_string();
+
     save_image(
         &color_path,
         &color_data,
@@ -212,7 +242,7 @@ fn render_single_frame(
     );
 
     // 保存深度图（如果启用）
-    if settings.use_zbuffer && !args.no_depth {
+    if config.use_zbuffer && !args.no_depth {
         let depth_data_raw = renderer.frame_buffer.get_depth_buffer_f32();
         let depth_normalized = normalize_depth(&depth_data_raw, 1.0, 99.0);
         let depth_colored = apply_colormap_jet(
@@ -222,13 +252,15 @@ fn render_single_frame(
                 .collect::<Vec<_>>(),
             args.width,
             args.height,
-            settings.apply_gamma,
+            config.apply_gamma_correction,
         );
+
         let depth_path = Path::new(&args.output_dir)
             .join(format!("{}_depth.png", output_name))
             .to_str()
-            .ok_or("Failed to create depth output path string")?
+            .ok_or("创建深度输出路径字符串失败")?
             .to_string();
+
         save_image(
             &depth_path,
             &depth_colored,
@@ -237,24 +269,38 @@ fn render_single_frame(
         );
     }
 
-    // 添加材质信息（如果有）
-    for (i, material) in scene.models[0].materials.iter().enumerate() {
-        println!("材质 #{}: {}", i, material.get_name());
-        println!("  漫反射颜色: {:?}", material.diffuse);
+    Ok(())
+}
 
-        // 检查材质是否不透明
-        if !material.is_opaque() {
-            println!("  透明度: {:.2}", material.get_opacity());
-        }
+/// 渲染单帧
+fn render_single_frame(
+    args: &Args,
+    scene: &Scene,
+    renderer: &Renderer,
+    config: &RenderConfig,
+    output_name: &str,
+) -> Result<(), String> {
+    let frame_start_time = Instant::now();
+    println!("渲染帧: {}", output_name);
 
-        // 确保PBR材质存在（对每个材质调用一次，以消除警告）
-        if args.use_pbr && i == 0 {
-            let mut material_copy = material.clone();
-            let pbr_material = material_copy.ensure_pbr_material();
-            println!(
-                "  已创建PBR材质 - 基础色: {:?}, 金属度: {:.2}, 粗糙度: {:.2}",
-                pbr_material.base_color, pbr_material.metallic, pbr_material.roughness
-            );
+    // 渲染场景
+    renderer.render_scene(scene, config);
+
+    // 保存输出图像
+    println!("保存 {} 的输出图像...", output_name);
+    save_render_result(renderer, args, config, output_name)?;
+
+    // 打印材质信息（调试用）
+    if let Some(model) = scene.models.first() {
+        for (i, material) in model.materials.iter().enumerate() {
+            if i == 0 || !material.is_opaque() {
+                println!("材质 #{}: {}", i, material.get_name());
+                println!("  漫反射颜色: {:?}", material.diffuse);
+
+                if !material.is_opaque() {
+                    println!("  透明度: {:.2}", material.get_opacity());
+                }
+            }
         }
     }
 
@@ -266,114 +312,64 @@ fn render_single_frame(
     Ok(())
 }
 
+/// 更新场景对象动画
+fn update_scene_objects(scene: &mut Scene, frame_num: usize, rotation_increment: f32) {
+    // 只对非主对象应用动画效果
+    for (i, object) in scene.objects.iter_mut().enumerate() {
+        if i > 0 {
+            // 使用全局Y轴旋转
+            let object_rotation_increment = rotation_increment * 0.5; // 调整速度
+            object.rotate_global_y(object_rotation_increment.to_radians());
+
+            // 使用一致的周期作为缩放变化的基础
+            let normalized_phase = (frame_num as f32 * rotation_increment).to_radians();
+            let scale_factor = 0.9 + 0.1 * normalized_phase.sin().abs();
+
+            // 重置变换矩阵以避免累积效应
+            object.set_transform(Matrix4::identity());
+            object.scale_global(&Vector3::new(scale_factor, scale_factor, scale_factor));
+
+            // 小幅上下移动，与旋转周期协调
+            let y_offset = 0.03 * normalized_phase.sin();
+            object.translate(&Vector3::new(0.0, y_offset, 0.0));
+        }
+    }
+}
+
 /// 运行动画循环
 fn run_animation_loop(args: &Args, scene: &mut Scene, renderer: &Renderer) -> Result<(), String> {
     let total_frames = args.total_frames;
     println!("开始动画渲染 ({} 帧)...", total_frames);
 
-    // 计算每帧旋转增量
+    // 计算每帧旋转增量（角度）
     let rotation_increment = 360.0 / total_frames as f32;
 
     for frame_num in 0..total_frames {
         let frame_start_time = Instant::now();
         println!("--- 准备帧 {} ---", frame_num);
 
-        // 更新相机位置（使用增量旋转）
+        // 更新场景状态
         if frame_num > 0 {
-            // 克隆并旋转当前相机（只旋转一个增量）
+            // 更新相机位置 - 使用相机内置的orbit_y方法（接受角度参数）
             let mut camera = scene.active_camera.clone();
-            camera.orbit_y(rotation_increment); // 每帧只旋转增量角度
+            camera.orbit_y(rotation_increment); // 直接使用角度值
             scene.set_camera(camera);
 
-            // 为非主对象添加动画效果
-            for (i, object) in scene.objects.iter_mut().enumerate() {
-                if i > 0 {
-                    // 统一使用局部旋转和一致的增量
-                    let object_rotation_increment = rotation_increment * 0.5; // 调整速度
-                    object.rotate_local(&Vector3::y_axis(), object_rotation_increment.to_radians());
-
-                    // 使用一致的周期作为缩放变化的基础
-                    let normalized_phase = (frame_num as f32 * rotation_increment).to_radians();
-                    let scale_factor = 0.9 + 0.1 * normalized_phase.sin().abs();
-                    object.scale_local(&Vector3::new(scale_factor, scale_factor, scale_factor));
-
-                    // 小幅上下移动，与旋转周期协调
-                    let y_offset = 0.03 * normalized_phase.sin();
-                    object.translate(&Vector3::new(0.0, y_offset, 0.0));
-                }
-            }
+            // 更新场景对象
+            update_scene_objects(scene, frame_num, rotation_increment);
         }
 
-        // 创建渲染设置
-        let settings = RenderSettings {
-            projection_type: args.projection.clone(),
-            use_zbuffer: !args.no_zbuffer,
-            use_face_colors: args.colorize,
-            use_texture: !args.no_texture,
-            light: scene
-                .lights
-                .first()
-                .map(|l| l.as_ref().to_light_enum()) // Call to_light_enum on the trait object
-                .unwrap_or_else(|| {
-                    Light::Ambient(Vector3::new(args.ambient, args.ambient, args.ambient))
-                }),
-            use_phong: args.use_phong,
-            apply_gamma: !args.no_gamma,
-            use_pbr: args.use_pbr,
-        };
-
-        // 打印当前渲染设置信息
-        println!("使用{}渲染", settings.get_lighting_description());
+        // 创建渲染配置
+        let config = create_render_config(scene, args);
 
         // 渲染并保存当前帧
         let frame_output_name = format!("frame_{:03}", frame_num);
-        // render_single_frame(args, scene, renderer, &settings, &frame_output_name)?;
-        // 直接调用 render_scene 进行渲染，然后保存图像
-        renderer.render_scene(scene, &settings);
+        render_single_frame(args, scene, renderer, &config, &frame_output_name)?;
 
-        // 保存图像的逻辑需要从 render_single_frame 中提取或复制过来
-        println!("保存 {} 的输出图像...", frame_output_name);
-        let color_data = renderer.frame_buffer.get_color_buffer_bytes();
-        let color_path = Path::new(&args.output_dir)
-            .join(format!("{}_color.png", frame_output_name))
-            .to_str()
-            .ok_or("Failed to create color output path string")?
-            .to_string();
-        save_image(
-            &color_path,
-            &color_data,
-            args.width as u32,
-            args.height as u32,
-        );
-
-        if settings.use_zbuffer && !args.no_depth {
-            let depth_data_raw = renderer.frame_buffer.get_depth_buffer_f32();
-            let depth_normalized = normalize_depth(&depth_data_raw, 1.0, 99.0);
-            let depth_colored = apply_colormap_jet(
-                &depth_normalized
-                    .iter()
-                    .map(|&d| 1.0 - d) // 反转：越近 = 越热
-                    .collect::<Vec<_>>(),
-                args.width,
-                args.height,
-                settings.apply_gamma,
-            );
-            let depth_path = Path::new(&args.output_dir)
-                .join(format!("{}_depth.png", frame_output_name))
-                .to_str()
-                .ok_or("Failed to create depth output path string")?
-                .to_string();
-            save_image(
-                &depth_path,
-                &depth_colored,
-                args.width as u32,
-                args.height as u32,
-            );
-        }
         println!(
             "帧 {} 渲染完成，耗时 {:?}",
             frame_output_name,
-            Instant::now().duration_since(frame_start_time) // Recalculate duration for the frame
+            frame_start_time.elapsed()
         );
     }
 
@@ -381,8 +377,112 @@ fn run_animation_loop(args: &Args, scene: &mut Scene, renderer: &Renderer) -> Re
     Ok(())
 }
 
+/// 测试变换API和未被正式使用的方法
+/// 这个函数不会被正常的程序流调用，仅用于验证API完整性
+#[allow(dead_code)]
+fn test_transformation_api(obj_path: &str) -> Result<(), String> {
+    println!("测试变换API和未使用的方法...");
+    let test_start = Instant::now();
+    
+    // --- 加载模型 ---
+    let args = Args::parse_from(vec![
+        "rasterizer", 
+        "--obj", obj_path,
+        "--width", "800",
+        "--height", "600"
+    ]);
+    
+    let mut model_data = load_obj_enhanced(obj_path, &args)?;
+    normalize_and_center_model(&mut model_data);
+    
+    // --- 测试相机操作 ---
+    println!("测试相机变换方法...");
+    let mut camera = Camera::new(
+        nalgebra::Point3::new(0.0, 0.0, 3.0),
+        nalgebra::Point3::new(0.0, 0.0, 0.0),
+        nalgebra::Vector3::new(0.0, 1.0, 0.0),
+        45.0,
+        1.333,
+        0.1,
+        100.0
+    );
+    
+    // 测试Camera中未使用的方法
+    camera.pan(0.1, 0.2);  // 测试相机平移
+    camera.dolly(-0.5);    // 测试相机前后移动
+    camera.set_fov(60.0);  // 测试设置视场角
+    camera.set_aspect_ratio(1.5); // 测试设置宽高比
+    
+    // --- 测试场景对象变换 ---
+    println!("测试场景对象变换方法...");
+    let mut scene = Scene::new(camera.clone());
+    let model_id = scene.add_model(model_data);
+    
+    // 创建一个使用with_transform的对象
+    let transform = transform::TransformFactory::translation(&nalgebra::Vector3::new(1.0, 0.0, 0.0));
+    let mut obj1 = SceneObject::with_transform(model_id, transform, None);
+    
+    // 使用SceneObject的set_position方法
+    obj1.set_position(nalgebra::Point3::new(0.5, 0.5, 0.0));
+    
+    // 使用Transformable的get_transform方法
+    let current_transform = obj1.get_transform();
+    println!("当前变换矩阵: {:?}", current_transform);
+    
+    // 使用Transformable的apply_local方法
+    let local_transform = transform::TransformFactory::rotation_x(45.0_f32.to_radians());
+    obj1.apply_local(local_transform);
+    
+    // 测试TransformOperations中未使用的方法
+    obj1.translate_local(&nalgebra::Vector3::new(0.1, 0.2, 0.3));
+    obj1.rotate_local(&nalgebra::Vector3::new(0.0, 1.0, 0.0), 30.0_f32.to_radians());
+    obj1.rotate_global(&nalgebra::Vector3::new(1.0, 0.0, 0.0), 45.0_f32.to_radians());
+    obj1.rotate_local_x(15.0_f32.to_radians());
+    obj1.rotate_local_y(15.0_f32.to_radians());
+    obj1.rotate_local_z(15.0_f32.to_radians());
+    obj1.rotate_global_x(15.0_f32.to_radians());
+    obj1.rotate_global_z(15.0_f32.to_radians());
+    obj1.scale_local(&nalgebra::Vector3::new(1.2, 1.2, 1.2));
+    obj1.scale_local_uniform(1.5);
+    obj1.scale_global_uniform(0.8);
+    
+    // 添加对象到场景
+    scene.add_object(obj1, Some("test_object"));
+    
+    // --- 测试TransformFactory中未使用的方法 ---
+    println!("测试TransformFactory未使用的方法...");
+    let _rotation_x = transform::TransformFactory::rotation_x(30.0_f32.to_radians());
+    let _rotation_z = transform::TransformFactory::rotation_z(30.0_f32.to_radians());
+    let _scaling = transform::TransformFactory::scaling(1.5);
+    
+    // --- 测试坐标变换函数 ---
+    println!("测试坐标变换函数...");
+    let test_points = vec![
+        nalgebra::Point3::new(0.0, 0.0, 0.0),
+        nalgebra::Point3::new(1.0, 0.0, 0.0),
+        nalgebra::Point3::new(0.0, 1.0, 0.0),
+    ];
+    
+    // 测试world_to_screen函数 - 修复：使用view_projection_matrix作为字段而非方法
+    let view_proj = &camera.view_projection_matrix;
+    let screen_points = transform::world_to_screen(&test_points, view_proj, 800.0, 600.0);
+    println!("世界坐标点转换为屏幕坐标: {:?}", screen_points);
+    
+    println!("变换API测试完成，耗时 {:?}", test_start.elapsed());
+    println!("所有方法均正常工作");
+    
+    Ok(())
+}
+
+// 在main函数中添加对test_transformation_api的条件调用
 fn main() -> Result<(), String> {
     let args = Args::parse();
+    
+    // 如果指定了test_api参数，则运行API测试
+    if args.test_api {
+        return test_transformation_api(&args.obj);
+    }
+    
     let start_time = Instant::now();
 
     // --- 验证输入和设置 ---
@@ -400,40 +500,20 @@ fn main() -> Result<(), String> {
     let mut model_data = load_obj_enhanced(&args.obj, &args)?;
     println!("模型加载耗时 {:?}", load_start.elapsed());
 
-    // --- 归一化模型（一次性） ---
+    // --- 归一化模型 ---
     println!("归一化模型...");
     let norm_start_time = Instant::now();
     let (original_center, scale_factor) = normalize_and_center_model(&mut model_data);
-    let norm_duration = norm_start_time.elapsed();
     println!(
         "模型归一化耗时 {:?}。原始中心：{:.3?}，缩放系数：{:.3}",
-        norm_duration, original_center, scale_factor
+        norm_start_time.elapsed(),
+        original_center,
+        scale_factor
     );
 
     // --- 创建并设置场景 ---
     println!("创建场景...");
     let mut scene = setup_scene(model_data, &args)?;
-
-    // 使用 with_transform 方法创建一个具有自定义变换的额外对象
-    if args.show_debug_info {
-        println!("创建自定义变换的测试对象...");
-
-        // 创建一个自定义变换矩阵（稍微倾斜并缩放的变换）
-        let custom_transform = Matrix4::new_translation(&Vector3::new(1.0, 1.5, -0.5))  // 平移
-            * Matrix4::from_euler_angles(0.2, 0.3, 0.1)  // 旋转（roll, pitch, yaw）
-            * Matrix4::new_scaling(0.5); // 等比缩放
-
-        // 使用 with_transform 方法创建对象（避免dead_code警告）
-        let custom_object = SceneObject::with_transform(
-            0, // 使用第一个模型
-            custom_transform,
-            None, // 无自定义材质
-        );
-
-        scene.add_object(custom_object, Some("custom_transform_test"));
-        println!("已添加自定义变换对象");
-    }
-
     println!(
         "创建了包含 {} 个对象、{} 个光源的场景",
         scene.object_count(),
@@ -443,205 +523,14 @@ fn main() -> Result<(), String> {
     // --- 创建渲染器 ---
     let renderer = Renderer::new(args.width, args.height);
 
-    // --- 决定模式：动画或单帧 ---
+    // --- 渲染动画或单帧 ---
     if args.animate {
         run_animation_loop(&args, &mut scene, &renderer)?;
     } else {
         println!("--- 准备单帧渲染 ---");
-
-        // 创建渲染设置
-        let settings = RenderSettings {
-            projection_type: args.projection.clone(),
-            use_zbuffer: !args.no_zbuffer,
-            use_face_colors: args.colorize,
-            use_texture: !args.no_texture,
-            light: scene
-                .lights
-                .first()
-                .map(|l| l.as_ref().to_light_enum()) // Call to_light_enum on the trait object
-                .unwrap_or_else(|| {
-                    Light::Ambient(Vector3::new(args.ambient, args.ambient, args.ambient))
-                }),
-            use_phong: args.use_phong,
-            apply_gamma: !args.no_gamma,
-            use_pbr: args.use_pbr,
-        };
-
-        // 打印当前渲染设置信息
-        println!("使用{}渲染", settings.get_lighting_description());
-
-        render_single_frame(&args, &scene, &renderer, &settings, &args.output)?;
-    }
-
-    // 最后检查一下场景状态和资源
-    if args.show_debug_info {
-        println!("\n--- 场景状态 ---");
-        println!("模型数量: {}", scene.model_count());
-        println!("对象数量: {}", scene.object_count());
-        println!("光源数量: {}", scene.light_count());
-
-        // 测试材质系统和光照模型功能
-        println!("\n--- 材质系统测试 ---");
-        if !scene.models.is_empty() && !scene.models[0].materials.is_empty() {
-            use material_system::BlinnPhongLightingModel;
-
-            let material = &scene.models[0].materials[0];
-            let light = if let Some(l) = scene.lights.first() {
-                l.as_ref().to_light_enum()
-            } else {
-                Light::Ambient(Vector3::new(0.2, 0.2, 0.2))
-            };
-
-            // 使用光照模型
-            let lighting_model = BlinnPhongLightingModel::new();
-            println!("使用光照模型: {}", lighting_model.get_model_name());
-
-            // 创建一个简单的测试材质和光源列表以测试compute_lighting
-            struct TestMaterial {
-                diffuse: Vector3<f32>,
-            }
-
-            impl std::fmt::Debug for TestMaterial {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "TestMaterial {{ diffuse: {:?} }}", self.diffuse)
-                }
-            }
-
-            impl material_system::IMaterial for TestMaterial {
-                fn compute_response(
-                    &self,
-                    _light_dir: &Vector3<f32>,
-                    _view_dir: &Vector3<f32>,
-                    _normal: &Vector3<f32>,
-                ) -> Vector3<f32> {
-                    self.diffuse
-                }
-
-                fn get_ambient_color(&self) -> Vector3<f32> {
-                    self.diffuse * 0.2
-                }
-
-                // 重写默认实现来使用此方法
-                fn get_diffuse_color(&self) -> Vector3<f32> {
-                    self.diffuse
-                }
-            }
-
-            let test_material = TestMaterial {
-                diffuse: Vector3::new(0.8, 0.6, 0.4),
-            };
-
-            // 创建测试光源
-            let light_box: Box<dyn material_system::ILight> = if let Some(l) = scene.lights.first()
-            {
-                Box::new(l.as_ref().to_light_enum())
-            } else {
-                Box::new(Light::Ambient(Vector3::new(0.2, 0.2, 0.2)))
-            };
-
-            let lights: Vec<Box<dyn material_system::ILight>> = vec![light_box];
-
-            // 计算光照（使用compute_lighting特性方法）
-            let point = Point3::new(0.0, 0.0, 0.0);
-            let normal = Vector3::new(0.0, 1.0, 0.0);
-            let view_dir = Vector3::new(0.0, 0.0, 1.0);
-
-            // 使用ILightingModel特性的compute_lighting方法
-            let result1 = material_system::ILightingModel::compute_lighting(
-                &lighting_model,
-                &test_material,
-                &lights,
-                &point,
-                &normal,
-                &view_dir,
-            );
-            println!("compute_lighting结果: {:?}", result1);
-            println!("材质漫反射颜色: {:?}", test_material.get_diffuse_color());
-
-            // 使用特性的get_model_name方法
-            let model_name = material_system::ILightingModel::get_model_name(&lighting_model);
-            println!("光照模型名称 (trait方法): {}", model_name);
-
-            // 直接测试 render_with_model 方法
-            let result2 =
-                lighting_model.render_with_model(point, normal, view_dir, &light, material.diffuse);
-            println!("渲染结果: {:?}", result2);
-
-            // 测试PBR材质方法
-            if args.use_pbr {
-                use material_system::PBRMaterial;
-
-                // 创建一个空纹理作为默认值
-                let empty_texture = Texture::default();
-
-                let test_pbr = PBRMaterial::new(Vector3::new(0.8, 0.8, 0.8), 0.5, 0.3)
-                    .with_base_color_texture(
-                        material
-                            .diffuse_texture
-                            .clone()
-                            .unwrap_or(empty_texture.clone()),
-                    )
-                    .with_metal_rough_ao_texture(
-                        material
-                            .diffuse_texture
-                            .clone()
-                            .unwrap_or(empty_texture.clone()),
-                    )
-                    .with_normal_map(material.diffuse_texture.clone().unwrap_or(empty_texture))
-                    .with_emissive(Vector3::new(0.0, 0.0, 0.0), None);
-
-                println!(
-                    "创建测试PBR材质: 金属度={:.2}, 粗糙度={:.2}",
-                    test_pbr.metallic, test_pbr.roughness
-                );
-            }
-        }
-
-        // 如果命令行指定了测试场景管理功能
-        if args.test_scene_management {
-            println!("\n执行场景管理测试...");
-            // 测试对象查找
-            if let Some(obj_id) = scene.find_object_by_name("main") {
-                println!("找到主对象，ID: {}", obj_id);
-
-                // 测试对象修改
-                if let Some(obj) = scene.get_object_mut(obj_id) {
-                    // 修改主对象属性
-                    obj.set_position(Point3::new(0.0, 0.1, 0.0));
-                    println!("已修改主对象位置");
-                }
-            }
-
-            // 仅在测试模式下清除场景
-            if args.test_clear_scene {
-                println!("清除场景对象...");
-                scene.clear_objects();
-                println!("清除后对象数量: {}", scene.object_count());
-
-                println!("清除场景光源...");
-                scene.clear_lights();
-                println!("清除后光源数量: {}", scene.light_count());
-            }
-        }
-
-        // 测试Material的set_name和set_opacity方法
-        if args.use_pbr && args.test_materials {
-            println!("\n--- 材质设置测试 ---");
-            if !scene.models.is_empty() && !scene.models[0].materials.is_empty() {
-                // 克隆一个材质以便修改
-                let mut test_material = scene.models[0].materials[0].clone();
-
-                // 测试设置名称
-                let new_name = "测试PBR材质";
-                test_material.set_name(new_name.to_string());
-                println!("材质名称已设置为: {}", test_material.get_name());
-
-                // 测试设置透明度
-                test_material.set_opacity(0.85);
-                println!("材质透明度已设置为: {:.2}", test_material.get_opacity());
-                println!("材质是否不透明: {}", test_material.is_opaque());
-            }
-        }
+        let config = create_render_config(&scene, &args);
+        println!("使用{}渲染", config.get_lighting_description());
+        render_single_frame(&args, &scene, &renderer, &config, &args.output)?;
     }
 
     println!("总执行时间：{:?}", start_time.elapsed());

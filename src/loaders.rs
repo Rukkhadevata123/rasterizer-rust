@@ -134,7 +134,13 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                             shininess: mat.shininess.unwrap_or(10.0),
                             dissolve: mat.dissolve.unwrap_or(1.0),
                             diffuse_texture,
-                            pbr_material: None, // 默认不使用PBR材质
+
+                            // 添加PBR参数
+                            base_color: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8])),
+                            metallic: 0.0,          // 默认为非金属材质
+                            roughness: 0.5,         // 中等粗糙度
+                            ambient_occlusion: 1.0, // 默认无AO
+                            emissive: Vector3::zeros(),
                         }
                     })
                     .collect()

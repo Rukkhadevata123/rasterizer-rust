@@ -1,7 +1,8 @@
 use crate::texture_utils::Texture;
 use nalgebra::{Point3, Vector2, Vector3};
+use std::fmt::Debug;
 
-/// Represents a vertex with position, normal, and texture coordinates.
+/// 表示带有位置、法线和纹理坐标的顶点
 #[derive(Debug, Clone, Copy)]
 pub struct Vertex {
     pub position: Point3<f32>,
@@ -9,92 +10,83 @@ pub struct Vertex {
     pub texcoord: Vector2<f32>,
 }
 
-/// Represents a material with its properties and optional texture map.
+/// 材质渲染模式
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterialMode {
+    /// 传统Blinn-Phong着色模型
+    BlinnPhong,
+    /// 基于物理的渲染
+    PBR,
+}
+
+/// 表示材质属性，包含传统的Blinn-Phong属性和PBR属性
 #[derive(Debug, Clone)]
 pub struct Material {
+    // --- 通用属性 ---
     pub name: String,
-    pub ambient: Vector3<f32>,  // Ka
-    pub diffuse: Vector3<f32>,  // Kd
-    pub specular: Vector3<f32>, // Ks
-    pub shininess: f32,         // Ns
-    pub dissolve: f32,          // Alpha / transparency
+    pub dissolve: f32, // 透明度 (1.0 = 不透明)
+
+    // --- 传统Blinn-Phong属性 ---
+    pub ambient: Vector3<f32>,
+    pub diffuse: Vector3<f32>,
+    pub specular: Vector3<f32>,
+    pub shininess: f32,
     pub diffuse_texture: Option<Texture>,
-    // 添加 PBR 材质支持
-    pub pbr_material: Option<crate::material_system::PBRMaterial>,
-    // Add other properties like ambient_texture, specular_texture, bump_map etc. if needed
+
+    // --- PBR属性 ---
+    pub base_color: Vector3<f32>,
+    pub metallic: f32,
+    pub roughness: f32,
+    pub ambient_occlusion: f32,
+    pub emissive: Vector3<f32>,
 }
 
 impl Material {
-    /// Creates a default material.
+    /// 创建默认材质
     pub fn default() -> Self {
-        // Made public
         Material {
             name: "Default".to_string(),
+            dissolve: 1.0,
             ambient: Vector3::new(0.2, 0.2, 0.2),
             diffuse: Vector3::new(0.8, 0.8, 0.8),
-            specular: Vector3::new(0.0, 0.0, 0.0),
-            shininess: 10.0,
-            dissolve: 1.0,
+            specular: Vector3::new(0.5, 0.5, 0.5),
+            shininess: 32.0,
             diffuse_texture: None,
-            pbr_material: None, // Initialize with None
+            base_color: Vector3::new(0.8, 0.8, 0.8),
+            metallic: 0.0,
+            roughness: 0.5,
+            ambient_occlusion: 1.0,
+            emissive: Vector3::zeros(),
         }
     }
 
-    /// 返回材质名称
+    /// 获取材质名称
     pub fn get_name(&self) -> &str {
         &self.name
-    }
-
-    /// 设置材质名称
-    pub fn set_name(&mut self, name: String) {
-        self.name = name;
     }
 
     /// 检查材质是否完全不透明
     pub fn is_opaque(&self) -> bool {
         self.dissolve >= 0.999
     }
-
-    /// 获取材质的透明度值 (0.0 = 完全透明, 1.0 = 完全不透明)
+    
+    /// 获取材质不透明度
     pub fn get_opacity(&self) -> f32 {
         self.dissolve
     }
-
-    /// 设置材质的透明度值
-    pub fn set_opacity(&mut self, opacity: f32) {
-        self.dissolve = opacity.clamp(0.0, 1.0);
-    }
-
-    /// 创建一个PBR材质版本（如果尚未存在）
-    pub fn ensure_pbr_material(&mut self) -> &mut crate::material_system::PBRMaterial {
-        if self.pbr_material.is_none() {
-            // 使用现有Blinn-Phong参数创建合理的PBR材质
-            let base_color = self.diffuse;
-            // 使用高光作为金属度的粗略估计 - 计算高光颜色的最大分量
-            let metallic = self.specular.x.max(self.specular.y).max(self.specular.z);
-            let roughness = 1.0 - (self.shininess / 128.0).clamp(0.0, 1.0); // 将光泽度转换为粗糙度
-
-            let pbr_material =
-                crate::material_system::PBRMaterial::new(base_color, metallic, roughness);
-
-            self.pbr_material = Some(pbr_material);
-        }
-
-        self.pbr_material.as_mut().unwrap()
-    }
 }
 
-/// Represents a mesh with vertices, indices, and material ID.
+/// 表示一个网格，包含顶点、索引和材质ID
 #[derive(Debug, Clone)]
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
-    /// Indices into the `vertices` array, forming triangles.
+    /// 指向`vertices`数组的索引，形成三角形
     pub indices: Vec<u32>,
-    /// Index into the `materials` vector in `ModelData`.
+    /// 指向`ModelData`中`materials`向量的索引
     pub material_id: Option<usize>,
 }
 
-/// Holds all loaded model data, including meshes and materials.
+/// 保存所有加载的模型数据，包括网格和材质
 #[derive(Debug, Clone)]
 pub struct ModelData {
     pub meshes: Vec<Mesh>,
