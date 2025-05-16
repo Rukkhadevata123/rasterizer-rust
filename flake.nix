@@ -58,6 +58,11 @@
           sdl3
           sdl3-ttf
           sdl3-image
+          cairo
+          gdk-pixbuf
+          gdk-pixbuf-xlib
+          gtk3
+          atkmm
 
           # 对于 Wayland（如果需要）
           wayland
@@ -103,7 +108,15 @@
             pkgs.sdl3
             pkgs.sdl3-ttf
             pkgs.sdl3-image
+            pkgs.cairo
+            pkgs.gdk-pixbuf
+            pkgs.gdk-pixbuf-xlib
+            pkgs.gtk3
+            pkgs.atkmm
           ]}"
+
+          # 设置 PKG_CONFIG_PATH 以包含 GTK 库
+          export PKG_CONFIG_PATH="${pkgs.gtk3}/lib/pkgconfig:${pkgs.pango.dev}/lib/pkgconfig:${pkgs.cairo.dev}/lib/pkgconfig:${pkgs.glib.dev}/lib/pkgconfig:${pkgs.atk.dev}/lib/pkgconfig:$PKG_CONFIG_PATH"
 
           # STB 头文件路径设置
           export STB_INCLUDE_PATH="${pkgs.stb}/include/stb"

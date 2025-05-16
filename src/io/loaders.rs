@@ -1,6 +1,6 @@
-use crate::args::Args;
-use crate::model_types::{Material, Mesh, ModelData, Vertex};
-use crate::texture_utils::{Texture, load_texture};
+use crate::io::args::Args;
+use crate::materials::texture_utils::{Texture, load_texture};
+use crate::utils::model_types::{Material, Mesh, ModelData, Vertex};
 use nalgebra::{Point3, Vector2, Vector3};
 use std::collections::HashMap;
 use std::path::Path;
@@ -71,10 +71,20 @@ fn generate_smooth_vertex_normals(
     Ok(vertex_normals)
 }
 
+/// 从文件路径中提取基本文件名（不含扩展名）
+fn get_basename_from_path(path: &Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 /// 加载并处理 OBJ 模型文件
 pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<ModelData, String> {
     let obj_path_ref = obj_path.as_ref();
     println!("加载 OBJ 文件: {:?}", obj_path_ref);
+
+    // 提取 OBJ 文件的基本名称（不含扩展名）
+    let obj_basename = get_basename_from_path(obj_path_ref);
 
     // 确定加载材质和纹理的基础路径
     let base_path = obj_path_ref.parent().unwrap_or_else(|| Path::new("."));
@@ -132,7 +142,7 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                             diffuse: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8])),
                             specular: Vector3::from(mat.specular.unwrap_or([0.0, 0.0, 0.0])),
                             shininess: mat.shininess.unwrap_or(10.0),
-                            dissolve: mat.dissolve.unwrap_or(1.0),
+                            alpha: mat.dissolve.unwrap_or(1.0),
                             diffuse_texture,
 
                             // 添加PBR参数
@@ -175,8 +185,16 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
         let mesh = &model.mesh;
         let num_vertices_in_obj = mesh.positions.len() / 3;
 
+        // 使用模型名称或OBJ文件名
+        let mesh_name = if model.name.is_empty() || model.name == "unnamed_object" {
+            // 如果模型没有有效的名称，使用OBJ文件名
+            obj_basename.clone()
+        } else {
+            model.name.clone()
+        };
+
         if mesh.indices.is_empty() {
-            println!("跳过没有索引的网格 '{}'", model.name);
+            println!("跳过没有索引的网格 '{}'", mesh_name);
             continue;
         }
 
@@ -185,7 +203,7 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
 
         // 如果需要，生成平滑顶点法线
         let generated_normals: Option<Vec<Vector3<f32>>> = if !has_normals {
-            println!("警告: 网格 '{}' 缺少法线，计算平滑顶点法线", model.name);
+            println!("警告: 网格 '{}' 缺少法线，计算平滑顶点法线", mesh_name);
 
             let positions: Vec<Point3<f32>> = mesh
                 .positions
@@ -207,7 +225,7 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
         if !has_texcoords {
             println!(
                 "警告: 网格 '{}' 缺少纹理坐标，纹理映射可能不正确",
-                model.name
+                mesh_name
             );
         }
 
@@ -319,7 +337,7 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
             if material_id.is_some() {
                 println!(
                     "警告: 网格 '{}' 有无效的材质 ID {}。分配默认材质 ID 0",
-                    model.name,
+                    mesh_name,
                     material_id.unwrap()
                 );
             }
@@ -329,10 +347,11 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
             vertices,
             indices: final_indices,
             material_id: final_material_id,
+            name: mesh_name.clone(), // 添加网格名称字段
         });
         println!(
             "处理网格 '{}': {} 个唯一顶点, {} 个三角形, 材质 ID: {:?}",
-            model.name,
+            loaded_meshes.last().unwrap().name,
             loaded_meshes.last().unwrap().vertices.len(),
             loaded_meshes.last().unwrap().indices.len() / 3,
             final_material_id
@@ -343,8 +362,13 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
         return Err("OBJ 文件中没有可处理的网格".to_string());
     }
 
-    Ok(ModelData {
+    // 创建并返回模型数据，设置模型名称为OBJ文件基本名称
+    let model_data = ModelData {
         meshes: loaded_meshes,
         materials: loaded_materials,
-    })
+        name: obj_basename, // 添加模型名称字段
+    };
+
+    println!("创建模型 '{}' 成功", model_data.name);
+    Ok(model_data)
 }

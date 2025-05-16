@@ -1,4 +1,4 @@
-use crate::texture_utils::Texture;
+use crate::materials::texture_utils::Texture;
 use nalgebra::{Point3, Vector2, Vector3};
 use std::fmt::Debug;
 
@@ -24,7 +24,7 @@ pub enum MaterialMode {
 pub struct Material {
     // --- 通用属性 ---
     pub name: String,
-    pub dissolve: f32, // 透明度 (1.0 = 不透明) // TODO
+    pub alpha: f32, // 透明度 (1.0 = 不透明)
 
     // --- 传统Blinn-Phong属性 ---
     pub ambient: Vector3<f32>,
@@ -46,7 +46,7 @@ impl Material {
     pub fn default() -> Self {
         Material {
             name: "Default".to_string(),
-            dissolve: 1.0,
+            alpha: 1.0,
             ambient: Vector3::new(0.2, 0.2, 0.2),
             diffuse: Vector3::new(0.8, 0.8, 0.8),
             specular: Vector3::new(0.5, 0.5, 0.5),
@@ -74,6 +74,8 @@ pub struct Mesh {
     pub indices: Vec<u32>,
     /// 指向`ModelData`中`materials`向量的索引
     pub material_id: Option<usize>,
+    /// 网格的名称
+    pub name: String,
 }
 
 /// 保存所有加载的模型数据，包括网格和材质
@@ -81,4 +83,6 @@ pub struct Mesh {
 pub struct ModelData {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,
+    /// 模型的名称，通常来自文件名
+    pub name: String,
 }

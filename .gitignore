@@ -1,5 +1,6 @@
 /target
-obj/
+obj_not_upload
 python_files/
 output_*/
 .idea
+TESTS.md

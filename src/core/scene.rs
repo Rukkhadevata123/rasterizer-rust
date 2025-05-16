@@ -1,12 +1,12 @@
-use crate::camera::Camera;
-use crate::material_system::Light;
-use crate::model_types::ModelData;
-use crate::scene_object::SceneObject;
+use crate::core::scene_object::SceneObject;
+use crate::geometry::camera::Camera;
+use crate::materials::material_system::Light;
+use crate::utils::model_types::ModelData;
 use nalgebra::{Point3, Vector3};
 use std::collections::HashMap;
 
 /// 表示一个完整的 3D 场景，包含模型、对象实例、光源和相机
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scene {
     /// 所有加载的模型数据，由标识符索引
     pub models: Vec<ModelData>,

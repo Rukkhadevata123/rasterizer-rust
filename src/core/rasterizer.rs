@@ -8,21 +8,20 @@
 //! - Blinn-Phong光照模型
 //! - Gamma校正
 //!
-//! 光栅化器使用原子操作处理深度缓冲以支持并行渲染，使用互斥锁保护颜色缓冲区。
+//! 光栅化器使用原子操作处理深度缓冲和颜色缓冲区以支持高效的并行渲染。
 
-use crate::color_utils::{Color, linear_rgb_to_u8, srgb_to_linear};
-use crate::interpolation::{
+use crate::core::renderer::RenderConfig; // 直接导入 RenderConfig
+use crate::geometry::interpolation::{
     barycentric_coordinates, interpolate_depth, interpolate_normal, interpolate_position,
     interpolate_texcoords, is_inside_triangle,
 };
-use crate::material_system::{Light, MaterialView};
-use crate::model_types::{Material, MaterialMode};
-use crate::texture_utils::Texture;
-use crate::renderer::RenderConfig;  // 直接导入 RenderConfig
+use crate::materials::color_utils::{Color, linear_rgb_to_u8, srgb_to_linear};
+use crate::materials::material_system::{Light, MaterialView};
+use crate::materials::texture_utils::Texture;
+use crate::utils::model_types::{Material, MaterialMode};
 use atomic_float::AtomicF32;
 use nalgebra::{Point2, Point3, Vector2, Vector3};
-use std::sync::Mutex;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 /// 单个三角形光栅化所需的输入数据
 ///
@@ -92,14 +91,14 @@ pub struct TriangleData<'a> {
 /// * `width` - 帧缓冲区宽度（像素）
 /// * `height` - 帧缓冲区高度（像素）
 /// * `depth_buffer` - 深度缓冲区（使用原子操作支持并行）
-/// * `color_buffer` - 颜色缓冲区（使用互斥锁保护）
+/// * `color_buffer` - 颜色缓冲区（使用原子操作支持并行）
 /// * `config` - 光栅化器配置参数
 pub fn rasterize_triangle(
     triangle: &TriangleData,
     width: usize,
     height: usize,
     depth_buffer: &[AtomicF32],
-    color_buffer: &Mutex<Vec<u8>>,
+    color_buffer: &[AtomicU8],
     config: &RenderConfig, // 直接使用 RenderConfig
 ) {
     // 1. 计算三角形包围盒
@@ -142,6 +141,9 @@ pub fn rasterize_triangle(
     //             - (triangle.v3_pix.x - triangle.v1_pix.x) * (triangle.v2_pix.y - triangle.v1_pix.y)).abs();
     // if area_x2 < 1e-3 { return; }
 
+    // 线框模式的边缘检测阈值（像素单位）
+    const EDGE_THRESHOLD: f32 = 1.0;
+
     // 2. 遍历包围盒中的每个像素
     for y in min_y..max_y {
         for x in min_x..max_x {
@@ -158,6 +160,20 @@ pub fn rasterize_triangle(
             ) {
                 // 4. 检查像素是否在三角形内
                 if is_inside_triangle(bary) {
+                    // 如果是线框模式，检查像素是否在三角形边缘附近
+                    // 如果不在边缘附近，则不渲染该像素
+                    if config.use_wireframe
+                        && !is_on_triangle_edge(
+                            pixel_center,
+                            triangle.v1_pix,
+                            triangle.v2_pix,
+                            triangle.v3_pix,
+                            EDGE_THRESHOLD,
+                        )
+                    {
+                        continue;
+                    }
+
                     // 5. 插值深度值
                     let interpolated_depth = interpolate_depth(
                         bary,
@@ -185,22 +201,24 @@ pub fn rasterize_triangle(
                                 // 7. 计算最终颜色
                                 let final_color = calculate_pixel_color(triangle, bary, config);
 
-                                // 8. 写入颜色到缓冲区（使用互斥锁）
+                                // 8. 写入颜色到缓冲区（使用原子操作）
                                 {
-                                    // 互斥锁作用域
-                                    let mut cbuf_guard = color_buffer.lock().unwrap();
+                                    // 原子操作写入颜色
                                     let buffer_start_index = pixel_index * 3;
-                                    if buffer_start_index + 2 < cbuf_guard.len() {
+                                    if buffer_start_index + 2 < color_buffer.len() {
                                         // 使用gamma校正函数转换颜色
                                         let [r, g, b] = linear_rgb_to_u8(
                                             &final_color,
                                             config.apply_gamma_correction,
                                         );
-                                        cbuf_guard[buffer_start_index] = r;
-                                        cbuf_guard[buffer_start_index + 1] = g;
-                                        cbuf_guard[buffer_start_index + 2] = b;
+                                        color_buffer[buffer_start_index]
+                                            .store(r, Ordering::Relaxed);
+                                        color_buffer[buffer_start_index + 1]
+                                            .store(g, Ordering::Relaxed);
+                                        color_buffer[buffer_start_index + 2]
+                                            .store(b, Ordering::Relaxed);
                                     }
-                                } // 互斥锁在此处释放
+                                } // 互斥锁作用域结束
                             }
                         }
                     }
@@ -445,6 +463,51 @@ fn calculate_pixel_color(
             }
         }
     }
+}
+
+/// 检查像素是否在三角形边缘附近
+///
+/// # 参数
+/// * `pixel_point` - 像素中心点坐标
+/// * `v1` - 三角形第一个顶点
+/// * `v2` - 三角形第二个顶点
+/// * `v3` - 三角形第三个顶点
+/// * `edge_threshold` - 边缘检测阈值（像素距离边缘的最大距离）
+///
+/// # 返回值
+/// 如果像素在三角形任意边缘附近，返回true
+fn is_on_triangle_edge(
+    pixel_point: Point2<f32>,
+    v1: Point2<f32>,
+    v2: Point2<f32>,
+    v3: Point2<f32>,
+    edge_threshold: f32,
+) -> bool {
+    // 计算点到线段的距离
+    let dist_to_edge = |p: Point2<f32>, edge_start: Point2<f32>, edge_end: Point2<f32>| -> f32 {
+        let edge_vec = edge_end - edge_start.coords;
+        let edge_length_sq = edge_vec.coords.norm_squared();
+
+        // 如果边长为0，直接返回点到起点的距离
+        if edge_length_sq < 1e-6 {
+            return (p - edge_start.coords).coords.norm();
+        }
+
+        // 计算投影比例
+        let t =
+            ((p - edge_start.coords).coords.dot(&edge_vec.coords) / edge_length_sq).clamp(0.0, 1.0);
+
+        // 计算投影点 - 使用向量加法而不是点加法
+        let projection = Point2::new(edge_start.x + t * edge_vec.x, edge_start.y + t * edge_vec.y);
+
+        // 返回点到投影点的距离
+        (p - projection.coords).coords.norm()
+    };
+
+    // 检查点到三条边的距离是否小于阈值
+    dist_to_edge(pixel_point, v1, v2) <= edge_threshold
+        || dist_to_edge(pixel_point, v2, v3) <= edge_threshold
+        || dist_to_edge(pixel_point, v3, v1) <= edge_threshold
 }
 
 /// 检查是否应该对三角形使用纹理

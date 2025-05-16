@@ -22,7 +22,7 @@ USE_PBR	  := false
 
 # --- 模型配置 --- 
 # 斯坦福兔子模型 (修正相机位置使camera_from和camera_at在同一水平面上)
-BUNNY_MODEL  := obj/bunny/bunny5k_f.obj
+BUNNY_MODEL  := obj/simple/bunny.obj
 BUNNY_OUTPUT := output_bunny
 BUNNY_CAMERA_FROM := "0,0.1,2.5"  # 修改Y坐标与目标点相同
 BUNNY_CAMERA_AT := "0,0.1,0"

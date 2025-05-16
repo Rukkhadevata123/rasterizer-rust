@@ -1,4 +1,4 @@
-use crate::model_types::ModelData;
+use crate::utils::model_types::ModelData;
 use nalgebra::{Point3, Vector3};
 
 /// 将深度缓冲数据归一化到指定的百分位数范围
@@ -47,16 +47,14 @@ pub fn normalize_depth(
             }
         }
         println!(
-            "Normalizing depth using percentiles: [{:.1}%, {:.1}%] -> [{:.3}, {:.3}]",
+            "使用百分位数归一化深度: [{:.1}%, {:.1}%] -> [{:.3}, {:.3}]",
             min_percentile, max_percentile, min_clip, max_clip
         );
     } else {
         // 如果没有足够的有限值，使用后备方案
-        println!(
-            "Warning: Not enough finite depth values for percentile clipping. Using default range [0.1, 10.0]."
-        );
-        min_clip = 0.1; // Default near // Assignment
-        max_clip = 10.0; // Default far (adjust as needed) // Assignment
+        println!("警告: 没有足够的有限深度值进行百分位裁剪。使用默认范围 [0.1, 10.0]。");
+        min_clip = 0.1; // 默认近平面距离
+        max_clip = 10.0; // 默认远平面距离（根据需要调整）
     }
 
     let range = max_clip - min_clip;
@@ -80,8 +78,8 @@ pub fn normalize_depth(
 /// 保存RGB图像数据到PNG文件
 pub fn save_image(path: &str, data: &[u8], width: u32, height: u32) {
     match image::save_buffer(path, data, width, height, image::ColorType::Rgb8) {
-        Ok(_) => println!("Image saved to {}", path),
-        Err(e) => eprintln!("Error saving image to {}: {}", path, e),
+        Ok(_) => println!("图像已保存到 {}", path),
+        Err(e) => eprintln!("保存图像到 {} 时出错: {}", path, e),
     }
 }
 

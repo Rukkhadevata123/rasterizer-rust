@@ -1,17 +1,16 @@
-use crate::camera::Camera;
-use crate::color_utils::get_face_color;
-use crate::material_system::MaterialView;
-use crate::model_types::{Material, MaterialMode, ModelData};
-use crate::rasterizer::{TriangleData, rasterize_triangle};
-use crate::scene_object::SceneObject;
-use crate::transform::{
+use crate::core::rasterizer::{TriangleData, rasterize_triangle};
+use crate::core::scene_object::SceneObject;
+use crate::geometry::camera::Camera;
+use crate::geometry::transform::{
     compute_normal_matrix, ndc_to_pixel, transform_normals, world_to_ndc, world_to_view,
 };
+use crate::materials::color_utils::get_face_color;
+use crate::materials::material_system::MaterialView;
+use crate::utils::model_types::{Material, MaterialMode, ModelData};
 use atomic_float::AtomicF32;
 use nalgebra::{Point2, Point3, Vector3};
 use rayon::prelude::*;
-use std::sync::Mutex;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Instant;
 
 pub struct FrameBuffer {
@@ -20,16 +19,21 @@ pub struct FrameBuffer {
     /// Stores positive depth values, smaller is closer. Atomic for parallel writes.
     pub depth_buffer: Vec<AtomicF32>,
     /// Stores RGB color values [0, 255] as u8. Mutex for parallel writes.
-    pub color_buffer: Mutex<Vec<u8>>,
+    pub color_buffer: Vec<AtomicU8>,
 }
 
 impl FrameBuffer {
     pub fn new(width: usize, height: usize) -> Self {
         let num_pixels = width * height;
+
+        // 为深度缓冲区创建原子浮点数向量
         let depth_buffer = (0..num_pixels)
             .map(|_| AtomicF32::new(f32::INFINITY))
             .collect();
-        let color_buffer = Mutex::new(vec![0u8; num_pixels * 3]); // Initialize black
+
+        // 使用迭代器创建颜色缓冲区，避免使用vec!宏
+        let color_buffer = (0..num_pixels * 3).map(|_| AtomicU8::new(0)).collect();
+
         FrameBuffer {
             width,
             height,
@@ -45,13 +49,16 @@ impl FrameBuffer {
         });
 
         // Reset color buffer
-        let mut color_guard = self.color_buffer.lock().unwrap();
-        // Consider parallelizing this if locking becomes a bottleneck for clearing large buffers
-        color_guard.fill(0);
+        self.color_buffer
+            .par_iter()
+            .for_each(|atomic_color| atomic_color.store(0, Ordering::Relaxed));
     }
 
     pub fn get_color_buffer_bytes(&self) -> Vec<u8> {
-        self.color_buffer.lock().unwrap().clone()
+        self.color_buffer
+            .iter()
+            .map(|atomic_color| atomic_color.load(Ordering::Relaxed))
+            .collect()
     }
 
     pub fn get_depth_buffer_f32(&self) -> Vec<f32> {
@@ -91,7 +98,7 @@ pub struct RenderConfig {
 
     // 光照信息
     /// 默认光源配置
-    pub light: crate::material_system::Light,
+    pub light: crate::materials::material_system::Light,
 
     // 几何处理
     /// 是否启用背面剔除
@@ -119,7 +126,7 @@ impl Default for RenderConfig {
             use_pbr: false,
             use_texture: true,
             apply_gamma_correction: true,
-            light: crate::material_system::Light::directional(
+            light: crate::materials::material_system::Light::directional(
                 nalgebra::Vector3::new(0.0, -1.0, -1.0).normalize(),
                 nalgebra::Vector3::new(1.0, 1.0, 1.0),
             ),
@@ -185,7 +192,7 @@ impl RenderConfig {
         self
     }
 
-    pub fn with_light(mut self, light: crate::material_system::Light) -> Self {
+    pub fn with_light(mut self, light: crate::materials::material_system::Light) -> Self {
         self.light = light;
         self
     }
@@ -215,7 +222,7 @@ impl RenderConfig {
     pub fn is_perspective(&self) -> bool {
         self.projection_type == "perspective"
     }
-    
+
     // 注意：to_rasterizer_config() 方法已被移除，现在直接使用 RenderConfig
 }
 
@@ -505,7 +512,7 @@ impl Renderer {
                     self.frame_buffer.height,
                     &self.frame_buffer.depth_buffer,
                     &self.frame_buffer.color_buffer,
-                    config,  // 直接传递config，不再使用rasterizer_config
+                    config, // 直接传递config，不再使用rasterizer_config
                 );
             });
         } else {
@@ -517,7 +524,7 @@ impl Renderer {
                     self.frame_buffer.height,
                     &self.frame_buffer.depth_buffer,
                     &self.frame_buffer.color_buffer,
-                    config,  // 直接传递config，不再使用rasterizer_config
+                    config, // 直接传递config，不再使用rasterizer_config
                 );
             });
         }
@@ -533,7 +540,7 @@ impl Renderer {
     }
 
     /// 渲染一个场景，包含多个模型和对象
-    pub fn render_scene(&self, scene: &crate::scene::Scene, config: &RenderConfig) {
+    pub fn render_scene(&self, scene: &crate::core::scene::Scene, config: &RenderConfig) {
         // 清除帧缓冲区
         self.frame_buffer.clear();
 

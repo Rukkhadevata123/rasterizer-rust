@@ -1,4 +1,4 @@
-use crate::model_types::{Material, MaterialMode};
+use crate::utils::model_types::{Material, MaterialMode};
 use nalgebra::{Point3, Vector3};
 use std::fmt::Debug;
 
@@ -151,7 +151,7 @@ impl<'a> MaterialView<'a> {
                 diffuse + specular
             }
             MaterialView::PBR(material) => {
-                use crate::material_system::pbr_functions::*;
+                use crate::materials::material_system::pbr_functions::*;
 
                 // 从材质获取基本属性
                 let base_color = material.base_color;

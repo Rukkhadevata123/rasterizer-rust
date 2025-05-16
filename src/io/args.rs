@@ -1,10 +1,14 @@
 use clap::Parser;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// 输入OBJ文件的路径
+    /// 启用GUI界面模式
     #[arg(long)]
+    pub gui: bool,
+
+    /// 输入OBJ文件的路径
+    #[arg(long, required_unless_present = "gui", default_value_t = String::from("obj/simple/bunny.obj"))]
     pub obj: String,
 
     /// 输出文件的基础名称（例如: "render" -> "render_color.png", "render_depth.png"）
