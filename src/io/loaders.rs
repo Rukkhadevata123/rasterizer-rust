@@ -1,6 +1,6 @@
 use crate::io::args::Args;
-use crate::materials::texture_utils::{Texture, load_texture};
-use crate::utils::model_types::{Material, Mesh, ModelData, Vertex};
+use crate::materials::model_types::{Material, Mesh, ModelData, TextureOptions, Vertex};
+use crate::materials::texture::{Texture, load_texture};
 use nalgebra::{Point3, Vector2, Vector3};
 use std::collections::HashMap;
 use std::path::Path;
@@ -118,7 +118,7 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                 mats.into_iter()
                     .map(|mat| {
                         // 优先使用命令行指定的纹理
-                        let diffuse_texture = if cli_texture.is_some() {
+                        let texture = if cli_texture.is_some() {
                             if mat.diffuse_texture.is_some() {
                                 println!(
                                     "注意: 命令行指定的纹理覆盖了材质 '{}' 中的纹理 '{}'",
@@ -131,22 +131,28 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                             mat.diffuse_texture.map(|tex_name| {
                                 let default_color =
                                     Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8]));
-                                let texture_path = base_path.join(tex_name);
-                                load_texture(&texture_path, default_color)
+                                let texture_path = base_path.join(&tex_name);
+                                let texture = load_texture(&texture_path, default_color);
+
+                                // 获取并记录纹理信息 - 这会调用之前未使用的get_texture_info方法
+                                let info = texture.get_texture_info();
+                                println!(
+                                    "  - 纹理 '{}': 类型={}, 尺寸={}x{}",
+                                    tex_name, info.texture_type, info.width, info.height
+                                );
+
+                                texture
                             })
                         };
 
                         Material {
                             name: mat.name,
-                            ambient: Vector3::from(mat.ambient.unwrap_or([0.2, 0.2, 0.2])),
-                            diffuse: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8])),
+                            albedo: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8])),
                             specular: Vector3::from(mat.specular.unwrap_or([0.0, 0.0, 0.0])),
                             shininess: mat.shininess.unwrap_or(10.0),
-                            alpha: mat.dissolve.unwrap_or(1.0),
-                            diffuse_texture,
+                            texture,
 
                             // 添加PBR参数
-                            base_color: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8])),
                             metallic: 0.0,          // 默认为非金属材质
                             roughness: 0.5,         // 中等粗糙度
                             ambient_occlusion: 1.0, // 默认无AO
@@ -169,12 +175,55 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
     if loaded_materials.is_empty() {
         if let Some(texture) = cli_texture {
             println!("未找到 MTL 材质，创建带命令行纹理的默认材质");
+
+            // 使用configure_texture方法配置默认材质
             let mut default_mat = Material::default();
-            default_mat.diffuse_texture = Some(texture);
+
+            // 获取命令行纹理的信息
+            let texture_info = texture.get_texture_info();
+            println!(
+                "应用命令行纹理: 类型={}, 尺寸={}x{}",
+                texture_info.texture_type, texture_info.width, texture_info.height
+            );
+
+            // 使用configure_texture方法附加纹理
+            let texture_type = if texture.is_face_color() {
+                "face_color"
+            } else {
+                "image"
+            };
+            default_mat.configure_texture(
+                texture_type,
+                Some(TextureOptions {
+                    path: None,
+                    color: None,
+                }),
+            );
+            default_mat.texture = Some(texture); // 直接设置纹理
+
             loaded_materials.push(default_mat);
         } else {
             println!("无 MTL 材质且无指定纹理，使用纯色默认材质");
-            loaded_materials.push(Material::default());
+
+            // 创建并配置纯色默认材质
+            let mut default_mat = Material::default();
+            let default_color = Vector3::new(0.8, 0.8, 0.8); // 默认灰色
+
+            // 使用configure_texture方法配置纯色纹理
+            default_mat.configure_texture(
+                "solid_color",
+                Some(TextureOptions {
+                    path: None,
+                    color: Some(default_color),
+                }),
+            );
+
+            println!(
+                "创建默认纯色纹理: RGB({:.2}, {:.2}, {:.2})",
+                default_color.x, default_color.y, default_color.z
+            );
+
+            loaded_materials.push(default_mat);
         }
     }
 

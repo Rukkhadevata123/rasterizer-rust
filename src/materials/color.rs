@@ -2,15 +2,15 @@ use nalgebra::Vector3;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
-/// Represents an RGB color with float components [0.0, 1.0].
+/// 表示具有浮点分量[0.0, 1.0]的RGB颜色。
 pub type Color = Vector3<f32>;
 
 /// 应用gamma矫正，将线性RGB值转换为sRGB空间
 ///
-/// # Arguments
+/// # 参数
 /// * `linear_color` - 线性空间的RGB颜色值 [0.0-1.0]
 ///
-/// # Returns
+/// # 返回值
 /// 应用了gamma矫正的RGB颜色值 [0.0-1.0]
 pub fn apply_gamma_correction(linear_color: &Color) -> Color {
     // 使用标准的gamma值2.2
@@ -27,10 +27,10 @@ pub fn apply_gamma_correction(linear_color: &Color) -> Color {
 
 /// 从sRGB空间转换回线性RGB值（解码）
 ///
-/// # Arguments
+/// # 参数
 /// * `srgb_color` - sRGB空间的RGB颜色值 [0.0-1.0]
 ///
-/// # Returns
+/// # 返回值
 /// 线性空间的RGB颜色值 [0.0-1.0]
 pub fn srgb_to_linear(srgb_color: &Color) -> Color {
     // 使用标准的gamma值2.2
@@ -46,11 +46,11 @@ pub fn srgb_to_linear(srgb_color: &Color) -> Color {
 
 /// 将线性RGB值转换为u8数组，应用gamma矫正
 ///
-/// # Arguments
+/// # 参数
 /// * `linear_color` - 线性空间的RGB颜色值 [0.0-1.0]
 /// * `apply_gamma` - 是否应用gamma矫正
 ///
-/// # Returns
+/// # 返回值
 /// 一个包含三个u8值的数组，表示颜色的RGB通道
 pub fn linear_rgb_to_u8(linear_color: &Color, apply_gamma: bool) -> [u8; 3] {
     let display_color = if apply_gamma {
@@ -66,40 +66,42 @@ pub fn linear_rgb_to_u8(linear_color: &Color, apply_gamma: bool) -> [u8; 3] {
     ]
 }
 
-/// Gets the base color for a face.
+/// 获取基于种子的随机颜色。
 ///
-/// If `colorize` is false, returns a default gray.
-/// If `colorize` is true, generates a pseudo-random color based on the face index
-/// (deterministic for the same index).
-pub fn get_face_color(face_index: usize, colorize: bool) -> Color {
+/// 如果`colorize`为false，返回默认的灰色。
+/// 如果`colorize`为true，根据种子生成伪随机颜色
+/// （对于相同的种子，结果是确定性的）。
+///
+/// # 参数
+/// * `seed` - 随机数种子
+/// * `colorize` - 是否生成彩色（否则返回默认灰色）
+pub fn get_random_color(seed: u64, colorize: bool) -> Color {
     if !colorize {
-        // Default gray
+        // 默认灰色
         Color::new(0.7, 0.7, 0.7)
     } else {
-        // Generate pseudo-random color based on face index
-        // Seed the RNG with the face index for deterministic results
-        let mut rng = StdRng::seed_from_u64(face_index as u64);
+        // 使用种子生成确定性随机颜色
+        let mut rng = StdRng::seed_from_u64(seed);
         Color::new(
-            0.3 + rng.random::<f32>() * 0.4, // R in [0.3, 0.7)
-            0.3 + rng.random::<f32>() * 0.4, // G in [0.3, 0.7)
-            0.3 + rng.random::<f32>() * 0.4, // B in [0.3, 0.7)
+            0.3 + rng.random::<f32>() * 0.4, // R 在 [0.3, 0.7) 范围内
+            0.3 + rng.random::<f32>() * 0.4, // G 在 [0.3, 0.7) 范围内
+            0.3 + rng.random::<f32>() * 0.4, // B 在 [0.3, 0.7) 范围内
         )
     }
 }
 
-/// Converts a normalized depth map (values 0.0-1.0) into an RGB color image
-/// using the JET colormap.
+/// 将归一化的深度图（值范围0.0-1.0）转换为使用JET色彩映射的RGB彩色图像。
 ///
-/// Invalid depth values (NaN, Infinity) will result in black pixels.
+/// 无效的深度值（NaN、无穷大）将显示为黑色像素。
 ///
-/// # Arguments
-/// * `normalized_depth` - Flattened slice of depth values (row-major).
-/// * `width` - Width of the depth map.
-/// * `height` - Height of the depth map.
+/// # 参数
+/// * `normalized_depth` - 扁平化的深度值切片（行优先）。
+/// * `width` - 深度图的宽度。
+/// * `height` - 深度图的高度。
 /// * `apply_gamma` - 是否应用gamma矫正
 ///
-/// # Returns
-/// A `Vec<u8>` containing the flattened RGB image data (0-255 per channel).
+/// # 返回值
+/// 包含扁平化RGB图像数据的`Vec<u8>`（每个通道0-255）。
 pub fn apply_colormap_jet(
     normalized_depth: &[f32],
     width: usize,
@@ -108,11 +110,11 @@ pub fn apply_colormap_jet(
 ) -> Vec<u8> {
     let num_pixels = width * height;
     if normalized_depth.len() != num_pixels {
-        // Or return an error Result
+        // 或返回一个错误Result
         panic!("Depth buffer size does not match width * height");
     }
 
-    let mut result = vec![0u8; num_pixels * 3]; // Initialize with black
+    let mut result = vec![0u8; num_pixels * 3]; // 初始化为黑色
 
     for y in 0..height {
         for x in 0..width {
@@ -120,27 +122,27 @@ pub fn apply_colormap_jet(
             let depth = normalized_depth[index];
 
             if depth.is_finite() {
-                let value = depth.clamp(0.0, 1.0); // Ensure value is in [0, 1]
+                let value = depth.clamp(0.0, 1.0); // 确保值在[0, 1]范围内
 
                 let mut r = 0.0;
                 let g;
                 let mut b = 0.0;
 
-                // Apply JET colormap logic
+                // 应用JET色彩映射逻辑
                 if value <= 0.25 {
-                    // Blue to Cyan
+                    // 从蓝色到青色
                     b = 1.0;
                     g = value * 4.0;
                 } else if value <= 0.5 {
-                    // Cyan to Green
+                    // 从青色到绿色
                     g = 1.0;
                     b = 1.0 - (value - 0.25) * 4.0;
                 } else if value <= 0.75 {
-                    // Green to Yellow
+                    // 从绿色到黄色
                     g = 1.0;
                     r = (value - 0.5) * 4.0;
                 } else {
-                    // Yellow to Red
+                    // 从黄色到红色
                     r = 1.0;
                     g = 1.0 - (value - 0.75) * 4.0;
                 }
@@ -148,13 +150,13 @@ pub fn apply_colormap_jet(
                 let color = Color::new(r, g, b);
                 let [r_u8, g_u8, b_u8] = linear_rgb_to_u8(&color, apply_gamma);
 
-                // Write to result buffer
+                // 写入结果缓冲区
                 let base_index = index * 3;
                 result[base_index] = r_u8;
                 result[base_index + 1] = g_u8;
                 result[base_index + 2] = b_u8;
             }
-            // If depth is not finite, pixel remains black (initialized to 0)
+            // 如果深度值不是有限的，像素保持黑色（初始化为0）
         }
     }
 

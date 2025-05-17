@@ -35,9 +35,11 @@
     - [2. 光照计算](#2-光照计算)
     - [3. 线程安全的Z缓冲](#3-线程安全的z缓冲)
     - [4. 并行三角形处理](#4-并行三角形处理)
-    - [5. GUI系统](#5-gui系统)
+    - [5. 统一纹理系统](#5-统一纹理系统)
+    - [6. GUI系统](#6-gui系统)
   - [项目结构](#项目结构)
   - [性能优化](#性能优化)
+  - [最近优化](#最近优化)
   - [未来改进方向](#未来改进方向)
   - [许可证](#许可证)
 
@@ -52,7 +54,7 @@
 - **多种投影方式**：支持透视投影和正交投影
 - **光照模型**：实现了环境光、方向光和点光源，以及Blinn-Phong着色模型
 - **基于物理的渲染(PBR)**：实现了基于金属度/粗糙度的PBR着色模型，可精确控制材质外观
-- **纹理映射**：支持图片纹理加载和UV映射
+- **纹理系统**：支持图片纹理、面颜色和纯色纹理的统一处理与映射
 - **多种着色方式**：支持平面着色(Flat Shading)、Phong着色(逐像素光照)和PBR着色
 - **Z缓冲**：实现了线程安全的深度测试
 - **动画渲染**：支持相机轨道动画生成和视频导出
@@ -65,6 +67,8 @@
 ## GUI界面
 
 ![GUI界面截图](./assets/screenshot.png)
+
+![GUI界面截图](./assets/screenshot2.png)
 
 ## 安装与构建
 
@@ -115,10 +119,10 @@ make build
 cargo run --release -- --gui
 
 # 指定初始模型并启动GUI
-cargo run --release -- --gui --obj obj/bunny/bunny5k_f.obj
+cargo run --release -- --gui --obj obj/simple/bunny.obj
 ```
 
-在GUI模式下，您可以：
+在GUI模式下，你可以：
 
 - 加载不同的3D模型
 - 调整相机参数（位置、目标点、FOV等）
@@ -187,13 +191,15 @@ cargo run --release -- --obj obj/models/spot/spot_triangulated.obj --use-phong -
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `--use-phong` | 使用Phong着色(逐像素光照) | false |
+| `--specular` | 镜面反射强度(0.0-1.0) | 0.5 |
+| `--shininess` | 材质光泽度(1.0-100.0) | 32.0 |
 | `--use-pbr` | 使用基于物理的渲染 | false |
-| `--use-texture` | 启用纹理加载和使用 | true |
+| `--use-texture` | 启用纹理加载和使用（与--colorize互斥） | true |
+| `--colorize` | 使用伪随机面颜色而非材质颜色（与--use-texture互斥） | false |
 | `--texture` | 显式指定纹理文件路径 | (无) |
 | `--use-gamma` | 启用gamma矫正 | true |
 | `--use-zbuffer` | 启用Z缓冲(深度测试) | true |
 | `--save-depth` | 渲染并保存深度图 | true |
-| `--colorize` | 使用伪随机面颜色而非材质颜色 | false |
 
 #### PBR材质参数
 
@@ -290,7 +296,7 @@ graph TD
     A[输入: OBJ模型/材质] --> B[模型加载器]
     B --> C[场景管理器]
     D[相机系统] --> C
-    E[材质系统] --> C
+    E[统一材质系统] --> C
     F[光源系统] --> C
     C --> G[渲染器]
     G --> H[光栅化器]
@@ -316,6 +322,12 @@ graph TD
     E --> E1[Lambert漫反射]
     E --> E2[Blinn-Phong反射]
     E --> E3[PBR材质]
+    end
+    
+    subgraph "统一纹理系统"
+    E --> T1[图像纹理]
+    E --> T2[面颜色]
+    E --> T3[纯色纹理]
     end
 ```
 
@@ -379,7 +391,52 @@ triangles_to_render.par_iter().for_each(|triangle_data| {
 });
 ```
 
-### 5. GUI系统
+### 5. 统一纹理系统
+
+实现了统一的纹理数据抽象，使得不同类型的纹理（图像、面颜色、纯色）能够用一致的接口处理：
+
+```rust
+/// 统一的纹理类型枚举，支持多种纹理来源
+#[derive(Debug, Clone)]
+pub enum TextureData {
+    /// 从文件加载的图像纹理
+    Image(Arc<DynamicImage>),
+    /// 面颜色纹理（每个面一个颜色，使用面索引作为种子）
+    FaceColor(u64),
+    /// 简单的单色纹理
+    SolidColor(Vector3<f32>),
+    /// 无纹理标记
+    None,
+}
+```
+
+该设计简化了光栅化过程中的纹理采样逻辑，并确保了各种纹理类型的无缝集成：
+
+```rust
+fn sample_texture(triangle: &TriangleData, bary: Vector3<f32>) -> Color {
+    // 根据纹理来源类型处理
+    match &triangle.texture_data {
+        TextureData::Image(_) => {
+            // 图像纹理采样...
+        }
+        TextureData::FaceColor(seed) => {
+            // 使用面索引生成随机颜色
+            let color = get_random_color(*seed, true);
+            Color::new(color.x, color.y, color.z)
+        }
+        TextureData::SolidColor(color) => {
+            // 使用固定颜色
+            Color::new(color.x, color.y, color.z)
+        }
+        TextureData::None => {
+            // 无纹理，返回白色
+            Color::new(1.0, 1.0, 1.0)
+        }
+    }
+}
+```
+
+### 6. GUI系统
 
 使用egui和eframe实现了交互式图形界面，支持所有渲染参数的实时调整：
 
@@ -414,9 +471,6 @@ src/
 │   ├── rasterizer.rs       # 三角形光栅化
 │   ├── scene.rs            # 场景管理
 │   └── scene_object.rs     # 场景对象实现
-├── demos/                  # 演示案例模块
-│   ├── mod.rs              # 模块导出
-│   └── demos.rs            # 预设演示场景
 ├── geometry/               # 几何处理模块
 │   ├── mod.rs              # 模块导出
 │   ├── transform.rs        # 坐标变换
@@ -425,8 +479,9 @@ src/
 ├── materials/              # 材质处理模块
 │   ├── mod.rs              # 模块导出
 │   ├── material_system.rs  # 材质系统实现
-│   ├── texture_utils.rs    # 纹理处理
-│   └── color_utils.rs      # 颜色处理
+│   ├── texture.rs          # 纹理处理
+│   ├── color.rs            # 颜色处理
+│   └── model_types.rs      # 模型数据结构
 ├── io/                     # 输入输出模块
 │   ├── mod.rs              # 模块导出
 │   ├── args.rs             # 命令行参数
@@ -439,8 +494,12 @@ src/
 │   └── animation.rs        # 动画相关UI
 └── utils/                  # 工具函数
     ├── mod.rs              # 模块导出
-    ├── model_types.rs      # 模型数据结构
-    └── depth_image.rs      # 深度图像处理
+    ├── image_utils.rs      # 图像处理工具
+    ├── render_utils.rs     # 渲染辅助功能
+    ├── animation_utils.rs  # 动画工具函数
+    ├── material_utils.rs   # 材质辅助工具
+    ├── model_utils.rs      # 模型处理工具
+    └── test_utils.rs       # 测试辅助工具
 ```
 
 ## 性能优化
@@ -452,7 +511,16 @@ src/
 3. **边界检查优化**：使用包围盒减少像素处理量
 4. **深度测试优化**：使用原子操作提高多线程下深度测试性能
 5. **缓存友好的数据结构**：设计考虑内存访问模式的数据结构，提高缓存命中率
-6. **GUI性能优化**：优化UI更新和渲染逻辑，减少不必要的重绘
+6. **统一纹理系统**：优化纹理处理流程，减少类型转换和冗余概念
+7. **GUI性能优化**：优化UI更新和渲染逻辑，减少不必要的重绘
+
+## 最近优化
+
+- **目录结构重组**：重新组织了项目的文件结构，将`model_types.rs`移至`materials`目录，简化了文件命名
+- **纹理系统重构**：简化了纹理相关文件的命名，将`texture_utils.rs`和`color_utils.rs`重命名为更简洁的`texture.rs`和`color.rs`
+- **材质系统改进**：优化了面颜色生成和材质回退机制，保持功能完整的同时提高了代码清晰度
+- **渲染流程优化**：简化了渲染器与光栅化器的数据传递，减少了不必要的类型转换
+- **测试系统完善**：增强了GUI和命令行模式的测试覆盖，确保所有功能正常工作
 
 ## 未来改进方向
 

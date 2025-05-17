@@ -1,12 +1,10 @@
 use clap::Parser;
-use nalgebra::Vector3;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
 // 声明模块
 mod core;
-mod demos;
 mod geometry;
 mod io;
 mod materials;
@@ -16,18 +14,17 @@ mod utils;
 // 导入语句
 use core::renderer::Renderer;
 use core::scene::Scene;
-use core::scene_object::SceneObject;
-use demos::demos::{
-    apply_pbr_parameters, create_render_config, render_single_frame, run_animation_loop,
-    test_transformation_api,
-};
 use geometry::camera::Camera;
 use io::args::{Args, parse_point3, parse_vec3};
 use io::loaders::load_obj_enhanced;
-use utils::model_types::ModelData;
-use utils::depth_image::normalize_and_center_model;
+use materials::model_types::ModelData;
+use utils::animation_utils::run_animation_loop;
+use utils::material_utils::{apply_pbr_parameters, apply_phong_parameters};
+use utils::model_utils::normalize_and_center_model;
+use utils::render_utils::{create_render_config, render_single_frame};
+use utils::test_utils::test_transformation_api;
 
-/// 创建场景相机
+// 创建场景相机
 fn create_camera(args: &Args) -> Result<Camera, String> {
     let aspect_ratio = args.width as f32 / args.height as f32;
     let camera_from =
@@ -50,64 +47,35 @@ fn create_camera(args: &Args) -> Result<Camera, String> {
 
 /// 设置场景光源
 fn setup_lights(scene: &mut Scene, args: &Args) -> Result<(), String> {
-    if !args.use_lighting {
-        // 使用环境光
-        let ambient_intensity = if let Ok(ambient_color) = parse_vec3(&args.ambient_color) {
-            println!("使用RGB环境光强度: {:?}", ambient_color);
-            ambient_color
+    // 使用Scene中的统一方法设置光照系统
+    scene.setup_lighting(
+        args.use_lighting,
+        &args.light_type,
+        &args.light_dir,
+        &args.light_pos,
+        &args.light_atten,
+        args.diffuse,
+        args.ambient,
+        &args.ambient_color,
+    )?;
+
+    // 打印光照信息
+    if args.use_lighting {
+        if args.light_type == "point" {
+            println!(
+                "使用点光源，位置: {}, 强度系数: {:.2}",
+                args.light_pos, args.diffuse
+            );
         } else {
-            Vector3::new(args.ambient, args.ambient, args.ambient)
-        };
-
-        scene.create_ambient_light(ambient_intensity);
-        return Ok(());
-    }
-
-    // 使用漫反射光源
-    let light_intensity = Vector3::new(1.0, 1.0, 1.0) * args.diffuse;
-
-    match args.light_type.to_lowercase().as_str() {
-        "point" => {
-            let light_pos =
-                parse_point3(&args.light_pos).map_err(|e| format!("无效的光源位置格式: {}", e))?;
-
-            let atten_parts: Vec<Result<f32, _>> = args
-                .light_atten
-                .split(',')
-                .map(|s| s.trim().parse::<f32>())
-                .collect();
-
-            if atten_parts.len() != 3 || atten_parts.iter().any(|r| r.is_err()) {
-                return Err(format!(
-                    "无效的光衰减格式: '{}'. 应为 'c,l,q'",
-                    args.light_atten
-                ));
-            }
-
-            let attenuation = (
-                atten_parts[0].as_ref().map_or(0.0, |v| *v).max(0.0),
-                atten_parts[1].as_ref().map_or(0.0, |v| *v).max(0.0),
-                atten_parts[2].as_ref().map_or(0.0, |v| *v).max(0.0),
-            );
-
             println!(
-                "使用点光源，位置: {:?}, 强度系数: {:.2}, 衰减: {:?}",
-                light_pos, args.diffuse, attenuation
+                "使用定向光，方向: {}, 强度系数: {:.2}",
+                args.light_dir, args.diffuse
             );
-            scene.create_point_light(light_pos, light_intensity, attenuation);
         }
-        _ => {
-            // 默认为定向光
-            let mut light_dir =
-                parse_vec3(&args.light_dir).map_err(|e| format!("无效的光源方向格式: {}", e))?;
-            light_dir = -light_dir.normalize(); // 朝向光源的方向
-
-            println!(
-                "使用定向光，方向: {:?}, 强度系数: {:.2}",
-                light_dir, args.diffuse
-            );
-            scene.create_directional_light(light_dir, light_intensity);
-        }
+    } else if let Ok(ambient_color) = parse_vec3(&args.ambient_color) {
+        println!("使用RGB环境光强度: {:?}", ambient_color);
+    } else {
+        println!("使用环境光强度: {:.2}", args.ambient);
     }
 
     Ok(())
@@ -121,24 +89,23 @@ fn setup_scene(model_data: ModelData, args: &Args) -> Result<Scene, String> {
     // 创建场景并设置相机
     let mut scene = Scene::new(camera);
 
-    // 应用PBR材质参数(如果需要)
+    // 应用PBR材质参数(如果需要)和Phong材质参数(如果需要)
     let mut modified_model_data = model_data.clone();
     apply_pbr_parameters(&mut modified_model_data, args);
+    apply_phong_parameters(&mut modified_model_data, args);
 
-    // 添加模型和主对象
-    let model_id = scene.add_model(modified_model_data);
-    let main_object = SceneObject::new_default(model_id);
-    scene.add_object(main_object, Some("main"));
+    // 设置场景对象
+    let object_count = args
+        .object_count
+        .as_ref()
+        .and_then(|count_str| count_str.parse::<usize>().ok());
 
-    // 添加多个对象实例(如果需要)
-    if let Some(count_str) = &args.object_count {
-        if let Ok(count) = count_str.parse::<usize>() {
-            if count > 1 {
-                // 创建环形对象阵列
-                let radius = 2.0;
-                scene.create_object_ring(model_id, count - 1, radius, Some("satellite"));
-                println!("创建了环形排列的 {} 个附加对象", count - 1);
-            }
+    scene.setup_from_model_data(modified_model_data, object_count);
+
+    // 如果有多个对象，打印信息
+    if let Some(count) = object_count {
+        if count > 1 {
+            println!("创建了环形排列的 {} 个附加对象", count - 1);
         }
     }
 

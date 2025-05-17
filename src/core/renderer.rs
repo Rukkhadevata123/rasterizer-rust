@@ -1,12 +1,12 @@
-use crate::core::rasterizer::{TriangleData, rasterize_triangle};
+use crate::core::rasterizer::{TriangleData, VertexRenderData, rasterize_triangle};
 use crate::core::scene_object::SceneObject;
 use crate::geometry::camera::Camera;
 use crate::geometry::transform::{
     compute_normal_matrix, ndc_to_pixel, transform_normals, world_to_ndc, world_to_view,
 };
-use crate::materials::color_utils::get_face_color;
 use crate::materials::material_system::MaterialView;
-use crate::utils::model_types::{Material, MaterialMode, ModelData};
+use crate::materials::model_types::{Material, ModelData};
+use crate::materials::texture::TextureData;
 use atomic_float::AtomicF32;
 use nalgebra::{Point2, Point3, Vector3};
 use rayon::prelude::*;
@@ -16,9 +16,9 @@ use std::time::Instant;
 pub struct FrameBuffer {
     pub width: usize,
     pub height: usize,
-    /// Stores positive depth values, smaller is closer. Atomic for parallel writes.
+    /// 存储正深度值，数值越小表示越近。使用原子类型以支持并行写入。
     pub depth_buffer: Vec<AtomicF32>,
-    /// Stores RGB color values [0, 255] as u8. Mutex for parallel writes.
+    /// 存储RGB颜色值 [0, 255]，类型为u8。使用原子类型以支持并行写入。
     pub color_buffer: Vec<AtomicU8>,
 }
 
@@ -43,12 +43,12 @@ impl FrameBuffer {
     }
 
     pub fn clear(&self) {
-        // Reset depth buffer using parallel iteration for potential speedup
+        // 重置深度缓冲区，为了避免数据竞争，使用原子操作
         self.depth_buffer.par_iter().for_each(|atomic_depth| {
             atomic_depth.store(f32::INFINITY, Ordering::Relaxed);
         });
 
-        // Reset color buffer
+        // 重置颜色缓冲区
         self.color_buffer
             .par_iter()
             .for_each(|atomic_color| atomic_color.store(0, Ordering::Relaxed));
@@ -100,6 +100,12 @@ pub struct RenderConfig {
     /// 默认光源配置
     pub light: crate::materials::material_system::Light,
 
+    // 环境光信息（作为场景的基础属性）
+    /// 环境光强度 - 控制场景整体亮度 [0.0, 1.0]
+    pub ambient_intensity: f32,
+    /// 环境光颜色 - 控制场景基础色调 (RGB)
+    pub ambient_color: nalgebra::Vector3<f32>,
+
     // 几何处理
     /// 是否启用背面剔除
     pub use_backface_culling: bool,
@@ -130,6 +136,8 @@ impl Default for RenderConfig {
                 nalgebra::Vector3::new(0.0, -1.0, -1.0).normalize(),
                 nalgebra::Vector3::new(1.0, 1.0, 1.0),
             ),
+            ambient_intensity: 0.1, // 默认环境光强度
+            ambient_color: nalgebra::Vector3::new(1.0, 1.0, 1.0), // 默认环境光颜色（白色）
             use_backface_culling: false,
             use_wireframe: false,
             use_multithreading: true,
@@ -194,6 +202,16 @@ impl RenderConfig {
 
     pub fn with_light(mut self, light: crate::materials::material_system::Light) -> Self {
         self.light = light;
+        self
+    }
+
+    pub fn with_ambient_intensity(mut self, intensity: f32) -> Self {
+        self.ambient_intensity = intensity;
+        self
+    }
+
+    pub fn with_ambient_color(mut self, color: nalgebra::Vector3<f32>) -> Self {
+        self.ambient_color = color;
         self
     }
 
@@ -337,8 +355,6 @@ impl Renderer {
         println!("光栅化网格...");
         let raster_start_time = Instant::now();
 
-        // 注意：不再需要创建RasterizerConfig，直接使用config
-
         // --- 使用Rayon进行并行光栅化 ---
         let all_pixel_coords_ref = &all_pixel_coords;
         let all_view_coords_ref = &all_view_coords;
@@ -364,33 +380,19 @@ impl Renderer {
                         mesh.material_id.and_then(|id| model_materials_ref.get(id))
                     };
 
-                let _default_color = material_opt
-                    .and_then(|m| m.diffuse_texture.as_ref())
-                    .map_or_else(
-                        || nalgebra::Vector3::new(1.0, 1.0, 1.0), // 默认白色
-                        |_tex| {
-                            // 这里可以添加纹理的加载和采样代码
-                            // 目前返回一个占位的白色向量
-                            nalgebra::Vector3::new(1.0, 1.0, 1.0)
-                        },
-                    );
-
                 // 不需要克隆实现了Copy特性的类型
                 let light_clone = config.light;
 
-                // 使用RasterizerConfig中的设置
+                // 使用统一的纹理抽象
+                // 不再是"use_texture && !config.use_face_colors"的判断
+                // 纹理和面颜色现在都通过Texture抽象处理
                 let use_texture = config.use_texture;
-                let texture = if use_texture {
-                    material_opt.and_then(|m| m.diffuse_texture.as_ref())
-                } else {
-                    None
-                };
 
                 // 处理三角形索引（每3个一组）
                 mesh.indices
                     .chunks_exact(3)
-                    .enumerate()
-                    .filter_map(move |(face_idx_in_mesh, indices)| {
+                    .enumerate() // 添加枚举以获取面索引
+                    .filter_map(move |(face_idx, indices)| {
                         let i0 = indices[0] as usize;
                         let i1 = indices[1] as usize;
                         let i2 = indices[2] as usize;
@@ -402,6 +404,10 @@ impl Renderer {
                         let global_i0 = vertex_offset + i0;
                         let global_i1 = vertex_offset + i1;
                         let global_i2 = vertex_offset + i2;
+
+                        // 为每个面创建唯一的全局索引
+                        // 使用mesh_idx * 1000 + face_idx作为基础，确保不同网格的面索引不会冲突
+                        let global_face_index = (mesh_idx * 1000 + face_idx) as u64;
 
                         // 确保索引在有效范围内
                         if global_i0 >= all_pixel_coords_ref.len()
@@ -442,60 +448,91 @@ impl Renderer {
                             }
                         }
 
-                        // --- 光照计算 ---
-                        let _avg_normal_view = (all_view_normals_ref[global_i0]
-                            + all_view_normals_ref[global_i1]
-                            + all_view_normals_ref[global_i2])
-                            .normalize();
-                        let face_center_view = Point3::from(
-                            (view_pos0.coords + view_pos1.coords + view_pos2.coords) / 3.0,
-                        );
-                        let _view_dir_from_face = (-face_center_view.coords).normalize();
+                        // 准备纹理引用
+                        let texture = if use_texture {
+                            // 首先尝试获取材质中的纹理
+                            let material_texture = material_opt.and_then(|m| m.texture.as_ref());
+
+                            // 只有在没有材质纹理时，才使用面颜色
+                            if material_texture.is_none() && config.use_face_colors {
+                                // 没有实际纹理且启用了面颜色模式，传递None，后续在光栅化器中处理
+                                None
+                            } else {
+                                // 有材质纹理，优先使用它
+                                material_texture
+                            }
+                        } else {
+                            None
+                        };
 
                         // --- 确定基础颜色 ---
-                        let base_color = if config.use_face_colors {
-                            get_face_color(mesh_idx * 1000 + face_idx_in_mesh, true)
+                        let base_color = if config.use_face_colors && texture.is_none() {
+                            // 只有在启用面颜色且没有实际纹理时，才设置为默认颜色
+                            // 真正的面颜色将在光栅化器中生成
+                            Vector3::new(1.0, 1.0, 1.0) // 默认白色，实际颜色会在光栅化器中替换
                         } else {
                             material_opt.map_or_else(
                                 || Vector3::new(0.7, 0.7, 0.7), // 默认灰色
-                                |m| m.diffuse,                  // 使用材质的漫反射颜色
+                                |m| m.diffuse(),                // 使用材质的漫反射颜色
                             )
                         };
 
-                        // 创建材质视图
-                        let material_view = if config.use_pbr {
-                            material_opt.map(|m| MaterialView::from_material(m, MaterialMode::PBR))
+                        // 创建材质视图 - 直接使用原材质引用
+                        let material_view = material_opt.map(|m| {
+                            if config.use_pbr {
+                                MaterialView::PBR(m)
+                            } else {
+                                MaterialView::BlinnPhong(m)
+                            }
+                        });
+
+                        // 创建顶点渲染数据
+                        let vertex_data = [
+                            VertexRenderData {
+                                pix: Point2::new(pix0.x, pix0.y),
+                                z_view: view_pos0.z,
+                                texcoord: texture.map(|_| v0.texcoord),
+                                normal_view: Some(all_view_normals_ref[global_i0]),
+                                position_view: Some(view_pos0),
+                            },
+                            VertexRenderData {
+                                pix: Point2::new(pix1.x, pix1.y),
+                                z_view: view_pos1.z,
+                                texcoord: texture.map(|_| v1.texcoord),
+                                normal_view: Some(all_view_normals_ref[global_i1]),
+                                position_view: Some(view_pos1),
+                            },
+                            VertexRenderData {
+                                pix: Point2::new(pix2.x, pix2.y),
+                                z_view: view_pos2.z,
+                                texcoord: texture.map(|_| v2.texcoord),
+                                normal_view: Some(all_view_normals_ref[global_i2]),
+                                position_view: Some(view_pos2),
+                            },
+                        ];
+
+                        // 确定纹理来源
+                        let texture_data = if let Some(tex) = texture {
+                            // 使用实际的纹理数据
+                            tex.data.clone()
+                        } else if config.use_face_colors {
+                            // 使用面索引生成颜色
+                            TextureData::FaceColor(global_face_index)
                         } else {
-                            material_opt
-                                .map(|m| MaterialView::from_material(m, MaterialMode::BlinnPhong))
+                            // 无纹理
+                            TextureData::None
                         };
 
                         // --- 准备TriangleData ---
                         Some(TriangleData {
-                            v1_pix: Point2::new(pix0.x, pix0.y),
-                            v2_pix: Point2::new(pix1.x, pix1.y),
-                            v3_pix: Point2::new(pix2.x, pix2.y),
-                            z1_view: view_pos0.z,
-                            z2_view: view_pos1.z,
-                            z3_view: view_pos2.z,
-                            base_color,            // 传递基础颜色
-                            lit_color: base_color, // 传递预计算的光照颜色（用于非Phong着色）
-                            tc1: texture.map(|_| v0.texcoord),
-                            tc2: texture.map(|_| v1.texcoord),
-                            tc3: texture.map(|_| v2.texcoord),
-                            texture,
+                            vertices: vertex_data,
+                            base_color,
+                            lit_color: base_color,
+                            texture_data,
+                            texture_ref: texture,
+                            material_view,
+                            light: Some(light_clone),
                             is_perspective: config.is_perspective(),
-                            // Phong着色所需的额外数据
-                            n1_view: Some(all_view_normals_ref[global_i0]),
-                            n2_view: Some(all_view_normals_ref[global_i1]),
-                            n3_view: Some(all_view_normals_ref[global_i2]),
-                            v1_view: Some(view_pos0),
-                            v2_view: Some(view_pos1),
-                            v3_view: Some(view_pos2),
-                            material: material_opt,   // 传递材质引用
-                            light: Some(light_clone), // 使用克隆的光源的值，而不是引用
-                            use_phong: config.use_phong,
-                            material_view, // 使用新的材质视图
                         })
                     })
                     .collect::<Vec<_>>() // 在展平前先收集这个网格的所有三角形
@@ -540,7 +577,11 @@ impl Renderer {
     }
 
     /// 渲染一个场景，包含多个模型和对象
-    pub fn render_scene(&self, scene: &crate::core::scene::Scene, config: &RenderConfig) {
+    pub fn render_scene(&self, scene: &crate::core::scene::Scene, config: &mut RenderConfig) {
+        // 从场景中获取环境光设置
+        config.ambient_intensity = scene.ambient_intensity;
+        config.ambient_color = scene.ambient_color;
+
         // 清除帧缓冲区
         self.frame_buffer.clear();
 

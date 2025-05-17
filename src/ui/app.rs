@@ -1,7 +1,7 @@
 use crate::core::renderer::Renderer;
 use crate::core::scene::Scene;
 use crate::io::args::Args;
-use crate::utils::model_types::ModelData;
+use crate::materials::model_types::ModelData;
 use clap::Parser;
 use egui::{Color32, RichText, Vec2};
 use std::sync::Arc;
@@ -77,9 +77,10 @@ impl RasterizerApp {
         // 应用字体设置
         cc.egui_ctx.set_fonts(fonts);
 
-        // 确保args中的Phong着色开启（这是一个浅复制，不会改变原始args）
+        // 确保args中的Phong着色开启，PBR关闭（这是一个浅复制，不会改变原始args）
         let mut args_copy = args.clone();
         args_copy.use_phong = true;
+        args_copy.use_pbr = false; // 确保PBR默认关闭
 
         // 创建渲染器
         let renderer = Renderer::new(args_copy.width, args_copy.height);
@@ -148,6 +149,7 @@ impl RasterizerApp {
         new_args.output_dir = output_dir;
         new_args.output = output_name;
         new_args.use_phong = true; // 确保Phong着色默认开启
+        new_args.use_pbr = false; // 确保PBR渲染默认关闭
 
         // 如果宽度或高度发生变化，需要重新创建渲染器
         if self.renderer.frame_buffer.width != new_args.width

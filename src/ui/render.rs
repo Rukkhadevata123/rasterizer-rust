@@ -1,10 +1,10 @@
 use crate::core::renderer::RenderConfig;
 use crate::core::scene::Scene;
-use crate::demos::demos::create_render_config;
 use crate::io::args::{parse_point3, parse_vec3};
-use crate::utils::depth_image::normalize_and_center_model;
+use crate::utils::material_utils::{apply_pbr_parameters, apply_phong_parameters};
+use crate::utils::model_utils::normalize_and_center_model;
+use crate::utils::render_utils::{create_render_config, save_render_with_args};
 use egui::{Color32, Context};
-use nalgebra::Vector3;
 use native_dialog::FileDialogBuilder;
 use std::fs;
 use std::path::Path;
@@ -156,8 +156,20 @@ impl RenderMethods for RasterizerApp {
                             // 创建渲染配置
                             let config = create_render_config(scene, &self.args);
 
-                            // 渲染到帧缓冲区
-                            self.renderer.render_scene(scene, &config);
+                            // 在GUI模式下输出光源信息（用于调试）
+                            println!("GUI模式使用光源: {:?}", config.light);
+                            println!(
+                                "环境光: 强度={}, 颜色={:?}",
+                                config.ambient_intensity, config.ambient_color
+                            );
+
+                            // 渲染到帧缓冲区 - 确保使用不可变引用避免修改配置
+                            // 之前的代码:
+                            // let mut config_clone = config.clone();
+                            // self.renderer.render_scene(scene, &mut config_clone);
+
+                            // 修改后的代码:
+                            self.renderer.render_scene(scene, &mut config.clone());
 
                             // 保存输出文件
                             self.save_render_result(&config);
@@ -190,7 +202,6 @@ impl RenderMethods for RasterizerApp {
 
     /// 加载模型并设置场景
     fn load_model(&mut self, obj_path: &str) -> Result<(), String> {
-        use crate::demos::demos::apply_pbr_parameters;
         use crate::io::loaders::load_obj_enhanced;
 
         // 加载模型数据
@@ -203,6 +214,15 @@ impl RenderMethods for RasterizerApp {
                 self.args.metallic, self.args.roughness
             );
             apply_pbr_parameters(&mut model_data, &self.args);
+        }
+
+        // 应用Phong材质参数
+        if self.args.use_phong {
+            println!(
+                "GUI模式: 应用Phong材质参数 - 高光系数: {}, 光泽度: {}",
+                self.args.specular, self.args.shininess
+            );
+            apply_phong_parameters(&mut model_data, &self.args);
         }
 
         // 归一化模型
@@ -230,62 +250,25 @@ impl RenderMethods for RasterizerApp {
         // 创建场景
         let mut scene = Scene::new(camera);
 
-        // 添加模型和主对象
-        let model_id = scene.add_model(model_data.clone());
-        let main_object = crate::core::scene_object::SceneObject::new_default(model_id);
-        scene.add_object(main_object, Some("main"));
+        // 使用统一方法设置场景对象
+        let object_count = if let Some(count_str) = &self.args.object_count {
+            count_str.parse::<usize>().ok()
+        } else {
+            None
+        };
+        scene.setup_from_model_data(model_data.clone(), object_count);
 
-        // 设置光照
-        if self.args.use_lighting {
-            match self.args.light_type.as_str() {
-                "point" => {
-                    let light_pos = parse_point3(&self.args.light_pos)
-                        .map_err(|e| format!("点光源位置格式错误: {}", e))?;
-                    let intensity =
-                        Vector3::new(self.args.diffuse, self.args.diffuse, self.args.diffuse);
-
-                    // 解析点光源衰减参数
-                    let atten_parts: Vec<Result<f32, _>> = self
-                        .args
-                        .light_atten
-                        .split(',')
-                        .map(|s_part| s_part.trim().parse::<f32>())
-                        .collect();
-
-                    let attenuation =
-                        if atten_parts.len() == 3 && atten_parts.iter().all(Result::is_ok) {
-                            (
-                                atten_parts[0].as_ref().unwrap().max(0.0),
-                                atten_parts[1].as_ref().unwrap().max(0.0),
-                                atten_parts[2].as_ref().unwrap().max(0.0),
-                            )
-                        } else {
-                            // 使用默认衰减值，与原始代码一致
-                            (1.0, 0.09, 0.032)
-                        };
-                    scene.create_point_light(light_pos, intensity, attenuation);
-                }
-                _ => {
-                    // 默认为定向光
-                    let mut light_dir = parse_vec3(&self.args.light_dir)
-                        .map_err(|e| format!("光源方向格式错误: {}", e))?;
-                    light_dir = -light_dir.normalize(); // 方向指向光源
-                    let intensity =
-                        Vector3::new(self.args.diffuse, self.args.diffuse, self.args.diffuse);
-                    scene.create_directional_light(light_dir, intensity);
-                }
-            }
-        }
-
-        // 注意：无论是否启用光照，都设置环境光
-        // 这是重要的部分，与原始代码的行为一致
-        let ambient_light_intensity =
-            if let Ok(parsed_ambient_color) = parse_vec3(&self.args.ambient_color) {
-                parsed_ambient_color
-            } else {
-                Vector3::new(self.args.ambient, self.args.ambient, self.args.ambient)
-            };
-        scene.create_ambient_light(ambient_light_intensity);
+        // 使用统一方法设置光照系统
+        scene.setup_lighting(
+            self.args.use_lighting,
+            &self.args.light_type,
+            &self.args.light_dir,
+            &self.args.light_pos,
+            &self.args.light_atten,
+            self.args.diffuse,
+            self.args.ambient,
+            &self.args.ambient_color,
+        )?;
 
         self.scene = Some(scene);
         self.model_data = Some(model_data);
@@ -295,48 +278,9 @@ impl RenderMethods for RasterizerApp {
 
     /// 保存渲染结果
     fn save_render_result(&self, config: &RenderConfig) {
-        use crate::materials::color_utils::apply_colormap_jet;
-        use crate::utils::depth_image::{normalize_depth, save_image};
-
-        // 获取渲染器实际使用的宽高
-        let width = self.renderer.frame_buffer.width;
-        let height = self.renderer.frame_buffer.height;
-
-        // 保存彩色图像
-        let color_data = self.renderer.frame_buffer.get_color_buffer_bytes();
-        let color_path =
-            Path::new(&self.args.output_dir).join(format!("{}_color.png", self.args.output));
-
-        save_image(
-            &color_path.to_string_lossy(),
-            &color_data,
-            width as u32,
-            height as u32,
-        );
-
-        // 保存深度图（如果启用）
-        if config.use_zbuffer && self.args.save_depth {
-            let depth_data_raw = self.renderer.frame_buffer.get_depth_buffer_f32();
-            let depth_normalized = normalize_depth(&depth_data_raw, 1.0, 99.0);
-            let depth_colored = apply_colormap_jet(
-                &depth_normalized
-                    .iter()
-                    .map(|&d| 1.0 - d)
-                    .collect::<Vec<_>>(),
-                width,
-                height,
-                config.apply_gamma_correction,
-            );
-
-            let depth_path =
-                Path::new(&self.args.output_dir).join(format!("{}_depth.png", self.args.output));
-
-            save_image(
-                &depth_path.to_string_lossy(),
-                &depth_colored,
-                width as u32,
-                height as u32,
-            );
+        // 使用共享的渲染工具函数保存渲染结果
+        if let Err(e) = save_render_with_args(&self.renderer, &self.args, config, None) {
+            println!("警告：保存渲染结果时发生错误: {}", e);
         }
     }
 
@@ -400,55 +344,17 @@ impl RenderMethods for RasterizerApp {
 
         // 获取当前渲染配置
         let config = if let Some(scene) = &self.scene {
-            crate::demos::demos::create_render_config(scene, &self.args)
+            create_render_config(scene, &self.args)
         } else {
             return Err("无法创建渲染配置".to_string());
         };
 
-        // 保存当前帧缓冲区内容
-        let width = self.renderer.frame_buffer.width;
-        let height = self.renderer.frame_buffer.height;
+        // 使用共享的渲染工具函数保存截图
+        save_render_with_args(&self.renderer, &self.args, &config, Some(&snapshot_name))?;
 
-        // 保存彩色图像
-        let color_data = self.renderer.frame_buffer.get_color_buffer_bytes();
+        // 返回颜色图像的路径
         let color_path =
             Path::new(&self.args.output_dir).join(format!("{}_color.png", snapshot_name));
-
-        crate::utils::depth_image::save_image(
-            &color_path.to_string_lossy(),
-            &color_data,
-            width as u32,
-            height as u32,
-        );
-
-        // 可选地保存深度图
-        if config.use_zbuffer && self.args.save_depth {
-            use crate::materials::color_utils::apply_colormap_jet;
-            use crate::utils::depth_image::normalize_depth;
-
-            let depth_data_raw = self.renderer.frame_buffer.get_depth_buffer_f32();
-            let depth_normalized = normalize_depth(&depth_data_raw, 1.0, 99.0);
-            let depth_colored = apply_colormap_jet(
-                &depth_normalized
-                    .iter()
-                    .map(|&d| 1.0 - d)
-                    .collect::<Vec<_>>(),
-                width,
-                height,
-                config.apply_gamma_correction,
-            );
-
-            let depth_path =
-                Path::new(&self.args.output_dir).join(format!("{}_depth.png", snapshot_name));
-
-            crate::utils::depth_image::save_image(
-                &depth_path.to_string_lossy(),
-                &depth_colored,
-                width as u32,
-                height as u32,
-            );
-        }
-
         Ok(color_path.to_string_lossy().to_string())
     }
 

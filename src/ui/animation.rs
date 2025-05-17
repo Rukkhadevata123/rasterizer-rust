@@ -1,6 +1,7 @@
 use crate::core::renderer::Renderer;
-use crate::demos::demos::*;
-use crate::utils::depth_image;
+use crate::utils::animation_utils::update_scene_objects;
+use crate::utils::image_utils;
+use crate::utils::render_utils::create_render_config;
 use egui::Context;
 use std::fs;
 use std::sync::atomic::Ordering;
@@ -110,7 +111,8 @@ impl AnimationMethods for RasterizerApp {
             }
 
             // 渲染到帧缓冲区
-            self.renderer.render_scene(scene, &config);
+            let mut config_clone = config.clone();
+            self.renderer.render_scene(scene, &mut config_clone);
 
             // 更新UI中的图像
             self.display_render_result(ctx);
@@ -222,14 +224,15 @@ impl AnimationMethods for RasterizerApp {
                         let config = create_render_config(&scene_copy, &args);
 
                         // 渲染场景
-                        renderer.render_scene(&scene_copy, &config);
+                        let mut config_clone = config.clone();
+                        renderer.render_scene(&scene_copy, &mut config_clone);
 
                         // 保存帧
                         let frame_path = format!("{}/frame_{:04}.png", frames_dir, frame_num);
                         let color_data = renderer.frame_buffer.get_color_buffer_bytes();
 
                         // 保存彩色图像
-                        depth_image::save_image(
+                        image_utils::save_image(
                             &frame_path,
                             &color_data,
                             args.width as u32,

@@ -135,17 +135,62 @@ impl WidgetMethods for RasterizerApp {
                 let resp2 = ui.checkbox(&mut self.args.use_lighting, "启用光照");
                 Self::add_tooltip(resp2, ctx, "启用光照计算，产生明暗变化");
 
-                let resp3 = ui.checkbox(&mut self.args.colorize, "使用面颜色");
-                Self::add_tooltip(resp3, ctx, "为每个面分配随机颜色");
+                // 将"启用纹理"和"使用面颜色"改为互斥的单选项
+                ui.horizontal(|ui| {
+                    ui.label("表面颜色：");
+                    
+                    // 启用纹理选项
+                    let texture_response = ui.radio_value(&mut self.args.use_texture, true, "使用纹理");
+                    if texture_response.clicked() && self.args.use_texture {
+                        // 如果选择了使用纹理，关闭面颜色
+                        self.args.colorize = false;
+                    }
+                    Self::add_tooltip(texture_response, ctx, 
+                        "使用模型的纹理贴图（如果有）\n优先级最高，会覆盖面颜色设置");
+                    
+                    // 使用面颜色选项
+                    let face_color_response = ui.radio_value(&mut self.args.colorize, true, "使用面颜色");
+                    if face_color_response.clicked() && self.args.colorize {
+                        // 如果选择了使用面颜色，关闭纹理
+                        self.args.use_texture = false;
+                    }
+                    Self::add_tooltip(face_color_response, ctx, 
+                        "为每个面分配随机颜色\n仅在没有纹理或纹理被禁用时生效");
+                    
+                    // 使用材质颜色选项 (实际上是关闭两者)
+                    let material_color_response = ui.radio(
+                        !self.args.use_texture && !self.args.colorize, 
+                        "使用材质颜色"
+                    );
+                    if material_color_response.clicked() {
+                        self.args.use_texture = false;
+                        self.args.colorize = false;
+                    }
+                    Self::add_tooltip(material_color_response, ctx, 
+                        "使用材质的基本颜色（如.mtl文件中定义）\n在没有纹理且不使用面颜色时生效");
+                });
 
-                let resp4 = ui.checkbox(&mut self.args.use_texture, "启用纹理");
-                Self::add_tooltip(resp4, ctx, "使用模型的纹理贴图");
+                // 着色模型选择（Phong/PBR，已经是互斥的）
+                ui.horizontal(|ui| {
+                    ui.label("着色模型：");
+                    // Phong 着色选项（逐像素着色，在 Blinn-Phong 光照模型下）
+                    let phong_response = ui.radio_value(&mut self.args.use_phong, true, "Phong着色");
+                    if phong_response.clicked() && self.args.use_phong {
+                        // 如果选择了 Phong，关闭 PBR
+                        self.args.use_pbr = false;
+                    }
+                    Self::add_tooltip(phong_response, ctx,
+                        "使用 Phong 着色（逐像素着色）和 Blinn-Phong 光照模型\n提供高质量的光照效果，适合大多数场景");
 
-                let resp5 = ui.checkbox(&mut self.args.use_phong, "Phong着色");
-                Self::add_tooltip(resp5, ctx, "使用Phong着色模型计算光照");
-
-                let resp6 = ui.checkbox(&mut self.args.use_pbr, "PBR渲染");
-                Self::add_tooltip(resp6, ctx, "使用基于物理的渲染（更真实的材质效果）");
+                    // PBR 渲染选项
+                    let pbr_response = ui.radio_value(&mut self.args.use_pbr, true, "PBR渲染");
+                    if pbr_response.clicked() && self.args.use_pbr {
+                        // 如果选择了 PBR，关闭 Phong
+                        self.args.use_phong = false;
+                    }
+                    Self::add_tooltip(pbr_response, ctx,
+                        "使用基于物理的渲染（PBR）\n提供更真实的材质效果，但需要更多的参数调整");
+                });
 
                 let resp7 = ui.checkbox(&mut self.args.use_gamma, "Gamma校正");
                 Self::add_tooltip(resp7, ctx, "应用伽马校正，使亮度显示更准确");
@@ -294,38 +339,67 @@ impl WidgetMethods for RasterizerApp {
 
             // PBR材质设置部分
             if self.args.use_pbr {
-                ui.collapsing("PBR材质设置", |ui| {
+                ui.collapsing("PBR材质设置 (Physically Based Rendering)", |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("金属度：");
-                        let resp = ui.add(egui::Slider::new(&mut self.args.metallic, 0.0..=1.0));
-                        Self::add_tooltip(resp, ctx, "材质的金属特性，0为非金属，1为纯金属");
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("粗糙度：");
-                        let resp = ui.add(egui::Slider::new(&mut self.args.roughness, 0.0..=1.0));
-                        Self::add_tooltip(resp, ctx, "材质的粗糙程度，0为完全光滑，1为完全粗糙");
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("基础颜色 (r,g,b)：");
+                        ui.label("基础颜色 (Base Color) [r,g,b]：");
                         let resp = ui.text_edit_singleline(&mut self.args.base_color);
-                        Self::add_tooltip(resp, ctx, "材质的基础颜色，格式为r,g,b");
+                        Self::add_tooltip(resp, ctx, "材质的基础颜色 (Base Color)，格式为r,g,b\n在PBR中代表材质的反射率或颜色");
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("环境光遮蔽：");
+                        ui.label("金属度 (Metallic)：");
+                        let resp = ui.add(egui::Slider::new(&mut self.args.metallic, 0.0..=1.0));
+                        Self::add_tooltip(resp, ctx, "材质的金属特性 (Metallic)，0为非金属，1为纯金属\n影响材质如何反射光线和能量守恒");
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("粗糙度 (Roughness)：");
+                        let resp = ui.add(egui::Slider::new(&mut self.args.roughness, 0.0..=1.0));
+                        Self::add_tooltip(resp, ctx, "材质的粗糙程度 (Roughness)，0为完全光滑，1为完全粗糙\n影响高光的散射程度和微表面特性");
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("环境光遮蔽 (Ambient Occlusion)：");
                         let resp = ui.add(egui::Slider::new(
                             &mut self.args.ambient_occlusion,
                             0.0..=1.0,
                         ));
-                        Self::add_tooltip(resp, ctx, "环境光遮蔽程度，0为完全遮蔽，1为无遮蔽");
+                        Self::add_tooltip(resp, ctx, "环境光遮蔽程度 (Ambient Occlusion)，0为完全遮蔽，1为无遮蔽\n模拟物体凹陷处接收较少环境光的效果");
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("自发光颜色 (r,g,b)：");
+                        ui.label("自发光颜色 (Emissive) [r,g,b]：");
                         let resp = ui.text_edit_singleline(&mut self.args.emissive);
-                        Self::add_tooltip(resp, ctx, "材质的自发光颜色，格式为r,g,b");
+                        Self::add_tooltip(resp, ctx, "材质的自发光颜色 (Emissive)，格式为r,g,b\n表示材质本身发出的光，不受光照影响");
+                    });
+                });
+            }
+
+            // Phong材质设置部分
+            if self.args.use_phong {
+                ui.collapsing("Phong材质设置 (Blinn-Phong Shading)", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("漫反射颜色 (Diffuse) [r,g,b]：");
+                        let resp = ui.text_edit_singleline(&mut self.args.diffuse_color);
+                        Self::add_tooltip(resp, ctx, "材质的漫反射颜色 (Diffuse Color)，格式为r,g,b\n决定物体表面向各个方向均匀散射的颜色");
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("镜面反射强度 (Specular)：");
+                        let resp = ui.add(egui::Slider::new(&mut self.args.specular, 0.0..=1.0));
+                        Self::add_tooltip(resp, ctx, "材质的镜面反射强度 (Specular Intensity)，0为无反射，1为最大反射\n控制高光的亮度");
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("光泽度 (Shininess)：");
+                        let resp = ui.add(egui::Slider::new(&mut self.args.shininess, 1.0..=100.0));
+                        Self::add_tooltip(resp, ctx, "材质的光泽度 (Shininess)，数值越大高光越小越集中\n也称为Phong指数，控制高光的锐利程度");
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("自发光颜色 (Emissive) [r,g,b]：");
+                        let resp = ui.text_edit_singleline(&mut self.args.emissive);
+                        Self::add_tooltip(resp, ctx, "材质的自发光颜色 (Emissive)，格式为r,g,b\n表示材质本身发出的光，不受光照影响");
                     });
                 });
             }

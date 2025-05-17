@@ -17,8 +17,12 @@ LIGHT_TYPE   := directional
 AMBIENT	  := 0.2
 AMBIENT_COLOR := "0.2,0.2,0.2"
 DIFFUSE	  := 0.8
+SPECULAR     := 0.5     # 镜面反射强度默认值
+SHININESS    := 32.0    # 材质光泽度默认值
 USE_PHONG	:= true
 USE_PBR	  := false
+USE_TEXTURE  := true    # 默认使用纹理
+COLORIZE     := false   # 默认不使用面颜色，与USE_TEXTURE互斥
 
 # --- 模型配置 --- 
 # 斯坦福兔子模型 (修正相机位置使camera_from和camera_at在同一水平面上)
@@ -53,9 +57,10 @@ LIGHT_DIR   := $(BUNNY_LIGHT_DIR)
 TEXTURE_FILE:= 
 
 # --- 定义phony目标 ---
-.PHONY: build run clean animate video test all pbr_rock bunny_orbit spot_orbit
+.PHONY: build run clean animate video test all pbr_rock bunny_orbit spot_orbit face_colors
 
 # --- 通用渲染参数 ---
+# 注意：现在USE_TEXTURE和COLORIZE是互斥的选项，同时只能启用一个
 COMMON_ARGS = \
 	--obj $(OBJ_FILE) \
 	--output-dir $(OUTPUT_DIR) \
@@ -71,8 +76,12 @@ COMMON_ARGS = \
 	--ambient $(AMBIENT) \
 	--ambient-color $(AMBIENT_COLOR) \
 	--diffuse $(DIFFUSE) \
+	--specular $(SPECULAR) \
+	--shininess $(SHININESS) \
 	$(if $(filter true,$(USE_PHONG)),--use-phong) \
 	$(if $(filter true,$(USE_PBR)),--use-pbr) \
+	$(if $(filter true,$(USE_TEXTURE)),--use-texture) \
+	$(if $(filter true,$(COLORIZE)),--colorize) \
 	$(if $(TEXTURE_FILE),--texture $(TEXTURE_FILE))
 
 # --- 基础命令 ---

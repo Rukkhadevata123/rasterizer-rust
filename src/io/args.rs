@@ -3,14 +3,32 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
+    // ===== 基础设置 =====
     /// 启用GUI界面模式
     #[arg(long)]
     pub gui: bool,
 
     /// 输入OBJ文件的路径
-    #[arg(long, required_unless_present = "gui", default_value_t = String::from("obj/simple/bunny.obj"))]
+    #[arg(
+        long,
+        required_unless_present = "gui",
+        default_value = "obj/simple/bunny.obj"
+    )]
     pub obj: String,
 
+    /// 运行完整动画循环而非单帧渲染
+    #[arg(long, default_value_t = false)]
+    pub animate: bool,
+
+    /// 动画的总帧数
+    #[arg(long, default_value_t = 120)]
+    pub total_frames: usize,
+
+    /// 测试API模式 - 仅用于测试未使用的变换API
+    #[arg(long, default_value_t = false)]
+    pub test_api: bool,
+
+    // ===== 输出设置 =====
     /// 输出文件的基础名称（例如: "render" -> "render_color.png", "render_depth.png"）
     #[arg(short, long, default_value = "output")]
     pub output: String,
@@ -27,6 +45,11 @@ pub struct Args {
     #[arg(long, default_value_t = 1024)]
     pub height: usize,
 
+    /// 启用渲染和保存深度图
+    #[arg(long, default_value_t = true)]
+    pub save_depth: bool,
+
+    // ===== 渲染基础设置 =====
     /// 投影类型："perspective"（透视投影）或"orthographic"（正交投影）
     #[arg(long, default_value = "perspective")]
     pub projection: String,
@@ -39,11 +62,43 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub colorize: bool,
 
-    /// 启用渲染和保存深度图
+    /// 启用纹理加载和使用
     #[arg(long, default_value_t = true)]
-    pub save_depth: bool,
+    pub use_texture: bool,
 
-    // --- 相机参数 ---
+    /// 显式指定要使用的纹理文件，覆盖MTL设置
+    #[arg(long)]
+    pub texture: Option<String>,
+
+    /// 启用gamma矫正
+    #[arg(long, default_value_t = true)]
+    pub use_gamma: bool,
+
+    /// 启用背面剔除
+    #[arg(long, default_value_t = false)]
+    pub backface_culling: bool,
+
+    /// 以线框模式渲染
+    #[arg(long, default_value_t = false)]
+    pub wireframe: bool,
+
+    /// 启用多线程渲染
+    #[arg(long, default_value_t = true)]
+    pub use_multithreading: bool,
+
+    /// 启用小三角形剔除
+    #[arg(long, default_value_t = false)]
+    pub cull_small_triangles: bool,
+
+    /// 小三角形剔除的最小面积阈值
+    #[arg(long, default_value_t = 1e-3)]
+    pub min_triangle_area: f32,
+
+    /// 场景中要创建的对象实例数量
+    #[arg(long)]
+    pub object_count: Option<String>,
+
+    // ===== 相机参数 =====
     /// 相机位置（视点），格式为"x,y,z"
     #[arg(long, default_value = "0,0,3", allow_negative_numbers = true)]
     pub camera_from: String,
@@ -60,7 +115,7 @@ pub struct Args {
     #[arg(long, default_value_t = 45.0)]
     pub camera_fov: f32,
 
-    // --- 光照参数 ---
+    // ===== 光照基础参数 =====
     /// 启用光照计算
     #[arg(long, default_value_t = true)]
     pub use_lighting: bool,
@@ -70,7 +125,7 @@ pub struct Args {
     pub light_type: String,
 
     /// 光源方向（来自光源的方向，用于定向光），格式为"x,y,z"
-    #[arg(long, default_value = "0,-1,-1", allow_negative_numbers = true)]
+    #[arg(long, default_value = "0,1,1", allow_negative_numbers = true)]
     pub light_dir: String,
 
     /// 光源位置（用于点光源），格式为"x,y,z"
@@ -93,6 +148,7 @@ pub struct Args {
     #[arg(long, default_value_t = 0.8)]
     pub diffuse: f32,
 
+    // ===== 着色模型选择 =====
     /// 使用Phong着色（逐像素光照）而非默认的Flat着色
     #[arg(long, default_value_t = false)]
     pub use_phong: bool,
@@ -100,6 +156,24 @@ pub struct Args {
     /// 使用基于物理的渲染(PBR)而不是传统Blinn-Phong
     #[arg(long, default_value_t = false)]
     pub use_pbr: bool,
+
+    // ===== Phong着色模型参数 =====
+    /// 漫反射颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(仅在Phong模式下有效)
+    #[arg(long, default_value = "0.8,0.8,0.8")]
+    pub diffuse_color: String,
+
+    /// 镜面反射强度(0.0-1.0，仅在Phong模式下有效)
+    #[arg(long, default_value_t = 0.5)]
+    pub specular: f32,
+
+    /// 材质的光泽度(硬度)参数(仅在Phong模式下有效)
+    #[arg(long, default_value_t = 32.0)]
+    pub shininess: f32,
+
+    // ===== PBR材质参数 =====
+    /// 材质的基础颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(仅在PBR模式下有效)
+    #[arg(long, default_value = "0.8,0.8,0.8")]
+    pub base_color: String,
 
     /// 材质的金属度(0.0-1.0，仅在PBR模式下有效)
     #[arg(long, default_value_t = 0.0)]
@@ -109,65 +183,13 @@ pub struct Args {
     #[arg(long, default_value_t = 0.5)]
     pub roughness: f32,
 
-    /// 材质的基础颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(仅在PBR模式下有效)
-    #[arg(long, default_value = "0.8,0.8,0.8")]
-    pub base_color: String,
-
     /// 环境光遮蔽系数(0.0-1.0，仅在PBR模式下有效)
     #[arg(long, default_value_t = 1.0)]
     pub ambient_occlusion: f32,
 
-    /// 材质的自发光颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(仅在PBR模式下有效)
+    /// 材质的自发光颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(在Phong和PBR中都有效)
     #[arg(long, default_value = "0.0,0.0,0.0")]
     pub emissive: String,
-
-    /// 启用纹理加载和使用
-    #[arg(long, default_value_t = true)]
-    pub use_texture: bool,
-
-    /// 显式指定要使用的纹理文件，覆盖MTL设置
-    #[arg(long)]
-    pub texture: Option<String>,
-
-    /// 启用gamma矫正
-    #[arg(long, default_value_t = true)]
-    pub use_gamma: bool,
-
-    /// 场景中要创建的对象实例数量
-    #[arg(long)]
-    pub object_count: Option<String>,
-
-    /// 运行完整动画循环而非单帧渲染
-    #[arg(long, default_value_t = false)]
-    pub animate: bool,
-
-    /// 动画的总帧数
-    #[arg(long, default_value_t = 120)]
-    pub total_frames: usize,
-
-    /// 启用背面剔除
-    #[arg(long, default_value_t = false)]
-    pub backface_culling: bool,
-
-    /// 以线框模式渲染
-    #[arg(long, default_value_t = false)]
-    pub wireframe: bool,
-
-    /// 启用多线程渲染
-    #[arg(long, default_value_t = true)]
-    pub use_multithreading: bool,
-
-    /// 启用小三角形剔除
-    #[arg(long, default_value_t = false)]
-    pub cull_small_triangles: bool,
-
-    /// 小三角形剔除的最小面积阈值
-    #[arg(long, default_value_t = 1e-3)]
-    pub min_triangle_area: f32,
-
-    /// 测试API模式 - 仅用于测试未使用的变换API
-    #[arg(long, default_value_t = false)]
-    pub test_api: bool,
 }
 
 // 辅助函数用于解析逗号分隔的浮点数
