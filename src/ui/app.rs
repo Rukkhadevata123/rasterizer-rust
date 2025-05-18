@@ -1,5 +1,5 @@
 use crate::core::renderer::Renderer;
-use crate::core::scene::Scene;
+use crate::scene::scene_utils::Scene;
 use crate::io::args::Args;
 use crate::materials::model_types::ModelData;
 use clap::Parser;

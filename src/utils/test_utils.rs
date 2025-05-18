@@ -2,8 +2,8 @@ use clap::Parser;
 use nalgebra::{Point3, Vector3};
 use std::time::Instant;
 
-use crate::core::scene::Scene;
-use crate::core::scene_object::{SceneObject, TransformOperations, Transformable};
+use crate::scene::scene_utils::Scene;
+use crate::scene::scene_object::{SceneObject, TransformOperations, Transformable};
 use crate::geometry::camera::Camera;
 use crate::geometry::transform;
 use crate::io::args::Args;

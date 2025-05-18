@@ -1,5 +1,5 @@
 use crate::core::renderer::RenderConfig;
-use crate::core::scene::Scene;
+use crate::scene::scene_utils::Scene;
 use crate::io::args::{parse_point3, parse_vec3};
 use crate::utils::material_utils::{apply_pbr_parameters, apply_phong_parameters};
 use crate::utils::model_utils::normalize_and_center_model;

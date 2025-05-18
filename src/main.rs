@@ -10,10 +10,11 @@ mod io;
 mod materials;
 mod ui;
 mod utils;
+mod scene;
 
 // 导入语句
 use core::renderer::Renderer;
-use core::scene::Scene;
+use scene::scene_utils::Scene;
 use geometry::camera::Camera;
 use io::args::{Args, parse_point3, parse_vec3};
 use io::loaders::load_obj_enhanced;

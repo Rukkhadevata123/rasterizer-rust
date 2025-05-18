@@ -1,4 +1,4 @@
-use crate::core::scene_object::{TransformOperations, Transformable};
+use crate::scene::scene_object::{TransformOperations, Transformable};
 use crate::geometry::transform::TransformFactory;
 use nalgebra::{Matrix4, Point3, Vector3};
 

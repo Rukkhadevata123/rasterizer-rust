@@ -1,5 +1,5 @@
 use crate::core::rasterizer::{TextureSource, TriangleData, VertexRenderData, rasterize_triangle};
-use crate::core::scene_object::SceneObject;
+use crate::scene::scene_object::SceneObject;
 use crate::geometry::camera::Camera;
 use crate::geometry::culling::{is_backface, should_cull_small_triangle}; // 导入剔除函数
 use crate::geometry::transform::{compute_normal_matrix, transform_normals};
@@ -258,7 +258,7 @@ impl Renderer {
     }
 
     /// 渲染一个场景，包含多个模型和对象
-    pub fn render_scene(&self, scene: &crate::core::scene::Scene, config: &mut RenderConfig) {
+    pub fn render_scene(&self, scene: &crate::scene::scene_utils::Scene, config: &mut RenderConfig) {
         // 从场景中获取环境光设置
         config.ambient_intensity = scene.ambient_intensity;
         config.ambient_color = scene.ambient_color;

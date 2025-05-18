@@ -1,5 +1,5 @@
 use crate::core::renderer::RenderConfig;
-use crate::core::scene::Scene;
+use crate::scene::scene_utils::Scene;
 use crate::io::args::{Args, parse_vec3};
 use crate::materials::color::apply_colormap_jet;
 use crate::materials::material_system::Light;
