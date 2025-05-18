@@ -43,6 +43,13 @@ pub fn apply_pbr_parameters(model_data: &mut ModelData, args: &Args) {
             material.emissive = emissive;
         }
 
+        // --- 设置环境光响应系数 ---
+        // 在PBR中，环境光响应是根据材质的物理属性来确定的
+        // 非金属材质会散射环境光，而金属则几乎不散射
+        let ambient_response = material.ambient_occlusion * (1.0 - material.metallic);
+        material.ambient_factor =
+            Vector3::new(ambient_response, ambient_response, ambient_response);
+
         println!(
             "应用PBR材质 - 基础色: {:?}, 金属度: {:.2}, 粗糙度: {:.2}, 环境光遮蔽: {:.2}, 自发光: {:?}",
             material.base_color(),
@@ -57,6 +64,7 @@ pub fn apply_pbr_parameters(model_data: &mut ModelData, args: &Args) {
 /// 应用Phong材质参数
 ///
 /// 根据命令行参数设置模型数据的Phong材质属性，符合传统Blinn-Phong着色模型
+/// 但调整为更符合物理规律的方式处理环境光
 ///
 /// # 参数
 /// * `model_data` - 要修改的模型数据
@@ -74,16 +82,7 @@ pub fn apply_phong_parameters(model_data: &mut ModelData, args: &Args) {
         // --- 设置漫反射颜色 (在Phong中直接影响视觉效果) ---
         if let Ok(diffuse_color) = parse_vec3(&args.diffuse_color) {
             material.albedo = diffuse_color;
-
-            // Blinn-Phong中可以适度考虑环境光影响
-            // 这是符合传统的做法，但不应过度，避免材质外观失真
-            if !args.ambient_color.is_empty() && args.ambient > 0.05 {
-                if let Ok(ambient_color) = parse_vec3(&args.ambient_color) {
-                    // 使用小系数确保主颜色不会过度改变
-                    let blend_factor = (args.ambient * 0.4).clamp(0.0, 0.3);
-                    material.albedo = material.albedo.lerp(&ambient_color, blend_factor);
-                }
-            }
+            // 移除对环境光的预混合，保持材质的纯净性
         } else {
             println!(
                 "警告: 无法解析漫反射颜色, 使用默认值: {:?}",
@@ -95,6 +94,11 @@ pub fn apply_phong_parameters(model_data: &mut ModelData, args: &Args) {
         if let Ok(emissive) = parse_vec3(&args.emissive) {
             material.emissive = emissive;
         }
+
+        // --- 设置环境光响应系数 ---
+        // 在Blinn-Phong中，环境光系数通常是漫反射的一个比例
+        // 使用0.3作为系数，符合传统渲染中的常用值
+        material.ambient_factor = material.albedo * 0.3;
 
         println!(
             "应用Phong材质 - 漫反射: {:?}, 镜面: {:?}, 光泽度: {:.2}, 自发光: {:?}",

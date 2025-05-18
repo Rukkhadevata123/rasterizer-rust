@@ -200,24 +200,6 @@ impl MaterialView<'_> {
             }
         }
     }
-
-    /// 获取环境光颜色
-    pub fn get_ambient_color(&self) -> Vector3<f32> {
-        match self {
-            MaterialView::BlinnPhong(material) => {
-                // 对于BlinnPhong模式，环境光直接使用漫反射颜色的比例
-                // 这符合传统Blinn-Phong模型的处理方式
-                material.diffuse() * 0.3 // 使用适度系数防止环境光过强
-            }
-            MaterialView::PBR(material) => {
-                // 对于PBR模式，遵循物理规律：
-                // 1. 金属不散射漫反射光，所以乘以(1-metallic)
-                // 2. 环境光遮蔽影响间接光照
-                // 3. 基础颜色决定材质对光的吸收/反射比例
-                material.base_color() * material.ambient_occlusion * (1.0 - material.metallic)
-            }
-        }
-    }
 }
 
 /// PBR材质函数库

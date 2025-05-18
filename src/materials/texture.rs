@@ -26,8 +26,6 @@ pub enum TextureData {
     FaceColor(u64),
     /// 简单的单色纹理
     SolidColor(Vector3<f32>),
-    /// 无纹理标记
-    None,
 }
 
 /// 纹理抽象，统一封装不同类型的纹理
@@ -91,7 +89,6 @@ impl Texture {
             TextureData::Image(_) => "图像纹理",
             TextureData::FaceColor(_) => "面颜色纹理",
             TextureData::SolidColor(_) => "单色纹理",
-            TextureData::None => "无纹理",
         }
         .to_string();
 
@@ -139,7 +136,6 @@ impl Texture {
                 let color = crate::materials::color::get_random_color(*seed, true);
                 [color.x, color.y, color.z]
             }
-            TextureData::None => [1.0, 1.0, 1.0], // 无纹理时返回白色
         }
     }
 

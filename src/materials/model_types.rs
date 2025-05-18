@@ -23,6 +23,8 @@ pub struct Material {
     // --- 着色模型共享属性 ---
     /// 基础颜色，在Blinn-Phong为漫反射颜色，在PBR为基础颜色
     pub albedo: Vector3<f32>,
+    /// 环境光响应系数，控制材质对环境光的反应程度
+    pub ambient_factor: Vector3<f32>,
 
     // --- Blinn-Phong渲染专用属性 ---
     /// 镜面反射颜色
@@ -52,6 +54,7 @@ impl Material {
             metallic: 0.0,
             roughness: 0.5,
             ambient_occlusion: 1.0,
+            ambient_factor: Vector3::new(1.0, 1.0, 1.0), // 默认环境光响应系数
         }
     }
 

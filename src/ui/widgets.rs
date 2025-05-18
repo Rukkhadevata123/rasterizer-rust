@@ -138,35 +138,35 @@ impl WidgetMethods for RasterizerApp {
                 // 将"启用纹理"和"使用面颜色"改为互斥的单选项
                 ui.horizontal(|ui| {
                     ui.label("表面颜色：");
-                    
+
                     // 启用纹理选项
                     let texture_response = ui.radio_value(&mut self.args.use_texture, true, "使用纹理");
                     if texture_response.clicked() && self.args.use_texture {
                         // 如果选择了使用纹理，关闭面颜色
                         self.args.colorize = false;
                     }
-                    Self::add_tooltip(texture_response, ctx, 
+                    Self::add_tooltip(texture_response, ctx,
                         "使用模型的纹理贴图（如果有）\n优先级最高，会覆盖面颜色设置");
-                    
+
                     // 使用面颜色选项
                     let face_color_response = ui.radio_value(&mut self.args.colorize, true, "使用面颜色");
                     if face_color_response.clicked() && self.args.colorize {
                         // 如果选择了使用面颜色，关闭纹理
                         self.args.use_texture = false;
                     }
-                    Self::add_tooltip(face_color_response, ctx, 
+                    Self::add_tooltip(face_color_response, ctx,
                         "为每个面分配随机颜色\n仅在没有纹理或纹理被禁用时生效");
-                    
+
                     // 使用材质颜色选项 (实际上是关闭两者)
                     let material_color_response = ui.radio(
-                        !self.args.use_texture && !self.args.colorize, 
+                        !self.args.use_texture && !self.args.colorize,
                         "使用材质颜色"
                     );
                     if material_color_response.clicked() {
                         self.args.use_texture = false;
                         self.args.colorize = false;
                     }
-                    Self::add_tooltip(material_color_response, ctx, 
+                    Self::add_tooltip(material_color_response, ctx,
                         "使用材质的基本颜色（如.mtl文件中定义）\n在没有纹理且不使用面颜色时生效");
                 });
 

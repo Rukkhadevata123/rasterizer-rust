@@ -74,17 +74,6 @@ pub fn compute_normal_matrix(model_view_matrix: &Matrix4<f32>) -> Matrix3<f32> {
     )
 }
 
-/// 将世界坐标点转换为视图坐标点
-pub fn world_to_view(world_points: &[Point3<f32>], view_matrix: Matrix4<f32>) -> Vec<Point3<f32>> {
-    world_points
-        .iter()
-        .map(|point| {
-            let view_h = view_matrix * point.to_homogeneous();
-            Point3::from_homogeneous(view_h).unwrap_or_else(Point3::origin)
-        })
-        .collect()
-}
-
 /// 将世界坐标点转换为裁剪空间坐标（齐次坐标）
 pub fn world_to_clip(
     world_points: &[Point3<f32>],

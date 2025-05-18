@@ -157,6 +157,10 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                             roughness: 0.5,         // 中等粗糙度
                             ambient_occlusion: 1.0, // 默认无AO
                             emissive: Vector3::zeros(),
+
+                            // 添加环境光响应系数，对于默认材质，设为漫反射颜色的30%
+                            ambient_factor: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8]))
+                                * 0.3,
                         }
                     })
                     .collect()
