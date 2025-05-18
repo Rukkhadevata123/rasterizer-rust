@@ -1,10 +1,10 @@
 use crate::core::rasterizer::{TextureSource, TriangleData, VertexRenderData, rasterize_triangle};
-use crate::scene::scene_object::SceneObject;
 use crate::geometry::camera::Camera;
 use crate::geometry::culling::{is_backface, should_cull_small_triangle}; // 导入剔除函数
 use crate::geometry::transform::{compute_normal_matrix, transform_normals};
 use crate::materials::material_system::MaterialView;
 use crate::materials::model_types::{Material, ModelData};
+use crate::scene::scene_object::SceneObject;
 use atomic_float::AtomicF32;
 use nalgebra::{Point2, Point3, Vector3};
 use rayon::prelude::*;
@@ -41,17 +41,150 @@ impl FrameBuffer {
         }
     }
 
-    /// 清除所有缓冲区
-    pub fn clear(&self) {
+    /// 清除所有缓冲区，并根据配置选择性地绘制背景
+    pub fn clear(&self, config: &RenderConfig) {
         // 重置深度缓冲区，为了避免数据竞争，使用原子操作
         self.depth_buffer.par_iter().for_each(|atomic_depth| {
             atomic_depth.store(f32::INFINITY, Ordering::Relaxed);
         });
 
-        // 重置颜色缓冲区
-        self.color_buffer
-            .par_iter()
-            .for_each(|atomic_color| atomic_color.store(0, Ordering::Relaxed));
+        // 重置颜色缓冲区，并根据配置绘制背景
+        if config.enable_gradient_background {
+            (0..self.height).into_par_iter().for_each(|y| {
+                let t = y as f32 / (self.height - 1) as f32;
+                let color =
+                    config.gradient_top_color * (1.0 - t) + config.gradient_bottom_color * t;
+                let color_u8 = crate::materials::color::linear_rgb_to_u8(
+                    &color,
+                    config.apply_gamma_correction,
+                );
+                for x in 0..self.width {
+                    let index = (y * self.width + x) * 3;
+                    self.color_buffer[index].store(color_u8[0], Ordering::Relaxed);
+                    self.color_buffer[index + 1].store(color_u8[1], Ordering::Relaxed);
+                    self.color_buffer[index + 2].store(color_u8[2], Ordering::Relaxed);
+                }
+            });
+        } else {
+            // 默认黑色背景
+            self.color_buffer
+                .par_iter()
+                .for_each(|atomic_color| atomic_color.store(0, Ordering::Relaxed));
+        }
+    }
+
+    pub fn draw_ground_plane(&self, camera: &Camera, config: &RenderConfig) {
+        if !config.enable_ground_plane {
+            return; // 如果未启用地面平面，则直接返回
+        }
+
+        // 获取地面颜色并转换为u8格式
+        let ground_color_u8 = crate::materials::color::linear_rgb_to_u8(
+            &config.ground_plane_color,
+            config.apply_gamma_correction,
+        );
+
+        // 获取地面在世界空间中的Y坐标（高度）
+        let ground_y_world = config.ground_plane_height;
+
+        // 创建网格图案参数
+        let grid_size = 1.0; // 网格大小
+        let grid_intensity = 0.2; // 网格线强度
+
+        // 并行处理屏幕上的每个像素
+        (0..self.height).into_par_iter().for_each(|screen_y| {
+            for screen_x in 0..self.width {
+                let buffer_index = screen_y * self.width + screen_x;
+
+                // 检查该像素是否已被物体渲染
+                let current_depth = self.depth_buffer[buffer_index].load(Ordering::Relaxed);
+
+                // 只有当深度缓冲区仍为初始值时，才考虑绘制地面
+                if current_depth != f32::INFINITY {
+                    continue; // 跳过已被物体占用的像素
+                }
+
+                // 从像素创建射线
+                let aspect_ratio = self.width as f32 / self.height as f32;
+                let fov_rad = camera.fov_y;
+                let ndc_x = (screen_x as f32 + 0.5) / self.width as f32 * 2.0 - 1.0;
+                let ndc_y = 1.0 - (screen_y as f32 + 0.5) / self.height as f32 * 2.0;
+
+                let view_x = ndc_x * aspect_ratio * (fov_rad / 2.0).tan();
+                let view_y = ndc_y * (fov_rad / 2.0).tan();
+                let view_dir = Vector3::new(view_x, view_y, -1.0).normalize();
+
+                let view_to_world = camera
+                    .view_matrix
+                    .try_inverse()
+                    .unwrap_or_else(nalgebra::Matrix4::identity);
+                let world_ray_dir = view_to_world.transform_vector(&view_dir).normalize();
+                let world_ray_origin = camera.position;
+
+                // 计算与地面平面的交点
+                let ground_normal = Vector3::y();
+                let denominator = ground_normal.dot(&world_ray_dir);
+
+                if denominator.abs() <= 1e-6 {
+                    continue; // 无交点
+                }
+
+                let t = (Point3::new(0.0, ground_y_world, 0.0) - world_ray_origin)
+                    .dot(&ground_normal)
+                    / denominator;
+
+                if t < 0.0 {
+                    continue; // 交点在相机后方
+                }
+
+                // 计算交点
+                let intersection = world_ray_origin + t * world_ray_dir;
+
+                // 计算交点在地面上的坐标，用于创建网格效果
+                let grid_x = (intersection.x / grid_size).abs() % 1.0;
+                let grid_z = (intersection.z / grid_size).abs() % 1.0;
+
+                // 创建网格效果
+                let is_grid_line =
+                    !(0.05..=0.95).contains(&grid_x) || !(0.05..=0.95).contains(&grid_z);
+                let grid_factor = if is_grid_line { grid_intensity } else { 0.0 };
+
+                // 模拟距离物体边缘的阴影效果
+                // 检查周围像素是否有物体
+                let shadow_intensity = 0.0f32; // 这里可以实现边缘阴影效果，但需要额外计算
+
+                // 计算颜色混合因子
+                let distance_from_center = (intersection.x.powi(2) + intersection.z.powi(2)).sqrt();
+                let max_distance = 50.0;
+                let distance_factor = (distance_from_center / max_distance).min(1.0);
+
+                // 获取背景颜色
+                let color_index = buffer_index * 3;
+                let r = self.color_buffer[color_index].load(Ordering::Relaxed);
+                let g = self.color_buffer[color_index + 1].load(Ordering::Relaxed);
+                let b = self.color_buffer[color_index + 2].load(Ordering::Relaxed);
+                let bg_color = [r, g, b];
+
+                // 应用网格效果调暗地面颜色
+                let ground_r = (ground_color_u8[0] as f32 * (1.0 - grid_factor)) as u8;
+                let ground_g = (ground_color_u8[1] as f32 * (1.0 - grid_factor)) as u8;
+                let ground_b = (ground_color_u8[2] as f32 * (1.0 - grid_factor)) as u8;
+
+                // 颜色混合: 地面颜色，背景颜色，以及阴影
+                let shadow_factor = (1.0 - shadow_intensity).max(0.0);
+                let final_r = ((1.0 - distance_factor) * ground_r as f32 * shadow_factor
+                    + distance_factor * bg_color[0] as f32) as u8;
+                let final_g = ((1.0 - distance_factor) * ground_g as f32 * shadow_factor
+                    + distance_factor * bg_color[1] as f32) as u8;
+                let final_b = ((1.0 - distance_factor) * ground_b as f32 * shadow_factor
+                    + distance_factor * bg_color[2] as f32) as u8;
+
+                // 更新颜色缓冲区（不需要更新深度缓冲区，因为地面仅在空白区域绘制）
+                self.color_buffer[color_index].store(final_r, Ordering::Relaxed);
+                self.color_buffer[color_index + 1].store(final_g, Ordering::Relaxed);
+                self.color_buffer[color_index + 2].store(final_b, Ordering::Relaxed);
+            }
+        });
     }
 
     /// 获取颜色缓冲区的字节数据，用于保存图像
@@ -121,6 +254,21 @@ pub struct RenderConfig {
     pub cull_small_triangles: bool,
     /// 用于剔除的最小三角形面积
     pub min_triangle_area: f32,
+
+    // 背景与环境设置
+    /// 启用渐变背景
+    pub enable_gradient_background: bool,
+    /// 渐变背景顶部颜色
+    pub gradient_top_color: Vector3<f32>,
+    /// 渐变背景底部颜色
+    pub gradient_bottom_color: Vector3<f32>,
+
+    /// 启用地面平面
+    pub enable_ground_plane: bool,
+    /// 地面平面颜色
+    pub ground_plane_color: Vector3<f32>,
+    /// 地面平面在Y轴上的高度 (世界坐标系)
+    pub ground_plane_height: f32,
 }
 
 impl Default for RenderConfig {
@@ -145,6 +293,12 @@ impl Default for RenderConfig {
             use_multithreading: true,
             cull_small_triangles: false,
             min_triangle_area: 1e-3,
+            enable_gradient_background: false,
+            gradient_top_color: Vector3::new(0.5, 0.7, 1.0),
+            gradient_bottom_color: Vector3::new(0.1, 0.2, 0.4),
+            enable_ground_plane: false,
+            ground_plane_color: Vector3::new(0.3, 0.5, 0.2),
+            ground_plane_height: -1.0,
         }
     }
 }
@@ -242,6 +396,25 @@ impl RenderConfig {
     pub fn is_perspective(&self) -> bool {
         self.projection_type == "perspective"
     }
+
+    pub fn with_gradient_background(
+        mut self,
+        enabled: bool,
+        top_color: Vector3<f32>,
+        bottom_color: Vector3<f32>,
+    ) -> Self {
+        self.enable_gradient_background = enabled;
+        self.gradient_top_color = top_color;
+        self.gradient_bottom_color = bottom_color;
+        self
+    }
+
+    pub fn with_ground_plane(mut self, enabled: bool, color: Vector3<f32>, height: f32) -> Self {
+        self.enable_ground_plane = enabled;
+        self.ground_plane_color = color;
+        self.ground_plane_height = height.min(-0.00001f32);
+        self
+    }
 }
 
 /// 渲染器结构体 - 负责高层次渲染流程
@@ -258,13 +431,19 @@ impl Renderer {
     }
 
     /// 渲染一个场景，包含多个模型和对象
-    pub fn render_scene(&self, scene: &crate::scene::scene_utils::Scene, config: &mut RenderConfig) {
+    pub fn render_scene(
+        &self,
+        scene: &crate::scene::scene_utils::Scene,
+        config: &mut RenderConfig,
+    ) {
         // 从场景中获取环境光设置
         config.ambient_intensity = scene.ambient_intensity;
         config.ambient_color = scene.ambient_color;
 
         // 清除帧缓冲区
-        self.frame_buffer.clear();
+        let camera = &scene.active_camera;
+        self.frame_buffer.clear(config);
+        self.frame_buffer.draw_ground_plane(camera, config);
 
         // 逐个渲染场景中的每个对象
         for object in &scene.objects {
@@ -567,17 +746,17 @@ impl Renderer {
         }
 
         // 已启用纹理功能时，遵循优先级：PNG材质 > 面随机颜色 > SolidColor
-        
+
         // 1. 优先使用PNG材质（如果存在）
         if let Some(tex) = material_opt.and_then(|m| m.texture.as_ref()) {
             return TextureSource::Image(tex);
         }
-        
+
         // 2. 其次检查是否应用面随机颜色
         if config.use_face_colors {
             return TextureSource::FaceColor(global_face_index);
         }
-        
+
         // 3. 最后使用材质颜色作为固体纹理
         let color = material_opt.map_or_else(
             || Vector3::new(0.7, 0.7, 0.7), // 默认灰色

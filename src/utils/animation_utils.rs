@@ -1,7 +1,7 @@
 use crate::core::renderer::Renderer;
-use crate::scene::scene_utils::Scene;
-use crate::scene::scene_object::{TransformOperations, Transformable};
 use crate::io::args::Args;
+use crate::scene::scene_object::{TransformOperations, Transformable};
+use crate::scene::scene_utils::Scene;
 use crate::utils::render_utils::{create_render_config, render_single_frame};
 use nalgebra::{Matrix4, Vector3};
 use std::time::Instant;

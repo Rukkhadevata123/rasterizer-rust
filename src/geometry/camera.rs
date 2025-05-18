@@ -1,5 +1,5 @@
-use crate::scene::scene_object::{TransformOperations, Transformable};
 use crate::geometry::transform::TransformFactory;
+use crate::scene::scene_object::{TransformOperations, Transformable};
 use nalgebra::{Matrix4, Point3, Vector3};
 
 /// 相机类，负责管理视角和投影变换

@@ -8,17 +8,17 @@ mod core;
 mod geometry;
 mod io;
 mod materials;
+mod scene;
 mod ui;
 mod utils;
-mod scene;
 
 // 导入语句
 use core::renderer::Renderer;
-use scene::scene_utils::Scene;
 use geometry::camera::Camera;
 use io::args::{Args, parse_point3, parse_vec3};
 use io::loaders::load_obj_enhanced;
 use materials::model_types::ModelData;
+use scene::scene_utils::Scene;
 use utils::animation_utils::run_animation_loop;
 use utils::material_utils::{apply_pbr_parameters, apply_phong_parameters};
 use utils::model_utils::normalize_and_center_model;

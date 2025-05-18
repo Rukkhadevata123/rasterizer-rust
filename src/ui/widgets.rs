@@ -4,6 +4,8 @@ use std::sync::atomic::Ordering;
 
 use super::animation::AnimationMethods;
 use super::app::RasterizerApp;
+use crate::io::args::parse_vec3; // 导入 parse_vec3 用于颜色字符串解析
+
 use super::render::RenderMethods;
 
 /// UI组件和工具提示相关方法的特质
@@ -94,16 +96,16 @@ impl WidgetMethods for RasterizerApp {
                 ui.horizontal(|ui| {
                     ui.label("宽度：");
                     let response = ui.add(egui::DragValue::new(&mut self.args.width)
-                        .speed(1)
-                        .range(1..=4096));
+                    .speed(1)
+                    .range(1..=4096));
                     Self::add_tooltip(response, ctx, "渲染图像的宽度（像素）");
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("高度：");
                     let response = ui.add(egui::DragValue::new(&mut self.args.height)
-                        .speed(1)
-                        .range(1..=4096));
+                    .speed(1)
+                    .range(1..=4096));
                     Self::add_tooltip(response, ctx, "渲染图像的高度（像素）");
                 });
                 let response = ui.checkbox(&mut self.args.save_depth, "保存深度图");
@@ -117,14 +119,14 @@ impl WidgetMethods for RasterizerApp {
                     let resp1 = ui.radio_value(
                         &mut self.args.projection,
                         "perspective".to_string(),
-                        "透视",
+                                               "透视",
                     );
                     Self::add_tooltip(resp1, ctx, "使用透视投影（符合人眼观察方式）");
 
                     let resp2 = ui.radio_value(
                         &mut self.args.projection,
                         "orthographic".to_string(),
-                        "正交",
+                                               "正交",
                     );
                     Self::add_tooltip(resp2, ctx, "使用正交投影（无透视变形）");
                 });
@@ -146,7 +148,7 @@ impl WidgetMethods for RasterizerApp {
                         self.args.colorize = false;
                     }
                     Self::add_tooltip(texture_response, ctx,
-                        "使用模型的纹理贴图（如果有）\n优先级最高，会覆盖面颜色设置");
+                                      "使用模型的纹理贴图（如果有）\n优先级最高，会覆盖面颜色设置");
 
                     // 使用面颜色选项
                     let face_color_response = ui.radio_value(&mut self.args.colorize, true, "使用面颜色");
@@ -155,7 +157,7 @@ impl WidgetMethods for RasterizerApp {
                         self.args.use_texture = false;
                     }
                     Self::add_tooltip(face_color_response, ctx,
-                        "为每个面分配随机颜色\n仅在没有纹理或纹理被禁用时生效");
+                                      "为每个面分配随机颜色\n仅在没有纹理或纹理被禁用时生效");
 
                     // 使用材质颜色选项 (实际上是关闭两者)
                     let material_color_response = ui.radio(
@@ -167,7 +169,7 @@ impl WidgetMethods for RasterizerApp {
                         self.args.colorize = false;
                     }
                     Self::add_tooltip(material_color_response, ctx,
-                        "使用材质的基本颜色（如.mtl文件中定义）\n在没有纹理且不使用面颜色时生效");
+                                      "使用材质的基本颜色（如.mtl文件中定义）\n在没有纹理且不使用面颜色时生效");
                 });
 
                 // 着色模型选择（Phong/PBR，已经是互斥的）
@@ -180,7 +182,7 @@ impl WidgetMethods for RasterizerApp {
                         self.args.use_pbr = false;
                     }
                     Self::add_tooltip(phong_response, ctx,
-                        "使用 Phong 着色（逐像素着色）和 Blinn-Phong 光照模型\n提供高质量的光照效果，适合大多数场景");
+                                      "使用 Phong 着色（逐像素着色）和 Blinn-Phong 光照模型\n提供高质量的光照效果，适合大多数场景");
 
                     // PBR 渲染选项
                     let pbr_response = ui.radio_value(&mut self.args.use_pbr, true, "PBR渲染");
@@ -189,7 +191,7 @@ impl WidgetMethods for RasterizerApp {
                         self.args.use_phong = false;
                     }
                     Self::add_tooltip(pbr_response, ctx,
-                        "使用基于物理的渲染（PBR）\n提供更真实的材质效果，但需要更多的参数调整");
+                                      "使用基于物理的渲染（PBR）\n提供更真实的材质效果，但需要更多的参数调整");
                 });
 
                 let resp7 = ui.checkbox(&mut self.args.use_gamma, "Gamma校正");
@@ -212,9 +214,9 @@ impl WidgetMethods for RasterizerApp {
                     if self.args.cull_small_triangles {
                         let resp = ui.add(
                             egui::DragValue::new(&mut self.args.min_triangle_area)
-                                .speed(0.0001)
-                                .range(0.0..=1.0)
-                                .prefix("面积阈值："),
+                            .speed(0.0001)
+                            .range(0.0..=1.0)
+                            .prefix("面积阈值："),
                         );
                         Self::add_tooltip(resp, ctx, "小于此面积的三角形将被剔除（范围0.0-1.0）");
                     }
@@ -235,10 +237,10 @@ impl WidgetMethods for RasterizerApp {
                     }
                     if ui.button("浏览").clicked() {
                         let result = FileDialogBuilder::default()
-                            .set_title("选择纹理文件")
-                            .add_filter("图像文件", ["png", "jpg", "jpeg", "bmp", "tga"])
-                            .open_single_file()
-                            .show();
+                        .set_title("选择纹理文件")
+                        .add_filter("图像文件", ["png", "jpg", "jpeg", "bmp", "tga"])
+                        .open_single_file()
+                        .show();
 
                         match result {
                             Ok(Some(path)) => {
@@ -254,6 +256,61 @@ impl WidgetMethods for RasterizerApp {
                         }
                     }
                 });
+            });
+
+            // 背景与环境设置
+            ui.collapsing("背景与环境", |ui| {
+                // 渐变背景
+                let resp_grad_bg = ui.checkbox(&mut self.args.enable_gradient_background, "启用渐变背景");
+                Self::add_tooltip(resp_grad_bg, ctx, "使用渐变色作为场景背景");
+                if self.args.enable_gradient_background {
+                    ui.horizontal(|ui| {
+                        ui.label("顶部颜色:");
+                        let top_color_rgb_vec = parse_vec3(&self.args.gradient_top_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.5, 0.7, 1.0));
+                        let mut top_color_rgb = [top_color_rgb_vec.x, top_color_rgb_vec.y, top_color_rgb_vec.z];
+                        if ui.color_edit_button_rgb(&mut top_color_rgb).changed() {
+                            self.args.gradient_top_color = format!("{},{},{}", top_color_rgb[0], top_color_rgb[1], top_color_rgb[2]);
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("底部颜色:");
+                        let bottom_color_rgb_vec = parse_vec3(&self.args.gradient_bottom_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.1, 0.2, 0.4));
+                        let mut bottom_color_rgb = [bottom_color_rgb_vec.x, bottom_color_rgb_vec.y, bottom_color_rgb_vec.z];
+                        if ui.color_edit_button_rgb(&mut bottom_color_rgb).changed() {
+                            self.args.gradient_bottom_color = format!("{},{},{}", bottom_color_rgb[0], bottom_color_rgb[1], bottom_color_rgb[2]);
+                        }
+                    });
+                }
+                ui.separator();
+                // 地面平面
+                let resp_ground = ui.checkbox(&mut self.args.enable_ground_plane, "启用地面平面");
+                Self::add_tooltip(resp_ground, ctx, "在场景中添加一个无限延伸的地面");
+                if self.args.enable_ground_plane {
+                    ui.horizontal(|ui| {
+                        ui.label("地面颜色:");
+                        let ground_color_rgb_vec = parse_vec3(&self.args.ground_plane_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.3, 0.5, 0.2));
+                        let mut ground_color_rgb = [ground_color_rgb_vec.x, ground_color_rgb_vec.y, ground_color_rgb_vec.z];
+                        if ui.color_edit_button_rgb(&mut ground_color_rgb).changed() {
+                            self.args.ground_plane_color = format!("{},{},{}", ground_color_rgb[0], ground_color_rgb[1], ground_color_rgb[2]);
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("地面高度 (Y):");
+                        let mut height_value = self.args.ground_plane_height;
+                        let resp_height = ui.add(
+                            egui::DragValue::new(&mut height_value)
+                            .speed(0.1)
+                            .range(-100.0..=-0.1) // 设置范围限制，最大值为0
+                        );
+
+                        // 如果值发生了变化，确保是负值或零
+                        if resp_height.changed() {
+                            self.args.ground_plane_height = height_value.min(0.0);
+                        }
+
+                        Self::add_tooltip(resp_height, ctx, "地面平面在Y轴上的高度（世界坐标系），必须小于等于0");
+                    });
+                }
             });
 
             // 相机设置部分
@@ -286,7 +343,7 @@ impl WidgetMethods for RasterizerApp {
             // 光照设置部分
             ui.collapsing("光照设置", |ui| {
                 let _resp = ui.checkbox(&mut self.args.use_lighting, "启用光照")
-                    .on_hover_text("总光照开关，关闭则仅使用下方设置的环境光颜色/强度");
+                .on_hover_text("总光照开关，关闭则仅使用下方设置的环境光颜色/强度");
 
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -318,10 +375,14 @@ impl WidgetMethods for RasterizerApp {
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label("环境光颜色 (r,g,b)：");
-                    let resp = ui.text_edit_singleline(&mut self.args.ambient_color);
-                    Self::add_tooltip(resp, ctx,
-                        "环境光的颜色，格式为r,g,b\n如果光照关闭，或场景中没有其他光源，此颜色将作为基础色");
+                    ui.label("环境光颜色:");
+                    let ambient_color_vec = parse_vec3(&self.args.ambient_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.1, 0.1, 0.1));
+                    let mut ambient_color_rgb = [ambient_color_vec.x, ambient_color_vec.y, ambient_color_vec.z];
+                    let resp = ui.color_edit_button_rgb(&mut ambient_color_rgb);
+                    if resp.changed() {
+                        self.args.ambient_color = format!("{},{},{}", ambient_color_rgb[0], ambient_color_rgb[1], ambient_color_rgb[2]);
+                    }
+                    Self::add_tooltip(resp, ctx, "环境光的颜色\n如果光照关闭，或场景中没有其他光源，此颜色将作为基础色");
                 });
 
                 ui.horizontal(|ui| {
@@ -341,9 +402,14 @@ impl WidgetMethods for RasterizerApp {
             if self.args.use_pbr {
                 ui.collapsing("PBR材质设置 (Physically Based Rendering)", |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("基础颜色 (Base Color) [r,g,b]：");
-                        let resp = ui.text_edit_singleline(&mut self.args.base_color);
-                        Self::add_tooltip(resp, ctx, "材质的基础颜色 (Base Color)，格式为r,g,b\n在PBR中代表材质的反射率或颜色");
+                        ui.label("基础颜色 (Base Color):");
+                        let base_color_vec = parse_vec3(&self.args.base_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.8, 0.8, 0.8));
+                        let mut base_color_rgb = [base_color_vec.x, base_color_vec.y, base_color_vec.z];
+                        let resp = ui.color_edit_button_rgb(&mut base_color_rgb);
+                        if resp.changed() {
+                            self.args.base_color = format!("{},{},{}", base_color_rgb[0], base_color_rgb[1], base_color_rgb[2]);
+                        }
+                        Self::add_tooltip(resp, ctx, "材质的基础颜色 (Base Color)\n在PBR中代表材质的反射率或颜色");
                     });
 
                     ui.horizontal(|ui| {
@@ -368,9 +434,14 @@ impl WidgetMethods for RasterizerApp {
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("自发光颜色 (Emissive) [r,g,b]：");
-                        let resp = ui.text_edit_singleline(&mut self.args.emissive);
-                        Self::add_tooltip(resp, ctx, "材质的自发光颜色 (Emissive)，格式为r,g,b\n表示材质本身发出的光，不受光照影响");
+                        ui.label("自发光颜色 (Emissive):");
+                        let emissive_color_vec = parse_vec3(&self.args.emissive).unwrap_or_else(|_| nalgebra::Vector3::new(0.0, 0.0, 0.0));
+                        let mut emissive_color_rgb = [emissive_color_vec.x, emissive_color_vec.y, emissive_color_vec.z];
+                        let resp = ui.color_edit_button_rgb(&mut emissive_color_rgb);
+                        if resp.changed() {
+                            self.args.emissive = format!("{},{},{}", emissive_color_rgb[0], emissive_color_rgb[1], emissive_color_rgb[2]);
+                        }
+                        Self::add_tooltip(resp, ctx, "材质的自发光颜色 (Emissive)\n表示材质本身发出的光，不受光照影响");
                     });
                 });
             }
@@ -379,9 +450,14 @@ impl WidgetMethods for RasterizerApp {
             if self.args.use_phong {
                 ui.collapsing("Phong材质设置 (Blinn-Phong Shading)", |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("漫反射颜色 (Diffuse) [r,g,b]：");
-                        let resp = ui.text_edit_singleline(&mut self.args.diffuse_color);
-                        Self::add_tooltip(resp, ctx, "材质的漫反射颜色 (Diffuse Color)，格式为r,g,b\n决定物体表面向各个方向均匀散射的颜色");
+                        ui.label("漫反射颜色 (Diffuse):");
+                        let diffuse_color_vec = parse_vec3(&self.args.diffuse_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.8, 0.8, 0.8)); // Using a typical diffuse default
+                        let mut diffuse_color_rgb = [diffuse_color_vec.x, diffuse_color_vec.y, diffuse_color_vec.z];
+                        let resp = ui.color_edit_button_rgb(&mut diffuse_color_rgb);
+                        if resp.changed() {
+                            self.args.diffuse_color = format!("{},{},{}", diffuse_color_rgb[0], diffuse_color_rgb[1], diffuse_color_rgb[2]);
+                        }
+                        Self::add_tooltip(resp, ctx, "材质的漫反射颜色 (Diffuse Color)\n决定物体表面向各个方向均匀散射的颜色");
                     });
 
                     ui.horizontal(|ui| {
@@ -397,9 +473,14 @@ impl WidgetMethods for RasterizerApp {
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("自发光颜色 (Emissive) [r,g,b]：");
-                        let resp = ui.text_edit_singleline(&mut self.args.emissive);
-                        Self::add_tooltip(resp, ctx, "材质的自发光颜色 (Emissive)，格式为r,g,b\n表示材质本身发出的光，不受光照影响");
+                        ui.label("自发光颜色 (Emissive):");
+                        let emissive_color_vec = parse_vec3(&self.args.emissive).unwrap_or_else(|_| nalgebra::Vector3::new(0.0, 0.0, 0.0));
+                        let mut emissive_color_rgb = [emissive_color_vec.x, emissive_color_vec.y, emissive_color_vec.z];
+                        let resp = ui.color_edit_button_rgb(&mut emissive_color_rgb);
+                        if resp.changed() {
+                            self.args.emissive = format!("{},{},{}", emissive_color_rgb[0], emissive_color_rgb[1], emissive_color_rgb[2]);
+                        }
+                        Self::add_tooltip(resp, ctx, "材质的自发光颜色 (Emissive)\n表示材质本身发出的光，不受光照影响");
                     });
                 });
             }
@@ -409,16 +490,16 @@ impl WidgetMethods for RasterizerApp {
                 ui.horizontal(|ui| {
                     ui.label("总帧数：");
                     let resp = ui.add(egui::DragValue::new(&mut self.total_frames)
-                        .speed(1)
-                        .range(10..=1000));
+                    .speed(1)
+                    .range(10..=1000));
                     Self::add_tooltip(resp, ctx, "生成视频的总帧数");
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("帧率 (FPS)：");
                     let resp = ui.add(egui::DragValue::new(&mut self.fps)
-                        .speed(1)
-                        .range(1..=60));
+                    .speed(1)
+                    .range(1..=60));
                     Self::add_tooltip(resp, ctx, "生成视频的每秒帧数");
                 });
 
@@ -429,131 +510,131 @@ impl WidgetMethods for RasterizerApp {
                 });
             });
 
-                // 按钮区域
-                ui.add_space(20.0);
+            // 按钮区域
+            ui.add_space(20.0);
 
-                // 恢复默认值与渲染按钮一行
-                ui.horizontal(|ui| {
-                    // 恢复默认值按钮 - 使用固定宽度
-                    let reset_button = ui.add_sized(
-                        [100.0, 40.0],  // 使用固定宽度
-                        egui::Button::new(
-                            RichText::new("恢复默认值")
-                                .size(15.0)
-                        )
-                    );
-
-                    if reset_button.clicked() {
-                        self.reset_to_defaults();
-                    }
-
-                    Self::add_tooltip(reset_button, ctx, "重置所有渲染参数为默认值，保留文件路径设置");
-
-                    ui.add_space(10.0);
-
-                    // 渲染按钮
-                    let render_button = ui.add_sized(
-                        [ui.available_width(), 40.0],
-                        egui::Button::new(
-                            RichText::new("开始渲染")
-                                .size(18.0)
-                                .strong()
-                        )
-                    );
-
-                    if render_button.clicked() {
-                        self.render(ctx);
-                    }
-
-                    Self::add_tooltip(render_button, ctx, "快捷键: Ctrl+R");
-                });
-
-                ui.add_space(10.0);
-
-                // 实时渲染和截图按钮一行
-                ui.horizontal(|ui| {
-                    // 使用固定宽度代替计算的宽度
-                    let button_width = 150.0;  // 固定宽度
-
-                    // 实时渲染按钮
-                    let realtime_button = ui.add_sized(
-                        [button_width, 40.0],
-                        egui::Button::new(
-                            RichText::new(if self.is_realtime_rendering {
-                                "停止实时渲染"
-                            } else {
-                                "开始实时渲染"
-                            })
-                            .size(15.0)
-                        )
-                    );
-
-                    if realtime_button.clicked() {
-                        self.is_realtime_rendering = !self.is_realtime_rendering;
-                        if self.is_realtime_rendering {
-                            self.last_frame_time = None; // 重置时间计时
-                            self.current_fps = 0.0;      // 重置帧率计数器
-                            self.fps_history.clear();    // 清空帧率历史记录
-                            self.avg_fps = 0.0;          // 重置平均帧率
-                            self.status_message = "开始实时渲染...".to_string();
-                        } else {
-                            self.status_message = "已停止实时渲染".to_string();
-                        }
-                    }
-
-                    Self::add_tooltip(realtime_button, ctx, "启动连续动画渲染，实时显示旋转效果");
-
-                    ui.add_space(10.0);
-
-                    // 截图按钮
-                    let screenshot_button = ui.add_enabled(
-                        self.rendered_image.is_some(),
-                        egui::Button::new(RichText::new("截图").size(15.0))
-                            .min_size(Vec2::new(ui.available_width(), 40.0))
-                    );
-
-                    if screenshot_button.clicked() {
-                        match self.take_screenshot() {
-                            Ok(path) => {
-                                self.status_message = format!("截图已保存至 {}", path);
-                            }
-                            Err(e) => {
-                                self.set_error(format!("截图失败: {}", e));
-                            }
-                        }
-                    }
-
-                    Self::add_tooltip(screenshot_button, ctx, "保存当前渲染结果为图片文件");
-                });
-
-                // 视频生成按钮独占一行
-                ui.add_space(10.0);
-
-                let video_button_text = if self.is_generating_video {
-                    let progress = self.video_progress.load(Ordering::SeqCst);
-                    let percent = (progress as f32 / self.total_frames as f32 * 100.0).round();
-                    format!("生成视频中... {}%", percent)
-                } else if self.ffmpeg_available {
-                    "生成视频".to_string()
-                } else {
-                    "生成视频 (需安装ffmpeg)".to_string()
-                };
-
-                let is_video_enabled = !self.is_realtime_rendering && !self.is_generating_video;
-
-                // 视频生成按钮
-                let video_button = ui.add_enabled(
-                    is_video_enabled,
-                    egui::Button::new(RichText::new(video_button_text).size(15.0))
-                        .min_size(Vec2::new(ui.available_width(), 40.0))
+            // 恢复默认值与渲染按钮一行
+            ui.horizontal(|ui| {
+                // 恢复默认值按钮 - 使用固定宽度
+                let reset_button = ui.add_sized(
+                    [100.0, 40.0],  // 使用固定宽度
+                    egui::Button::new(
+                        RichText::new("恢复默认值")
+                        .size(15.0)
+                    )
                 );
 
-                if video_button.clicked() {
-                    self.start_video_generation(ctx);
+                if reset_button.clicked() {
+                    self.reset_to_defaults();
                 }
 
+                Self::add_tooltip(reset_button, ctx, "重置所有渲染参数为默认值，保留文件路径设置");
+
+                ui.add_space(10.0);
+
+                // 渲染按钮
+                let render_button = ui.add_sized(
+                    [ui.available_width(), 40.0],
+                                                 egui::Button::new(
+                                                     RichText::new("开始渲染")
+                                                     .size(18.0)
+                                                     .strong()
+                                                 )
+                );
+
+                if render_button.clicked() {
+                    self.render(ctx);
+                }
+
+                Self::add_tooltip(render_button, ctx, "快捷键: Ctrl+R");
+            });
+
+            ui.add_space(10.0);
+
+            // 实时渲染和截图按钮一行
+            ui.horizontal(|ui| {
+                // 使用固定宽度代替计算的宽度
+                let button_width = 150.0;  // 固定宽度
+
+                // 实时渲染按钮
+                let realtime_button = ui.add_sized(
+                    [button_width, 40.0],
+                    egui::Button::new(
+                        RichText::new(if self.is_realtime_rendering {
+                            "停止实时渲染"
+                        } else {
+                            "开始实时渲染"
+                        })
+                        .size(15.0)
+                    )
+                );
+
+                if realtime_button.clicked() {
+                    self.is_realtime_rendering = !self.is_realtime_rendering;
+                    if self.is_realtime_rendering {
+                        self.last_frame_time = None; // 重置时间计时
+                        self.current_fps = 0.0;      // 重置帧率计数器
+                        self.fps_history.clear();    // 清空帧率历史记录
+                        self.avg_fps = 0.0;          // 重置平均帧率
+                        self.status_message = "开始实时渲染...".to_string();
+                    } else {
+                        self.status_message = "已停止实时渲染".to_string();
+                    }
+                }
+
+                Self::add_tooltip(realtime_button, ctx, "启动连续动画渲染，实时显示旋转效果");
+
+                ui.add_space(10.0);
+
+                // 截图按钮
+                let screenshot_button = ui.add_enabled(
+                    self.rendered_image.is_some(),
+                                                       egui::Button::new(RichText::new("截图").size(15.0))
+                                                       .min_size(Vec2::new(ui.available_width(), 40.0))
+                );
+
+                if screenshot_button.clicked() {
+                    match self.take_screenshot() {
+                        Ok(path) => {
+                            self.status_message = format!("截图已保存至 {}", path);
+                        }
+                        Err(e) => {
+                            self.set_error(format!("截图失败: {}", e));
+                        }
+                    }
+                }
+
+                Self::add_tooltip(screenshot_button, ctx, "保存当前渲染结果为图片文件");
+            });
+
+            // 视频生成按钮独占一行
+            ui.add_space(10.0);
+
+            let video_button_text = if self.is_generating_video {
+                let progress = self.video_progress.load(Ordering::SeqCst);
+                let percent = (progress as f32 / self.total_frames as f32 * 100.0).round();
+                format!("生成视频中... {}%", percent)
+            } else if self.ffmpeg_available {
+                "生成视频".to_string()
+            } else {
+                "生成视频 (需安装ffmpeg)".to_string()
+            };
+
+            let is_video_enabled = !self.is_realtime_rendering && !self.is_generating_video;
+
+            // 视频生成按钮
+            let video_button = ui.add_enabled(
+                is_video_enabled,
+                egui::Button::new(RichText::new(video_button_text).size(15.0))
+                .min_size(Vec2::new(ui.available_width(), 40.0))
+            );
+
+            if video_button.clicked() {
+                self.start_video_generation(ctx);
+            }
+
             Self::add_tooltip(video_button, ctx,
-                "在后台渲染多帧并生成MP4视频。\n需要系统安装ffmpeg。\n生成过程不会影响UI使用。");
+                              "在后台渲染多帧并生成MP4视频。\n需要系统安装ffmpeg。\n生成过程不会影响UI使用。");
 
             // 渲染信息
             if let Some(time) = self.last_render_time {
@@ -562,7 +643,7 @@ impl WidgetMethods for RasterizerApp {
 
                 if let Some(model) = &self.model_data {
                     let triangle_count: usize =
-                        model.meshes.iter().map(|m| m.indices.len() / 3).sum();
+                    model.meshes.iter().map(|m| m.indices.len() / 3).sum();
                     ui.label(format!("三角形数量: {}", triangle_count));
                 }
             }

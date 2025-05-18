@@ -1,7 +1,7 @@
 use crate::core::renderer::Renderer;
-use crate::scene::scene_utils::Scene;
 use crate::io::args::Args;
 use crate::materials::model_types::ModelData;
+use crate::scene::scene_utils::Scene;
 use clap::Parser;
 use egui::{Color32, RichText, Vec2};
 use std::sync::Arc;

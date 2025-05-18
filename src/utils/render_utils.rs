@@ -1,8 +1,8 @@
 use crate::core::renderer::RenderConfig;
-use crate::scene::scene_utils::Scene;
 use crate::io::args::{Args, parse_vec3};
 use crate::materials::color::apply_colormap_jet;
 use crate::materials::material_system::Light;
+use crate::scene::scene_utils::Scene;
 use crate::utils::image_utils::{normalize_depth, save_image};
 use nalgebra::{Point3, Vector3};
 use std::path::Path;
@@ -54,7 +54,18 @@ pub fn create_render_config(scene: &Scene, args: &Args) -> RenderConfig {
         .with_wireframe(args.wireframe)
         // --- 性能优化设置 ---
         .with_multithreading(args.use_multithreading)
-        .with_small_triangle_culling(args.cull_small_triangles, args.min_triangle_area);
+        .with_small_triangle_culling(args.cull_small_triangles, args.min_triangle_area)
+        // --- 背景与环境设置 ---
+        .with_gradient_background(
+            args.enable_gradient_background,
+            parse_vec3(&args.gradient_top_color).unwrap_or_else(|_| Vector3::new(0.5, 0.7, 1.0)),
+            parse_vec3(&args.gradient_bottom_color).unwrap_or_else(|_| Vector3::new(0.1, 0.2, 0.4)),
+        )
+        .with_ground_plane(
+            args.enable_ground_plane,
+            parse_vec3(&args.ground_plane_color).unwrap_or_else(|_| Vector3::new(0.3, 0.5, 0.2)),
+            args.ground_plane_height,
+        );
 
     // --- 打印渲染设置摘要 ---
     print_render_config_summary(&config, args);

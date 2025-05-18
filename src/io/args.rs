@@ -190,6 +190,31 @@ pub struct Args {
     /// 材质的自发光颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(在Phong和PBR中都有效)
     #[arg(long, default_value = "0.0,0.0,0.0")]
     pub emissive: String,
+
+    // ===== 背景与环境设置 =====
+    /// 启用渐变背景
+    #[arg(long, default_value_t = false)]
+    pub enable_gradient_background: bool,
+
+    /// 渐变背景顶部颜色，格式为"r,g,b"
+    #[arg(long, default_value = "0.5,0.7,1.0")]
+    pub gradient_top_color: String,
+
+    /// 渐变背景底部颜色，格式为"r,g,b"
+    #[arg(long, default_value = "0.1,0.2,0.4")]
+    pub gradient_bottom_color: String,
+
+    /// 启用地面平面
+    #[arg(long, default_value_t = false)]
+    pub enable_ground_plane: bool,
+
+    /// 地面平面颜色，格式为"r,g,b"
+    #[arg(long, default_value = "0.3,0.5,0.2")]
+    pub ground_plane_color: String,
+
+    /// 地面平面在Y轴上的高度 (世界坐标系)
+    #[arg(long, default_value_t = -1.0, allow_negative_numbers = true)]
+    pub ground_plane_height: f32,
 }
 
 // 辅助函数用于解析逗号分隔的浮点数

@@ -1,7 +1,7 @@
-use crate::scene::scene_object::SceneObject;
 use crate::geometry::camera::Camera;
 use crate::materials::material_system::Light;
 use crate::materials::model_types::ModelData;
+use crate::scene::scene_object::SceneObject;
 use nalgebra::{Point3, Vector3};
 use std::collections::HashMap;
 

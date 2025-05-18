@@ -2,12 +2,12 @@ use clap::Parser;
 use nalgebra::{Point3, Vector3};
 use std::time::Instant;
 
-use crate::scene::scene_utils::Scene;
-use crate::scene::scene_object::{SceneObject, TransformOperations, Transformable};
 use crate::geometry::camera::Camera;
 use crate::geometry::transform;
 use crate::io::args::Args;
 use crate::io::loaders::load_obj_enhanced;
+use crate::scene::scene_object::{SceneObject, TransformOperations, Transformable};
+use crate::scene::scene_utils::Scene;
 use crate::utils::model_utils::normalize_and_center_model;
 
 /// 测试变换API和未被正式使用的方法
