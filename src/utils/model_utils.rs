@@ -1,4 +1,4 @@
-use crate::materials::model_types::ModelData;
+use crate::material_system::materials::ModelData;
 use nalgebra::{Point3, Vector3};
 
 /// 归一化和中心化模型顶点

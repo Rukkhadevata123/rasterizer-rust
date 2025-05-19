@@ -1,9 +1,9 @@
 use crate::core::rasterizer::{TextureSource, TriangleData, VertexRenderData, rasterize_triangle};
+use crate::core::render_config::RenderConfig;
 use crate::geometry::camera::Camera;
 use crate::geometry::culling::{is_backface, should_cull_small_triangle}; // 导入剔除函数
-use crate::geometry::transform::{compute_normal_matrix, transform_normals};
-use crate::materials::material_system::MaterialView;
-use crate::materials::model_types::{Material, ModelData};
+use crate::geometry::transform::transform_pipeline_batch;
+use crate::material_system::materials::{Material, MaterialView, ModelData, Vertex};
 use crate::scene::scene_object::SceneObject;
 use atomic_float::AtomicF32;
 use nalgebra::{Point2, Point3, Vector3};
@@ -206,7 +206,7 @@ impl FrameBuffer {
                 }
 
                 // 转换为u8颜色并保存到缓冲区
-                let color_u8 = crate::materials::color::linear_rgb_to_u8(
+                let color_u8 = crate::material_system::color::linear_rgb_to_u8(
                     &final_color,
                     config.apply_gamma_correction,
                 );
@@ -231,219 +231,6 @@ impl FrameBuffer {
             .iter()
             .map(|atomic_depth| atomic_depth.load(Ordering::Relaxed))
             .collect()
-    }
-}
-
-/// 统一的渲染配置结构体，整合了所有渲染相关设置
-#[derive(Debug, Clone)]
-pub struct RenderConfig {
-    // 投影相关设置
-    /// 投影类型："perspective" 或 "orthographic"
-    pub projection_type: String,
-
-    // 缓冲区控制
-    /// 是否启用深度缓冲和深度测试
-    pub use_zbuffer: bool,
-
-    // 着色和光照
-    /// 是否应用光照计算
-    pub use_lighting: bool,
-    /// 是否使用面颜色而非材质颜色
-    pub use_face_colors: bool,
-    /// 是否使用Phong着色（逐像素光照计算）
-    pub use_phong: bool,
-    /// 是否使用基于物理的渲染 (PBR)
-    pub use_pbr: bool,
-
-    // 纹理和后处理
-    /// 是否使用纹理映射
-    pub use_texture: bool,
-    /// 是否应用gamma校正（sRGB空间转换）
-    pub apply_gamma_correction: bool,
-
-    // 光照信息
-    /// 默认光源配置
-    pub light: crate::materials::material_system::Light,
-
-    // 环境光信息（作为场景的基础属性）
-    /// 环境光强度 - 控制场景整体亮度 [0.0, 1.0]
-    pub ambient_intensity: f32,
-    /// 环境光颜色 - 控制场景基础色调 (RGB)
-    pub ambient_color: nalgebra::Vector3<f32>,
-
-    // 几何处理
-    /// 是否启用背面剔除
-    pub use_backface_culling: bool,
-    /// 是否以线框模式渲染
-    pub use_wireframe: bool,
-
-    // 性能优化设置
-    /// 是否启用多线程渲染
-    pub use_multithreading: bool,
-    /// 是否对小三角形进行剔除
-    pub cull_small_triangles: bool,
-    /// 用于剔除的最小三角形面积
-    pub min_triangle_area: f32,
-
-    // 背景与环境设置
-    /// 启用渐变背景
-    pub enable_gradient_background: bool,
-    /// 渐变背景顶部颜色
-    pub gradient_top_color: Vector3<f32>,
-    /// 渐变背景底部颜色
-    pub gradient_bottom_color: Vector3<f32>,
-
-    /// 启用地面平面
-    pub enable_ground_plane: bool,
-    /// 地面平面颜色
-    pub ground_plane_color: Vector3<f32>,
-    /// 地面平面在Y轴上的高度 (世界坐标系)
-    pub ground_plane_height: f32,
-}
-
-impl Default for RenderConfig {
-    fn default() -> Self {
-        Self {
-            projection_type: "perspective".to_string(),
-            use_zbuffer: true,
-            use_lighting: true,
-            use_face_colors: false,
-            use_phong: false,
-            use_pbr: false,
-            use_texture: true,
-            apply_gamma_correction: true,
-            light: crate::materials::material_system::Light::directional(
-                nalgebra::Vector3::new(0.0, -1.0, -1.0).normalize(),
-                nalgebra::Vector3::new(1.0, 1.0, 1.0),
-            ),
-            ambient_intensity: 0.1, // 默认环境光强度
-            ambient_color: nalgebra::Vector3::new(1.0, 1.0, 1.0), // 默认环境光颜色（白色）
-            use_backface_culling: false,
-            use_wireframe: false,
-            use_multithreading: true,
-            cull_small_triangles: false,
-            min_triangle_area: 1e-3,
-            enable_gradient_background: false,
-            gradient_top_color: Vector3::new(0.5, 0.7, 1.0),
-            gradient_bottom_color: Vector3::new(0.1, 0.2, 0.4),
-            enable_ground_plane: false,
-            ground_plane_color: Vector3::new(0.3, 0.5, 0.2),
-            ground_plane_height: -1.0,
-        }
-    }
-}
-
-impl RenderConfig {
-    /// 获取光照模型的描述字符串
-    pub fn get_lighting_description(&self) -> String {
-        if self.use_pbr {
-            "基于物理的渲染(PBR)".to_string()
-        } else if self.use_phong {
-            "Phong着色模型".to_string()
-        } else {
-            "平面着色模型".to_string()
-        }
-    }
-
-    // 构建器方法，便于链式配置
-    pub fn with_projection(mut self, projection_type: &str) -> Self {
-        self.projection_type = projection_type.to_string();
-        self
-    }
-
-    pub fn with_zbuffer(mut self, use_zbuffer: bool) -> Self {
-        self.use_zbuffer = use_zbuffer;
-        self
-    }
-
-    pub fn with_lighting(mut self, use_lighting: bool) -> Self {
-        self.use_lighting = use_lighting;
-        self
-    }
-
-    pub fn with_face_colors(mut self, use_face_colors: bool) -> Self {
-        self.use_face_colors = use_face_colors;
-        self
-    }
-
-    pub fn with_phong(mut self, use_phong: bool) -> Self {
-        self.use_phong = use_phong;
-        self
-    }
-
-    pub fn with_pbr(mut self, use_pbr: bool) -> Self {
-        self.use_pbr = use_pbr;
-        self
-    }
-
-    pub fn with_texture(mut self, use_texture: bool) -> Self {
-        self.use_texture = use_texture;
-        self
-    }
-
-    pub fn with_gamma_correction(mut self, apply_gamma_correction: bool) -> Self {
-        self.apply_gamma_correction = apply_gamma_correction;
-        self
-    }
-
-    pub fn with_light(mut self, light: crate::materials::material_system::Light) -> Self {
-        self.light = light;
-        self
-    }
-
-    pub fn with_ambient_intensity(mut self, intensity: f32) -> Self {
-        self.ambient_intensity = intensity;
-        self
-    }
-
-    pub fn with_ambient_color(mut self, color: nalgebra::Vector3<f32>) -> Self {
-        self.ambient_color = color;
-        self
-    }
-
-    pub fn with_backface_culling(mut self, use_backface_culling: bool) -> Self {
-        self.use_backface_culling = use_backface_culling;
-        self
-    }
-
-    pub fn with_wireframe(mut self, use_wireframe: bool) -> Self {
-        self.use_wireframe = use_wireframe;
-        self
-    }
-
-    pub fn with_multithreading(mut self, use_multithreading: bool) -> Self {
-        self.use_multithreading = use_multithreading;
-        self
-    }
-
-    pub fn with_small_triangle_culling(mut self, enable: bool, min_area: f32) -> Self {
-        self.cull_small_triangles = enable;
-        self.min_triangle_area = min_area;
-        self
-    }
-
-    /// 判断是否使用透视投影
-    pub fn is_perspective(&self) -> bool {
-        self.projection_type == "perspective"
-    }
-
-    pub fn with_gradient_background(
-        mut self,
-        enabled: bool,
-        top_color: Vector3<f32>,
-        bottom_color: Vector3<f32>,
-    ) -> Self {
-        self.enable_gradient_background = enabled;
-        self.gradient_top_color = top_color;
-        self.gradient_bottom_color = bottom_color;
-        self
-    }
-
-    pub fn with_ground_plane(mut self, enabled: bool, color: Vector3<f32>, height: f32) -> Self {
-        self.enable_ground_plane = enabled;
-        self.ground_plane_color = color;
-        self.ground_plane_height = height.min(-0.00001f32);
-        self
     }
 }
 
@@ -819,7 +606,7 @@ impl Renderer {
         &self,
         pix: &Point2<f32>,
         view_pos: Point3<f32>,
-        vertex: &crate::materials::model_types::Vertex,
+        vertex: &Vertex,
         global_index: usize,
         texture_source: &TextureSource,
         all_view_normals: &[Vector3<f32>],
@@ -846,7 +633,6 @@ impl Renderer {
             .sum()
     }
 
-    /// 优化的顶点和法线变换函数
     fn transform_geometry(
         &self,
         model_data: &ModelData,
@@ -854,7 +640,7 @@ impl Renderer {
         camera: &Camera,
         config: &RenderConfig,
     ) -> GeometryTransformResult {
-        // 获取对象的模型矩阵（将顶点从模型空间变换到世界空间）
+        // 获取对象的模型矩阵
         let model_matrix = scene_object.transform;
 
         // 收集所有顶点和法线以进行批量变换
@@ -873,43 +659,16 @@ impl Renderer {
         let view_matrix = camera.get_view_matrix();
         let projection_matrix = camera.get_projection_matrix(&config.projection_type);
 
-        // 计算组合矩阵 - 预计算提高效率
-        let model_view_matrix = view_matrix * model_matrix;
-        let mvp_matrix = projection_matrix * model_view_matrix;
-
-        // 计算法线变换矩阵（使用模型-视图矩阵的逆转置）
-        let normal_matrix = compute_normal_matrix(&model_view_matrix);
-
-        // 变换顶点到视图空间 - 单次循环同时计算所有需要的坐标
-        let mut all_pixel_coords = Vec::with_capacity(all_vertices_model.len());
-        let mut all_view_coords = Vec::with_capacity(all_vertices_model.len());
-
-        for vertex in &all_vertices_model {
-            // 模型空间 -> 剪裁空间 (MVP变换)
-            let clip_space = mvp_matrix * vertex.to_homogeneous();
-
-            // 剪裁空间 -> NDC空间 (透视除法)
-            let w = clip_space.w;
-            let ndc = if w.abs() > 1e-6 {
-                Point3::new(clip_space.x / w, clip_space.y / w, clip_space.z / w)
-            } else {
-                Point3::new(0.0, 0.0, 0.0)
-            };
-
-            // NDC空间 -> 屏幕空间
-            let pixel = Point2::new(
-                (ndc.x * 0.5 + 0.5) * self.frame_buffer.width as f32,
-                (1.0 - (ndc.y * 0.5 + 0.5)) * self.frame_buffer.height as f32,
-            );
-            all_pixel_coords.push(pixel);
-
-            // 计算视图空间坐标 (仅用于深度和光照计算)
-            let view_space = model_view_matrix * vertex.to_homogeneous();
-            all_view_coords.push(Point3::new(view_space.x, view_space.y, view_space.z));
-        }
-
-        // 变换法线到视图空间
-        let all_view_normals = transform_normals(&all_normals_model, &normal_matrix);
+        // 直接调用 transform.rs 中的变换函数
+        let (all_pixel_coords, all_view_coords, all_view_normals) = transform_pipeline_batch(
+            &all_vertices_model,
+            &all_normals_model,
+            &model_matrix,
+            &view_matrix,
+            &projection_matrix,
+            self.frame_buffer.width,
+            self.frame_buffer.height,
+        );
 
         (
             all_pixel_coords,

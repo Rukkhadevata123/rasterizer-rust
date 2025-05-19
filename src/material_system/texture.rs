@@ -6,17 +6,6 @@ use nalgebra::Vector3;
 use std::path::Path;
 use std::sync::Arc;
 
-/// 纹理信息结构体，用于提供纹理的元数据
-#[derive(Debug, Clone)]
-pub struct TextureInfo {
-    /// 纹理类型描述
-    pub texture_type: String,
-    /// 纹理宽度（像素）
-    pub width: u32,
-    /// 纹理高度（像素）
-    pub height: u32,
-}
-
 /// 统一的纹理类型枚举，支持多种纹理来源
 #[derive(Debug, Clone)]
 pub enum TextureData {
@@ -83,19 +72,12 @@ impl Texture {
         }
     }
 
-    /// 获取纹理信息
-    pub fn get_texture_info(&self) -> TextureInfo {
-        let texture_type = match &self.data {
+    /// 获取纹理类型的描述字符串
+    pub fn get_type_description(&self) -> &'static str {
+        match &self.data {
             TextureData::Image(_) => "图像纹理",
             TextureData::FaceColor(_) => "面颜色纹理",
             TextureData::SolidColor(_) => "单色纹理",
-        }
-        .to_string();
-
-        TextureInfo {
-            texture_type,
-            width: self.width,
-            height: self.height,
         }
     }
 
@@ -120,20 +102,20 @@ impl Texture {
 
                 // 采样像素颜色（这是sRGB空间的颜色）
                 let pixel = img.get_pixel(x, y);
-                let srgb_color = crate::materials::color::Color::new(
+                let srgb_color = crate::material_system::color::Color::new(
                     pixel[0] as f32 / 255.0,
                     pixel[1] as f32 / 255.0,
                     pixel[2] as f32 / 255.0,
                 );
 
                 // 将sRGB转换为线性RGB空间（用于正确的光照计算）
-                let linear_color = crate::materials::color::srgb_to_linear(&srgb_color);
+                let linear_color = crate::material_system::color::srgb_to_linear(&srgb_color);
                 [linear_color.x, linear_color.y, linear_color.z]
             }
             TextureData::SolidColor(color) => [color.x, color.y, color.z],
             TextureData::FaceColor(seed) => {
                 // 直接使用种子（可能是面索引）生成颜色
-                let color = crate::materials::color::get_random_color(*seed, true);
+                let color = crate::material_system::color::get_random_color(*seed, true);
                 [color.x, color.y, color.z]
             }
         }

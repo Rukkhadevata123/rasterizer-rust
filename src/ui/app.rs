@@ -1,11 +1,11 @@
 use crate::core::renderer::Renderer;
-use crate::io::args::Args;
-use crate::materials::model_types::ModelData;
+use crate::io::args::{AnimationType, Args, RotationAxis}; // 确保导入 AnimationType 和 RotationAxis
+use crate::material_system::materials::ModelData;
 use crate::scene::scene_utils::Scene;
 use clap::Parser;
-use egui::{Color32, RichText, Vec2};
-use std::sync::Arc;
+use egui::{Color32, ColorImage, RichText, Vec2};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 // 导入其他UI模块
 use super::animation::AnimationMethods;
@@ -33,7 +33,6 @@ pub struct RasterizerApp {
     pub total_frames: usize,
     pub fps: usize,
     pub rotation_speed: f32,
-    pub rotation_angle: f32,
 
     // 实时渲染性能统计
     pub current_fps: f32,      // 当前实时帧率
@@ -44,9 +43,24 @@ pub struct RasterizerApp {
     pub is_realtime_rendering: bool,
     pub last_frame_time: Option<std::time::Instant>,
 
+    // 预渲染相关字段
+    pub pre_render_mode: bool,  // 是否启用预渲染模式
+    pub is_pre_rendering: bool, // 是否正在预渲染
+    pub pre_rendered_frames: Arc<Mutex<Vec<ColorImage>>>, // 预渲染的帧集合
+    pub current_frame_index: usize, // 当前显示的帧索引
+    pub pre_render_progress: Arc<AtomicUsize>,
+    pub animation_time: f32, // 全局动画计时器，用于跟踪动画总时长
+    pub total_frames_for_pre_render_cycle: usize, // 预渲染一个完整周期所需的总帧数                 // 预渲染进度
+    // 用于跟踪上次预渲染时的参数
+    pub last_pre_render_fps: Option<usize>,
+    pub last_pre_render_speed: Option<f32>,
+    pub last_pre_render_animation_type: Option<AnimationType>, // 新增
+    pub last_pre_render_rotation_axis: Option<RotationAxis>,   // 新增
+    pub last_pre_render_custom_axis: Option<String>,           // 新增
+
     // 视频生成状态
     pub is_generating_video: bool,
-    pub video_generation_thread: Option<std::thread::JoinHandle<()>>,
+    pub video_generation_thread: Option<std::thread::JoinHandle<(bool, String)>>,
     pub video_progress: Arc<AtomicUsize>,
 
     // ffmpeg 检查结果
@@ -104,13 +118,26 @@ impl RasterizerApp {
             total_frames: 120,
             fps: 30,
             rotation_speed: 1.0,
-            rotation_angle: 0.0,
             current_fps: 0.0,        // 初始化当前帧率
             fps_history: Vec::new(), // 初始化帧率历史记录
             avg_fps: 0.0,            // 初始化平均帧率
 
             is_realtime_rendering: false,
             last_frame_time: None,
+
+            // 预渲染字段初始化
+            pre_render_mode: true, // 默认启用
+            is_pre_rendering: false,
+            pre_rendered_frames: Arc::new(Mutex::new(Vec::new())),
+            current_frame_index: 0,
+            pre_render_progress: Arc::new(AtomicUsize::new(0)),
+            animation_time: 0.0,
+            total_frames_for_pre_render_cycle: 0,
+            last_pre_render_fps: None,
+            last_pre_render_speed: None,
+            last_pre_render_animation_type: None, // 初始化新增字段
+            last_pre_render_rotation_axis: None,  // 初始化新增字段
+            last_pre_render_custom_axis: None,
 
             is_generating_video: false,
             video_generation_thread: None,

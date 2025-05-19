@@ -1,6 +1,6 @@
 [package]
 name = "Rasterizer_rust"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 [dependencies]
@@ -14,11 +14,8 @@ tobj = "4"
 egui = "0.31"
 eframe = "0.31"
 native-dialog = "0.9.0"
+chrono = "0.4"
 
 [[bin]]
 name = "rasterizer"
 path = "src/main.rs"
-
-# [[bin]]
-# name = "sdl-demo"
-# path = "src/SDL3-demo.rs"

@@ -1,4 +1,22 @@
 use clap::Parser;
+use nalgebra::Vector3;
+
+#[derive(clap::ValueEnum, Debug, Clone, Default, PartialEq, Eq)]
+pub enum AnimationType {
+    #[default]
+    CameraOrbit, // 重命名
+    ObjectLocalRotation, // 重命名
+    None,
+}
+
+#[derive(clap::ValueEnum, Debug, Clone, PartialEq, Eq, Default)]
+pub enum RotationAxis {
+    X,
+    #[default]
+    Y,
+    Z,
+    Custom, // 允许用户指定自定义轴
+}
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
@@ -23,6 +41,18 @@ pub struct Args {
     /// 动画的总帧数
     #[arg(long, default_value_t = 120)]
     pub total_frames: usize,
+
+    /// 动画类型 (用于 animate 模式或实时渲染)
+    #[arg(long, value_enum, default_value_t = AnimationType::CameraOrbit)]
+    pub animation_type: AnimationType,
+
+    /// 动画旋转轴 (用于 CameraOrbit 和 ObjectLocalRotation)
+    #[arg(long, value_enum, default_value_t = RotationAxis::Y)]
+    pub rotation_axis: RotationAxis,
+
+    /// 自定义旋转轴 (当 rotation_axis 为 Custom 时使用)，格式 "x,y,z"
+    #[arg(long, default_value = "0,1,0")]
+    pub custom_rotation_axis: String,
 
     // ===== 输出设置 =====
     /// 输出文件的基础名称（例如: "render" -> "render_color.png", "render_depth.png"）
@@ -121,7 +151,7 @@ pub struct Args {
     pub light_type: String,
 
     /// 光源方向（来自光源的方向，用于定向光），格式为"x,y,z"
-    #[arg(long, default_value = "0,1,1", allow_negative_numbers = true)]
+    #[arg(long, default_value = "0,-1,-1", allow_negative_numbers = true)]
     pub light_dir: String,
 
     /// 光源位置（用于点光源），格式为"x,y,z"
@@ -237,4 +267,49 @@ pub fn parse_vec3(s: &str) -> Result<nalgebra::Vector3<f32>, String> {
 
 pub fn parse_point3(s: &str) -> Result<nalgebra::Point3<f32>, String> {
     parse_vec3(s).map(nalgebra::Point3::from)
+}
+
+/// 解析点光源衰减参数，格式为 "constant,linear,quadratic"
+pub fn parse_attenuation(s: &str) -> Result<(f32, f32, f32), String> {
+    let parts: Vec<&str> = s.split(',').collect();
+    if parts.len() != 3 {
+        return Err("衰减参数需要3个逗号分隔的值".to_string());
+    }
+
+    let constant = parts[0]
+        .trim()
+        .parse::<f32>()
+        .map_err(|e| format!("无效的衰减常数 '{}': {}", parts[0], e))?;
+
+    let linear = parts[1]
+        .trim()
+        .parse::<f32>()
+        .map_err(|e| format!("无效的衰减线性系数 '{}': {}", parts[1], e))?;
+
+    let quadratic = parts[2]
+        .trim()
+        .parse::<f32>()
+        .map_err(|e| format!("无效的衰减二次系数 '{}': {}", parts[2], e))?;
+
+    Ok((constant, linear, quadratic))
+}
+
+/// 将 Args 中的旋转轴配置转换为 Vector3<f32>
+pub fn get_animation_axis_vector(args: &Args) -> Vector3<f32> {
+    match args.rotation_axis {
+        RotationAxis::X => Vector3::x_axis().into_inner(),
+        RotationAxis::Y => Vector3::y_axis().into_inner(),
+        RotationAxis::Z => Vector3::z_axis().into_inner(),
+        RotationAxis::Custom => {
+            parse_vec3(&args.custom_rotation_axis)
+                .unwrap_or_else(|_| {
+                    eprintln!(
+                        "警告: 无效的自定义旋转轴 '{}', 使用默认Y轴。",
+                        args.custom_rotation_axis
+                    );
+                    Vector3::y_axis().into_inner()
+                })
+                .normalize() // 确保自定义轴是单位向量
+        }
+    }
 }

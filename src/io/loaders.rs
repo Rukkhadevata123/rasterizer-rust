@@ -1,6 +1,6 @@
 use crate::io::args::Args;
-use crate::materials::model_types::{Material, Mesh, ModelData, TextureOptions, Vertex};
-use crate::materials::texture::{Texture, load_texture};
+use crate::material_system::materials::{Material, Mesh, ModelData, TextureOptions, Vertex};
+use crate::material_system::texture::{Texture, load_texture};
 use nalgebra::{Point3, Vector2, Vector3};
 use std::collections::HashMap;
 use std::path::Path;
@@ -134,11 +134,13 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
                                 let texture_path = base_path.join(&tex_name);
                                 let texture = load_texture(&texture_path, default_color);
 
-                                // 获取并记录纹理信息 - 这会调用之前未使用的get_texture_info方法
-                                let info = texture.get_texture_info();
+                                // 获取并记录纹理信息
                                 println!(
                                     "  - 纹理 '{}': 类型={}, 尺寸={}x{}",
-                                    tex_name, info.texture_type, info.width, info.height
+                                    tex_name,
+                                    texture.get_type_description(),
+                                    texture.width,
+                                    texture.height
                                 );
 
                                 texture
@@ -184,10 +186,11 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<Mod
             let mut default_mat = Material::default();
 
             // 获取命令行纹理的信息
-            let texture_info = texture.get_texture_info();
             println!(
                 "应用命令行纹理: 类型={}, 尺寸={}x{}",
-                texture_info.texture_type, texture_info.width, texture_info.height
+                texture.get_type_description(),
+                texture.width,
+                texture.height
             );
 
             // 使用configure_texture方法附加纹理

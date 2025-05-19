@@ -1,9 +1,7 @@
-use crate::core::renderer::RenderConfig;
-use crate::io::args::{parse_point3, parse_vec3};
+use crate::core::render_config::{RenderConfig, create_render_config};
+use crate::io::args::parse_vec3;
 use crate::scene::scene_utils::Scene;
-use crate::utils::material_utils::{apply_pbr_parameters, apply_phong_parameters};
-use crate::utils::model_utils::normalize_and_center_model;
-use crate::utils::render_utils::{create_render_config, save_render_with_args};
+use crate::utils::save_utils::save_render_with_args;
 use egui::{Color32, Context};
 use native_dialog::FileDialogBuilder;
 use std::fs;
@@ -164,11 +162,6 @@ impl RenderMethods for RasterizerApp {
                             );
 
                             // 渲染到帧缓冲区 - 确保使用不可变引用避免修改配置
-                            // 之前的代码:
-                            // let mut config_clone = config.clone();
-                            // self.renderer.render_scene(scene, &mut config_clone);
-
-                            // 修改后的代码:
                             self.renderer.render_scene(scene, &mut config.clone());
 
                             // 保存输出文件
@@ -203,74 +196,19 @@ impl RenderMethods for RasterizerApp {
     /// 加载模型并设置场景
     fn load_model(&mut self, obj_path: &str) -> Result<(), String> {
         use crate::io::loaders::load_obj_enhanced;
+        use crate::utils::model_utils::normalize_and_center_model;
 
         // 加载模型数据
         let mut model_data = load_obj_enhanced(obj_path, &self.args)?;
 
-        // 应用PBR材质参数
-        if self.args.use_pbr {
-            println!(
-                "GUI模式: 应用PBR材质参数 - 金属度: {}, 粗糙度: {}",
-                self.args.metallic, self.args.roughness
-            );
-            apply_pbr_parameters(&mut model_data, &self.args);
-        }
-
-        // 应用Phong材质参数
-        if self.args.use_phong {
-            println!(
-                "GUI模式: 应用Phong材质参数 - 高光系数: {}, 光泽度: {}",
-                self.args.specular, self.args.shininess
-            );
-            apply_phong_parameters(&mut model_data, &self.args);
-        }
-
         // 归一化模型
         let (_center, _scale) = normalize_and_center_model(&mut model_data);
 
-        // 创建相机
-        let camera_from =
-            parse_point3(&self.args.camera_from).map_err(|e| format!("相机位置格式错误: {}", e))?;
-        let camera_at =
-            parse_point3(&self.args.camera_at).map_err(|e| format!("相机目标格式错误: {}", e))?;
-        let camera_up =
-            parse_vec3(&self.args.camera_up).map_err(|e| format!("相机上方向格式错误: {}", e))?;
-
-        let aspect_ratio = self.args.width as f32 / self.args.height as f32;
-        let camera = crate::geometry::camera::Camera::new(
-            camera_from,
-            camera_at,
-            camera_up,
-            self.args.camera_fov,
-            aspect_ratio,
-            0.1,
-            100.0,
-        );
-
-        // 创建场景
-        let mut scene = Scene::new(camera);
-
-        // 使用统一方法设置场景对象
-        let object_count = if let Some(count_str) = &self.args.object_count {
-            count_str.parse::<usize>().ok()
-        } else {
-            None
-        };
-        scene.setup_from_model_data(model_data.clone(), object_count);
-
-        // 使用统一方法设置光照系统
-        scene.setup_lighting(
-            self.args.use_lighting,
-            &self.args.light_type,
-            &self.args.light_dir,
-            &self.args.light_pos,
-            &self.args.light_atten,
-            self.args.diffuse,
-            self.args.ambient,
-            &self.args.ambient_color,
-        )?;
-
-        self.scene = Some(scene);
+        // 使用统一的场景创建方法
+        self.scene = Some(Scene::create_from_model_and_args(
+            model_data.clone(),
+            &self.args,
+        )?);
         self.model_data = Some(model_data);
 
         Ok(())

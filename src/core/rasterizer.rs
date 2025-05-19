@@ -10,15 +10,16 @@
 //!
 //! 光栅化器使用原子操作处理深度缓冲和颜色缓冲区以支持高效的并行渲染。
 
-use crate::core::renderer::RenderConfig; // 直接导入 RenderConfig
+use crate::core::render_config::RenderConfig; // 直接导入 RenderConfig
 use crate::geometry::culling::is_on_triangle_edge;
 use crate::geometry::interpolation::{
     barycentric_coordinates, interpolate_depth, interpolate_normal, interpolate_position,
     interpolate_texcoords, is_inside_triangle,
 };
-use crate::materials::color::{Color, linear_rgb_to_u8};
-use crate::materials::material_system::{Light, MaterialView};
-use crate::materials::texture::Texture;
+use crate::material_system::color::{Color, linear_rgb_to_u8};
+use crate::material_system::light::Light;
+use crate::material_system::materials::MaterialView;
+use crate::material_system::texture::Texture;
 use atomic_float::AtomicF32;
 use nalgebra::{Point2, Point3, Vector2, Vector3};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -437,7 +438,7 @@ fn sample_texture(triangle: &TriangleData, bary: Vector3<f32>) -> Color {
         }
         TextureSource::FaceColor(seed) => {
             // 使用面索引生成颜色
-            let color = crate::materials::color::get_random_color(*seed, true);
+            let color = crate::material_system::color::get_random_color(*seed, true);
             Color::new(color.x, color.y, color.z)
         }
         TextureSource::SolidColor(color) => {

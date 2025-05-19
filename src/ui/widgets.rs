@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 
 use super::animation::AnimationMethods;
 use super::app::RasterizerApp;
-use crate::io::args::parse_vec3; // 导入 parse_vec3 用于颜色字符串解析
+use crate::io::args::{AnimationType, RotationAxis, parse_vec3}; // 导入 parse_vec3 用于颜色字符串解析
 
 use super::render::RenderMethods;
 
@@ -487,8 +487,9 @@ impl WidgetMethods for RasterizerApp {
 
             // 动画设置部分
             ui.collapsing("动画设置", |ui| {
+                // ... (total_frames, fps, pre_render_mode, rotation_speed 不变) ...
                 ui.horizontal(|ui| {
-                    ui.label("总帧数：");
+                    ui.label("总帧数 (视频生成):");
                     let resp = ui.add(egui::DragValue::new(&mut self.total_frames)
                     .speed(1)
                     .range(10..=1000));
@@ -496,15 +497,67 @@ impl WidgetMethods for RasterizerApp {
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label("帧率 (FPS)：");
+                    ui.label("视频生成帧率 (FPS):");
                     let resp = ui.add(egui::DragValue::new(&mut self.fps)
                     .speed(1)
                     .range(1..=60));
                     Self::add_tooltip(resp, ctx, "生成视频的每秒帧数");
                 });
 
+
+                // 动画类型选择
                 ui.horizontal(|ui| {
-                    ui.label("旋转速度：");
+                    ui.label("动画类型:");
+                    let current_animation_type = self.args.animation_type.clone();
+                    egui::ComboBox::from_id_salt("animation_type_combo")
+                        .selected_text(match current_animation_type {
+                            AnimationType::CameraOrbit => "相机轨道旋转",
+                            AnimationType::ObjectLocalRotation => "物体局部旋转",
+                            AnimationType::None => "无动画",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.args.animation_type, AnimationType::CameraOrbit, "相机轨道旋转");
+                            ui.selectable_value(&mut self.args.animation_type, AnimationType::ObjectLocalRotation, "物体局部旋转");
+                            ui.selectable_value(&mut self.args.animation_type, AnimationType::None, "无动画");
+                        });
+                });
+
+                // 旋转轴选择 (仅当动画类型不是 None 时显示)
+                if self.args.animation_type != AnimationType::None {
+                    ui.horizontal(|ui| {
+                        ui.label("旋转轴:");
+                        let current_rotation_axis = self.args.rotation_axis.clone();
+                        egui::ComboBox::from_id_salt("rotation_axis_combo")
+                            .selected_text(match current_rotation_axis {
+                                RotationAxis::X => "X 轴",
+                                RotationAxis::Y => "Y 轴",
+                                RotationAxis::Z => "Z 轴",
+                                RotationAxis::Custom => "自定义轴",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.args.rotation_axis, RotationAxis::X, "X 轴");
+                                ui.selectable_value(&mut self.args.rotation_axis, RotationAxis::Y, "Y 轴");
+                                ui.selectable_value(&mut self.args.rotation_axis, RotationAxis::Z, "Z 轴");
+                                ui.selectable_value(&mut self.args.rotation_axis, RotationAxis::Custom, "自定义轴");
+                            });
+                    });
+
+                    if self.args.rotation_axis == RotationAxis::Custom {
+                        ui.horizontal(|ui| {
+                            ui.label("自定义轴 (x,y,z):");
+                            let resp = ui.text_edit_singleline(&mut self.args.custom_rotation_axis);
+                            Self::add_tooltip(resp, ctx, "输入自定义旋转轴，例如 1,0,0 或 0.707,0.707,0");
+                        });
+                    }
+                }
+                Self::add_tooltip(ui.label(""), ctx, "选择实时渲染和视频生成时的动画效果和旋转轴");
+
+                let pre_render_resp = ui.checkbox(&mut self.pre_render_mode, "启用预渲染模式");
+                Self::add_tooltip(pre_render_resp, ctx,
+                                "启用后，首次开始实时渲染时会预先计算所有帧，\n然后以选定帧率无卡顿播放。\n要求更多内存，但播放更流畅。");
+
+                ui.horizontal(|ui| {
+                    ui.label("旋转速度 (实时渲染):");
                     let resp = ui.add(egui::Slider::new(&mut self.rotation_speed, 0.1..=5.0));
                     Self::add_tooltip(resp, ctx, "实时渲染中的旋转速度倍率");
                 });
@@ -551,19 +604,19 @@ impl WidgetMethods for RasterizerApp {
 
             ui.add_space(10.0);
 
-            // 实时渲染和截图按钮一行
+            // 动画渲染和截图按钮一行
             ui.horizontal(|ui| {
                 // 使用固定宽度代替计算的宽度
                 let button_width = 150.0;  // 固定宽度
 
-                // 实时渲染按钮
+                // 动画渲染按钮
                 let realtime_button = ui.add_sized(
                     [button_width, 40.0],
                     egui::Button::new(
                         RichText::new(if self.is_realtime_rendering {
-                            "停止实时渲染"
+                            "停止动画渲染"
                         } else {
-                            "开始实时渲染"
+                            "开始动画渲染"
                         })
                         .size(15.0)
                     )
@@ -576,9 +629,9 @@ impl WidgetMethods for RasterizerApp {
                         self.current_fps = 0.0;      // 重置帧率计数器
                         self.fps_history.clear();    // 清空帧率历史记录
                         self.avg_fps = 0.0;          // 重置平均帧率
-                        self.status_message = "开始实时渲染...".to_string();
+                        self.status_message = "开始动画渲染...".to_string();
                     } else {
-                        self.status_message = "已停止实时渲染".to_string();
+                        self.status_message = "已停止动画渲染".to_string();
                     }
                 }
 

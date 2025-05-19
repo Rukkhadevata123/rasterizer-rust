@@ -1,539 +1,400 @@
-# Rasterizer_rust
+# Rust 高性能光栅化渲染器 (GUI版)
 
-一个使用Rust语言实现的高性能软件光栅化器，支持3D模型渲染、纹理映射、光照效果和基于物理的渲染(PBR)。现在增加了基于egui的图形用户界面，让渲染参数调整变得更加直观和方便。
+一个使用Rust语言从零开始实现的软件光栅化渲染器。它利用CPU进行所有渲染计算，支持3D模型加载、多种投影方式、复杂光照模型（包括Blinn-Phong和PBR）、纹理映射、动画生成以及一个基于egui的交互式图形用户界面（GUI）。
 
 ## 目录
 
-- [Rasterizer\_rust](#rasterizer_rust)
+- [Rust 高性能光栅化渲染器 (GUI版)](#rust-高性能光栅化渲染器-gui版)
   - [目录](#目录)
-  - [项目概述](#项目概述)
-  - [主要功能](#主要功能)
-  - [GUI界面](#gui界面)
+  - [核心功能](#核心功能)
+  - [图形用户界面 (GUI)](#图形用户界面-gui)
   - [安装与构建](#安装与构建)
     - [环境要求](#环境要求)
-    - [安装依赖](#安装依赖)
-    - [构建项目](#构建项目)
+    - [构建步骤](#构建步骤)
   - [使用指南](#使用指南)
-    - [GUI模式](#gui模式)
-    - [命令行模式](#命令行模式)
-    - [命令行参数](#命令行参数)
-      - [基本参数](#基本参数)
-      - [相机参数](#相机参数)
-      - [光照参数](#光照参数)
-      - [材质与着色参数](#材质与着色参数)
-      - [PBR材质参数](#pbr材质参数)
-      - [动画与性能参数](#动画与性能参数)
-    - [常用渲染场景](#常用渲染场景)
-      - [1. 基础渲染示例](#1-基础渲染示例)
-      - [2. 光照效果](#2-光照效果)
-      - [3. 带纹理的模型](#3-带纹理的模型)
-      - [4. 基于物理的渲染(PBR)](#4-基于物理的渲染pbr)
-      - [5. 动画渲染](#5-动画渲染)
-  - [渲染架构](#渲染架构)
-  - [关键技术实现](#关键技术实现)
-    - [1. 重心坐标插值](#1-重心坐标插值)
-    - [2. 光照计算](#2-光照计算)
-    - [3. 线程安全的Z缓冲](#3-线程安全的z缓冲)
-    - [4. 并行三角形处理](#4-并行三角形处理)
-    - [5. 统一纹理系统](#5-统一纹理系统)
-    - [6. GUI系统](#6-gui系统)
-  - [项目结构](#项目结构)
-  - [性能优化](#性能优化)
-  - [最近优化](#最近优化)
-  - [未来改进方向](#未来改进方向)
+    - [GUI 模式](#gui-模式)
+    - [命令行模式 (CLI)](#命令行模式-cli)
+    - [命令行参数详解](#命令行参数详解)
+      - [文件与输出设置](#文件与输出设置)
+      - [渲染属性设置](#渲染属性设置)
+      - [背景与环境设置](#背景与环境设置)
+      - [相机设置](#相机设置)
+      - [光照设置](#光照设置)
+      - [PBR材质设置 (Physical Based Rendering)](#pbr材质设置-physical-based-rendering)
+      - [Phong材质设置 (Blinn-Phong 着色)](#phong材质设置-blinn-phong-着色)
+      - [动画设置](#动画设置)
+    - [命令行示例](#命令行示例)
+      - [1. 基础渲染 (斯坦福兔子)](#1-基础渲染-斯坦福兔子)
+      - [2. 带纹理的模型渲染 (Spot)](#2-带纹理的模型渲染-spot)
+      - [3. PBR 渲染 (岩石模型)](#3-pbr-渲染-岩石模型)
+      - [4. 生成动画序列 (相机轨道)](#4-生成动画序列-相机轨道)
+  - [项目架构 (简述)](#项目架构-简述)
+  - [未来展望](#未来展望)
   - [许可证](#许可证)
 
-## 项目概述
+## 核心功能
 
-本项目是一个从零开始实现的软件光栅化渲染器，无需依赖OpenGL等图形API，完全由CPU计算所有渲染步骤。渲染器利用Rust的安全性和并行计算能力，实现了高效的三角形光栅化、深度测试、光照计算、PBR材质系统和纹理映射等功能。新增的GUI界面使得参数调整和实时渲染预览变得更加直观和便捷。
+- **交互式GUI**：基于 `egui` 实现，支持实时参数调整和渲染预览。
+- **3D模型加载**：支持 `.obj` 格式模型。
+- **投影方式**：支持透视投影和正交投影。
+- **光照与着色**：
+  - Blinn-Phong 光照模型。
+  - 基于物理的渲染 (PBR) 工作流 (金属度/粗糙度)。
+  - 支持环境光、方向光、点光源（带衰减）。
+- **材质系统**：
+  - 支持漫反射颜色、镜面反射强度、光泽度 (Phong)。
+  - 支持基础颜色、金属度、粗糙度、环境光遮蔽、自发光 (PBR)。
+  - 统一处理图像纹理、随机面颜色、以及材质定义的颜色。
+- **高级渲染特性**：
+  - Z-Buffer 深度测试。
+  - Gamma 校正。
+  - 背面剔除。
+  - 线框模式。
+  - 小三角形剔除。
+  - 渐变背景和地面平面。
+- **动画与视频**：
+  - 支持相机轨道旋转和物体局部旋转动画。
+  - 可自定义旋转轴。
+  - 预渲染模式，用于流畅播放复杂动画。
+  - 渲染帧序列并可使用 FFmpeg 合成为视频。
+- **性能**：支持多线程渲染以加速计算。
+- **输出**：可保存渲染结果（颜色图）和深度图。
 
-## 主要功能
+## 图形用户界面 (GUI)
 
-- **图形用户界面**：基于egui/eframe实现的交互式GUI，支持实时预览和参数调整
-- **3D模型加载**：支持OBJ格式模型的加载和渲染
-- **多种投影方式**：支持透视投影和正交投影
-- **光照模型**：实现了环境光、方向光和点光源，以及Blinn-Phong着色模型
-- **基于物理的渲染(PBR)**：实现了基于金属度/粗糙度的PBR着色模型，可精确控制材质外观
-- **纹理系统**：支持图片纹理、面颜色和纯色纹理的统一处理与映射
-- **多种着色方式**：支持平面着色(Flat Shading)、Phong着色(逐像素光照)和PBR着色
-- **Z缓冲**：实现了线程安全的深度测试
-- **动画渲染**：支持相机轨道动画生成和视频导出
-- **深度可视化**：可输出深度图
-- **多对象渲染**：支持在同一场景中渲染多个对象实例
-- **Gamma校正**：实现了gamma校正以获得更准确的颜色显示
-- **场景管理**：支持多对象管理、实例化和变换
-- **高性能计算**：利用多线程并行处理提升渲染速度
+通过GUI，你可以方便地调整所有渲染参数，实时查看效果，并执行渲染、截图、生成视频等操作。
 
-## GUI界面
+![GUI 截图 1](./assets/screenshot.png)
 
-![GUI界面截图](./assets/screenshot.png)
-
-![GUI界面截图](./assets/screenshot2.png)
+![GUI 截图 2](./assets/screenshot2.png)
 
 ## 安装与构建
 
 ### 环境要求
 
-- Rust 1.81.0 或更高版本
-- Cargo 包管理器
-- FFmpeg (用于生成视频)
+- **Rust**: 1.81 或更高版本 (推荐最新稳定版)。
+- **Cargo**: Rust包管理器 (随Rust一同安装)。
+- **FFmpeg**: (可选) 用于将渲染的帧序列合成为视频。
+  - **Ubuntu/Debian**: `sudo apt-get install ffmpeg libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev pkg-config`
+  - **macOS**: `brew install ffmpeg pkg-config`
+  - **Windows**: 从 [FFmpeg官网](https://ffmpeg.org/download.html) 下载并将其可执行文件路径添加到系统PATH。
 
-### 安装依赖
+### 构建步骤
 
-```bash
-# 安装Rust和Cargo (如果尚未安装)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+1. **克隆项目**：
 
-# 如需生成视频，请安装FFmpeg
-# Ubuntu/Debian
-sudo apt-get install ffmpeg libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
-# macOS
-brew install ffmpeg
-```
+    ```bash
+    git clone https://github.com/Rukkhadevata123/Rasterizer_rust
+    cd Rasterizer_rust
+    ```
 
-### 构建项目
+2. **构建项目**：
+    - 开发模式 (较快编译，带调试信息)：
 
-```bash
-# 克隆项目
-git clone https://github.com/yourusername/Rasterizer_rust.git
-cd Rasterizer_rust
+        ```bash
+        cargo build
+        ```
 
-# 构建项目 (开发模式)
-cargo build
+    - 发布模式 (优化性能，用于最终运行，推荐)：
 
-# 构建项目 (发布模式，更高性能)
-cargo build --release
-
-# 或使用Makefile构建
-make build
-```
+        ```bash
+        cargo build --release # 二进制文件在target目录下
+        ```
 
 ## 使用指南
 
-### GUI模式
+### GUI 模式
 
-启动GUI界面，以交互方式调整渲染参数并实时预览渲染结果：
+推荐使用GUI模式进行交互式体验和参数调整。
 
-```bash
-# 启动GUI界面
-cargo run --release -- --gui
+- **启动GUI** (使用默认模型)：
 
-# 指定初始模型并启动GUI
-cargo run --release -- --gui --obj obj/simple/bunny.obj
-```
+    ```bash
+    cargo run --release -- --gui
+    ```
 
-在GUI模式下，你可以：
+- **启动GUI并加载指定模型**：
 
-- 加载不同的3D模型
-- 调整相机参数（位置、目标点、FOV等）
-- 修改光照参数（光源类型、位置、强度等）
-- 选择不同的渲染模式（Flat着色、Phong着色、PBR）
-- 自定义材质参数（金属度、粗糙度、基础颜色等）
-- 渲染单帧图像或动画序列
-- 生成视频文件
-- 实时预览渲染结果
+    ```bash
+    cargo run --release -- --gui --obj path/to/your_model.obj
+    ```
 
-### 命令行模式
+在GUI中，你可以通过侧边栏的各个折叠区域调整参数：
 
-如果不需要GUI交互，可以直接使用命令行参数进行渲染：
+- **文件与输出设置**: 选择OBJ文件，设置输出目录、文件名、图像尺寸，以及是否保存深度图。
+- **渲染属性设置**: 选择投影类型，开关深度缓冲、光照、纹理、面颜色、着色模型(Phong/PBR)、Gamma校正、背面剔除、线框模式、多线程和小三角形剔除。还可以指定覆盖MTL的纹理文件。
+- **背景与环境**: 设置渐变背景颜色和地面平面。
+- **相机设置**: 调整相机位置、目标点、上方向和视场角。
+- **光照设置**: 选择光源类型（方向光/点光源），设置其方向/位置、衰减，以及全局环境光颜色和强度，漫反射强度。
+- **PBR材质设置**: (当PBR启用时) 调整基础颜色、金属度、粗糙度、环境光遮蔽和自发光颜色。
+- **Phong材质设置**: (当Phong启用时) 调整漫反射颜色、镜面反射强度、光泽度和自发光颜色。
+- **动画设置**: 配置视频生成的总帧数、FPS，选择动画类型（相机轨道/物体旋转/无），旋转轴（X/Y/Z/自定义），启用预渲染模式，以及调整实时渲染的旋转速度。
 
-```bash
-# 使用Makefile运行(推荐)
-make run
+### 命令行模式 (CLI)
 
-# 渲染单帧图像（使用默认配置）
-cargo run --release -- --obj obj/bunny/bunny5k_f.obj
+你也可以完全通过命令行参数来控制渲染过程，无需启动GUI。这对于批处理或脚本化渲染非常有用。
 
-# 使用自定义参数渲染
-cargo run --release -- --obj obj/models/spot/spot_triangulated.obj --use-phong --width 1024 --height 1024
-```
+- **基本渲染示例**：
 
-### 命令行参数
+    ```bash
+    cargo run --release -- --obj obj/simple/bunny.obj --output my_render --width 800 --height 600
+    ```
 
-下面是关键的命令行参数，按功能分类：
+### 命令行参数详解
 
-#### 基本参数
+所有通过GUI可调的参数均可通过命令行参数设置。以下是主要参数列表：
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--gui` | 启用图形用户界面模式 | false |
-| `--obj` | 输入的OBJ模型文件路径 | obj/simple/bunny.obj |
-| `--output` | 输出文件的基础名称 | "output" |
-| `--output-dir` | 输出图像的目录 | "output_rust" |
-| `--width` | 输出图像宽度 | 1024 |
-| `--height` | 输出图像高度 | 1024 |
+#### 文件与输出设置
 
-#### 相机参数
+| 参数                     | 描述                                                                 | 默认值                  |
+| :----------------------- | :------------------------------------------------------------------- | :---------------------- |
+| `--gui`                  | 启用图形用户界面模式。                                               | `false`                 |
+| `--obj <PATH>`           | 输入的OBJ模型文件路径。在非GUI模式下必须提供。                         | `obj/simple/bunny.obj`  |
+| `--output <NAME>`        | 输出文件的基础名称 (例如: "render" -> "render_color.png")。            | `output`                |
+| `--output-dir <DIR>`     | 输出图像的目录。                                                     | `output_rust`           |
+| `--width <PIXELS>`       | 输出图像宽度。                                                       | `1024`                  |
+| `--height <PIXELS>`      | 输出图像高度。                                                       | `1024`                  |
+| `--save-depth`           | 启用渲染和保存深度图。                                               | `true`                  |
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--camera-from` | 相机位置，格式为"x,y,z" | "0,0,3" |
-| `--camera-at` | 相机目标点，格式为"x,y,z" | "0,0,0" |
-| `--camera-up` | 相机上方向，格式为"x,y,z" | "0,1,0" |
-| `--camera-fov` | 相机视场角(度) | 45.0 |
-| `--projection` | 投影类型: "perspective"或"orthographic" | "perspective" |
+#### 渲染属性设置
 
-#### 光照参数
+| 参数                     | 描述                                                                 | 默认值                  |
+| :----------------------- | :------------------------------------------------------------------- | :---------------------- |
+| `--projection <TYPE>`    | 投影类型: "perspective" (透视) 或 "orthographic" (正交)。             | `perspective`           |
+| `--use-zbuffer`          | 启用Z缓冲 (深度测试)。                                               | `true`                  |
+| `--colorize`             | 使用伪随机面颜色而非材质颜色 (与 `--use-texture` 互斥)。              | `false`                 |
+| `--use-texture`          | 启用纹理加载和使用 (与 `--colorize` 互斥)。                           | `true`                  |
+| `--texture <PATH>`       | 显式指定要使用的纹理文件，覆盖MTL设置。                                | (无)                    |
+| `--use-gamma`            | 启用Gamma校正。                                                      | `true`                  |
+| `--backface-culling`     | 启用背面剔除。                                                       | `false`                 |
+| `--wireframe`            | 以线框模式渲染。                                                     | `false`                 |
+| `--use-multithreading`   | 启用多线程渲染。                                                     | `true`                  |
+| `--cull-small-triangles` | 启用小三角形剔除。                                                   | `false`                 |
+| `--min-triangle-area <F>`| 小三角形剔除的最小面积阈值 (屏幕空间比例)。                            | `1e-3`                  |
+| `--object-count <N>`     | (待完整实现) 场景中要创建的对象实例数量。                          | (无)                    |
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--use-lighting` | 启用光照计算 | true |
-| `--light-type` | 光源类型: "directional"或"point" | "directional" |
-| `--light-dir` | 光源方向，格式为"x,y,z" | "0,-1,-1" |
-| `--light-pos` | 点光源位置，格式为"x,y,z" | "0,5,5" |
-| `--light-atten` | 点光源衰减因子，格式为"常数,线性,二次" | "1.0,0.09,0.032" |
-| `--ambient` | 环境光强度 | 0.1 |
-| `--ambient-color` | 环境光RGB值，格式为"r,g,b" | "0.1,0.1,0.1" |
-| `--diffuse` | 漫反射光强度 | 0.8 |
+#### 背景与环境设置
 
-#### 材质与着色参数
+| 参数                             | 描述                                     | 默认值            |
+| :------------------------------- | :--------------------------------------- | :---------------- |
+| `--enable-gradient-background`   | 启用渐变背景。                           | `false`           |
+| `--gradient-top-color <R,G,B>`   | 渐变背景顶部颜色 (0-1范围, 如 "0.5,0.7,1.0")。 | `0.5,0.7,1.0`     |
+| `--gradient-bottom-color <R,G,B>`| 渐变背景底部颜色 (0-1范围, 如 "0.1,0.2,0.4")。 | `0.1,0.2,0.4`     |
+| `--enable-ground-plane`          | 启用地面平面。                           | `false`           |
+| `--ground-plane-color <R,G,B>`   | 地面平面颜色 (0-1范围, 如 "0.3,0.5,0.2")。   | `0.3,0.5,0.2`     |
+| `--ground-plane-height <Y>`      | 地面平面在Y轴上的高度 (世界坐标系, <=0)。  | `-1.0`            |
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--use-phong` | 使用Phong着色(逐像素光照) | false |
-| `--specular` | 镜面反射强度(0.0-1.0) | 0.5 |
-| `--shininess` | 材质光泽度(1.0-100.0) | 32.0 |
-| `--use-pbr` | 使用基于物理的渲染 | false |
-| `--use-texture` | 启用纹理加载和使用（与--colorize互斥） | true |
-| `--colorize` | 使用伪随机面颜色而非材质颜色（与--use-texture互斥） | false |
-| `--texture` | 显式指定纹理文件路径 | (无) |
-| `--use-gamma` | 启用gamma矫正 | true |
-| `--use-zbuffer` | 启用Z缓冲(深度测试) | true |
-| `--save-depth` | 渲染并保存深度图 | true |
+#### 相机设置
 
-#### PBR材质参数
+| 参数                   | 描述                                                              | 默认值        |
+| :--------------------- | :---------------------------------------------------------------- | :------------ |
+| `--camera-from <X,Y,Z>`| 相机位置 (视点), 格式为 "x,y,z"。                                  | `0,0,3`       |
+| `--camera-at <X,Y,Z>`  | 相机目标 (观察点), 格式为 "x,y,z"。                                | `0,0,0`       |
+| `--camera-up <X,Y,Z>`  | 相机世界坐标系上方向, 格式为 "x,y,z"。                              | `0,1,0`       |
+| `--camera-fov <DEG>`   | 相机垂直视场角 (度, 用于透视投影)。                                 | `45.0`        |
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--metallic` | 材质金属度(0.0-1.0) | 0.0 |
-| `--roughness` | 材质粗糙度(0.0-1.0) | 0.5 |
-| `--base-color` | 材质基础颜色，格式为"r,g,b" | "0.8,0.8,0.8" |
-| `--ambient-occlusion` | 环境光遮蔽系数(0.0-1.0) | 1.0 |
-| `--emissive` | 材质自发光颜色，格式为"r,g,b" | "0.0,0.0,0.0" |
+#### 光照设置
 
-#### 动画与性能参数
+| 参数                     | 描述                                                                 | 默认值                  |
+| :----------------------- | :------------------------------------------------------------------- | :---------------------- |
+| `--use-lighting`         | 启用光照计算。                                                       | `true`                  |
+| `--light-type <TYPE>`    | 光源类型: "directional" (定向光) 或 "point" (点光源)。                 | `directional`           |
+| `--light-dir <X,Y,Z>`    | 光源方向 (来自光源的方向, 用于定向光), 格式为 "x,y,z"。                 | `0,-1,-1`               |
+| `--light-pos <X,Y,Z>`    | 光源位置 (用于点光源), 格式为 "x,y,z"。                                | `0,5,5`                 |
+| `--light-atten <C,L,Q>`  | 点光源的衰减因子 (常数项,线性项,二次项), 格式为 "c,l,q"。                | `1.0,0.09,0.032`        |
+| `--ambient <FACTOR>`     | 环境光强度因子 (会乘以环境光颜色)。                                    | `0.1`                   |
+| `--ambient-color <R,G,B>`| 环境光RGB颜色 (0-1范围, 如 "0.1,0.1,0.1")。                            | `0.1,0.1,0.1`           |
+| `--diffuse <FACTOR>`     | 漫反射光强度因子。                                                   | `0.8`                   |
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--animate` | 渲染动画序列而非单帧 | false |
-| `--total-frames` | 动画的总帧数 | 120 |
-| `--object-count` | 场景中创建的对象实例数量 | (无) |
-| `--use-multithreading` | 启用多线程渲染 | true |
-| `--backface-culling` | 启用背面剔除 | false |
-| `--wireframe` | 以线框模式渲染 | false |
-| `--cull-small-triangles` | 启用小三角形剔除 | false |
-| `--min-triangle-area` | 小三角形剔除的最小面积阈值 | 1e-3 |
+#### PBR材质设置 (Physical Based Rendering)
 
-### 常用渲染场景
+(仅当 `--use-pbr` 启用时生效)
 
-以下是一些预配置的渲染场景示例，展示了渲染器的各种功能：
+| 参数                       | 描述                                                              | 默认值          |
+| :------------------------- | :---------------------------------------------------------------- | :-------------- |
+| `--use-pbr`                | 使用基于物理的渲染 (PBR) 而不是传统Blinn-Phong。                    | `false`         |
+| `--base-color <R,G,B>`     | 材质的基础颜色 (0-1范围, 如 "0.8,0.8,0.8")。                         | `0.8,0.8,0.8`   |
+| `--metallic <FACTOR>`      | 材质的金属度 (0.0-1.0)。                                           | `0.0`           |
+| `--roughness <FACTOR>`     | 材质的粗糙度 (0.0-1.0)。                                           | `0.5`           |
+| `--ambient-occlusion <F>`  | 环境光遮蔽系数 (0.0-1.0)。                                         | `1.0`           |
+| `--emissive <R,G,B>`       | 材质的自发光颜色 (0-1范围, 如 "0.0,0.0,0.0") (PBR和Phong均有效)。    | `0.0,0.0,0.0`   |
 
-#### 1. 基础渲染示例
+#### Phong材质设置 (Blinn-Phong 着色)
 
-```bash
-# 使用默认设置渲染斯坦福兔子模型
-make run
+(仅当 `--use-phong` 启用且 `--use-pbr` 未启用时生效)
 
-# 调整分辨率
-make run WIDTH=1920 HEIGHT=1080
+| 参数                     | 描述                                                              | 默认值          |
+| :----------------------- | :---------------------------------------------------------------- | :-------------- |
+| `--use-phong`            | 使用Phong着色 (逐像素光照)。                                         | `false`         |
+| `--diffuse-color <R,G,B>`| 漫反射颜色 (0-1范围, 如 "0.8,0.8,0.8")。                             | `0.8,0.8,0.8`   |
+| `--specular <FACTOR>`    | 镜面反射强度 (0.0-1.0)。                                           | `0.5`           |
+| `--shininess <FACTOR>`   | 材质的光泽度 (硬度) 参数 (通常 1.0-200.0)。                          | `32.0`          |
+| `--emissive <R,G,B>`     | 材质的自发光颜色 (0-1范围, 如 "0.0,0.0,0.0") (PBR和Phong均有效)。    | `0.0,0.0,0.0`   |
 
-# 使用平面着色(默认)
-make run USE_PHONG=false
+#### 动画设置
 
-# 使用Phong着色
-make run USE_PHONG=true
-```
+| 参数                        | 描述                                                                   | 默认值            |
+| :-------------------------- | :--------------------------------------------------------------------- | :---------------- |
+| `--animate`                 | 渲染动画序列而非单帧 (仅CLI模式)。                                       | `false`           |
+| `--total-frames <NUM>`      | 动画的总帧数 (用于 `--animate` 或GUI视频生成)。                           | `120`             |
+| `--animation-type <TYPE>`   | 动画类型: `CameraOrbit`, `ObjectLocalRotation`, `None`。                 | `CameraOrbit`     |
+| `--rotation-axis <AXIS>`    | 动画旋转轴: `X`, `Y`, `Z`, `Custom`。                                    | `Y`               |
+| `--custom-rotation-axis <X,Y,Z>` | 自定义旋转轴 (当 `rotation-axis` 为 `Custom` 时使用), 格式 "x,y,z"。 | `0,1,0`           |
 
-#### 2. 光照效果
+### 命令行示例
 
-```bash
-# 使用定向光(默认)
-make run LIGHT_TYPE=directional LIGHT_DIR="0,-1,-1"
+以下示例演示了如何使用命令行参数进行不同类型的渲染：
 
-# 使用点光源
-make run LIGHT_TYPE=point LIGHT_POS="2,3,2" LIGHT_ATTEN="1.0,0.05,0.01"
+#### 1. 基础渲染 (斯坦福兔子)
 
-# 自定义环境光颜色
-make run AMBIENT_COLOR="0.2,0.1,0.3"
-```
-
-#### 3. 带纹理的模型
+使用Phong着色渲染默认的兔子模型。
 
 ```bash
-# 渲染带纹理的Spot模型
-make run OBJ_FILE=obj/models/spot/spot_triangulated.obj TEXTURE_FILE=obj/models/spot/spot_texture.png
+cargo run --release -- \
+    --obj obj/simple/bunny.obj \
+    --output-dir output_bunny_phong \
+    --output bunny_phong_render \
+    --width 1024 \
+    --height 1024 \
+    --camera-from "0,0.1,2.5" \
+    --camera-at "0,0.1,0" \
+    --use-phong
 ```
 
-#### 4. 基于物理的渲染(PBR)
+#### 2. 带纹理的模型渲染 (Spot)
+
+渲染Spot模型，并使用其纹理。
 
 ```bash
-# PBR金属材质
-make run USE_PBR=true METALLIC=0.9 ROUGHNESS=0.1 BASE_COLOR="0.95,0.9,0.5"
-
-# PBR非金属材质
-make run USE_PBR=true METALLIC=0.0 ROUGHNESS=0.7 BASE_COLOR="0.2,0.5,0.8"
-
-# 岩石PBR渲染(预配置)
-make pbr_rock
+cargo run --release -- \
+    --obj obj/models/spot/spot_triangulated.obj \
+    --texture obj/models/spot/spot_texture.png \
+    --output-dir output_spot_textured \
+    --output spot_textured_render \
+    --width 1024 \
+    --height 1024 \
+    --camera-from "0,0.5,3" \
+    --camera-at "0,0.5,0" \
+    --use-phong \
+    --use-texture
 ```
 
-#### 5. 动画渲染
+#### 3. PBR 渲染 (岩石模型)
+
+使用PBR参数渲染岩石模型，并应用点光源。
 
 ```bash
-# 渲染兔子模型的轨道动画
-make bunny_orbit
-
-# 渲染Spot模型的轨道动画
-make spot_orbit
+cargo run --release -- \
+    --obj obj/models/rock/rock.obj \
+    --texture obj/models/rock/rock.png \
+    --output-dir output_rock_pbr \
+    --output rock_pbr_render \
+    --width 1280 \
+    --height 720 \
+    --camera-from "3,0.5,3" \
+    --camera-at "0,0.5,0" \
+    --light-type point \
+    --light-pos "3,5,2" \
+    --light-atten "1.0,0.03,0.01" \
+    --ambient 0.3 \
+    --ambient-color "0.5,0.5,0.55" \
+    --diffuse 1.2 \
+    --use-pbr \
+    --metallic 0.1 \
+    --roughness 0.8 \
+    --base-color "0.9,0.85,0.8" \
+    --ambient-occlusion 0.9
 ```
 
-## 渲染架构
+#### 4. 生成动画序列 (相机轨道)
 
-本渲染器遵循现代渲染引擎的架构设计，包含以下主要组件：
+为兔子模型生成一个120帧的相机轨道动画序列。
 
-```mermaid
-graph TD
-    A[输入: OBJ模型/材质] --> B[模型加载器]
-    B --> C[场景管理器]
-    D[相机系统] --> C
-    E[统一材质系统] --> C
-    F[光源系统] --> C
-    C --> G[渲染器]
-    G --> H[光栅化器]
-    H --> I[输出: 颜色帧/深度图]
-    
-    subgraph "渲染流程"
-    G --> G1[几何阶段]
-    G1 --> G2[光栅化阶段]
-    G2 --> G3[片段着色阶段]
-    G3 --> G4[输出合成阶段]
-    end
-    
-    subgraph "GUI系统"
-    J[egui界面] --> K[参数调整]
-    K --> C
-    I --> J[渲染预览]
-    end
-    
-    subgraph "光照计算"
-    F --> F1[环境光]
-    F --> F2[方向光]
-    F --> F3[点光源]
-    E --> E1[Lambert漫反射]
-    E --> E2[Blinn-Phong反射]
-    E --> E3[PBR材质]
-    end
-    
-    subgraph "统一纹理系统"
-    E --> T1[图像纹理]
-    E --> T2[面颜色]
-    E --> T3[纯色纹理]
-    end
+```bash
+cargo run --release -- \
+    --obj obj/simple/bunny.obj \
+    --output-dir output_bunny_orbit_cli \
+    --output frame \
+    --width 800 \
+    --height 600 \
+    --camera-from "0,0.1,2.5" \
+    --camera-at "0,0.1,0" \
+    --use-phong \
+    --animate \
+    --total-frames 120 \
+    --animation-type CameraOrbit \
+    --rotation-axis Y
 ```
 
-## 关键技术实现
+然后，你可以使用FFmpeg将 `output_bunny_orbit_cli` 目录下的 `frame_XXX_color.png` 文件合成为视频：
 
-### 1. 重心坐标插值
-
-使用重心坐标进行顶点属性的插值，并实现了透视校正插值，确保纹理映射和其他属性在透视投影下的正确性：
-
-```rust
-pub fn interpolate_texcoords(
-    bary: Vector3<f32>,
-    tc1: Vector2<f32>,
-    tc2: Vector2<f32>,
-    tc3: Vector2<f32>,
-    z1_view: f32,
-    z2_view: f32,
-    z3_view: f32,
-    is_perspective: bool,
-) -> Vector2<f32> {
-    // 透视校正插值实现...
-}
+```bash
+ffmpeg -y -framerate 30 -i output_bunny_orbit_cli/frame_%03d_color.png -c:v libx264 -pix_fmt yuv420p bunny_orbit_cli.mp4
 ```
 
-### 2. 光照计算
+## 项目架构 (简述)
 
-实现了Blinn-Phong光照模型和PBR材质系统，支持环境光、漫反射和镜面反射计算：
-
-```rust
-// Blinn-Phong 光照计算（在MaterialView实现中）
-let diffuse = material.diffuse * n_dot_l;
-let halfway_dir = (light_dir + view_dir).normalize();
-let n_dot_h = normal.dot(&halfway_dir).max(0.0);
-let spec_intensity = n_dot_h.powf(material.shininess);
-let specular = material.specular * spec_intensity;
-```
-
-### 3. 线程安全的Z缓冲
-
-使用原子操作确保多线程渲染时深度缓冲的一致性：
-
-```rust
-let current_depth_atomic = &depth_buffer[pixel_index];
-let old_depth_before_update = current_depth_atomic
-    .fetch_min(interpolated_depth, Ordering::Relaxed);
-```
-
-### 4. 并行三角形处理
-
-使用Rayon库实现三角形并行光栅化，大幅提升渲染性能：
-
-```rust
-triangles_to_render.par_iter().for_each(|triangle_data| {
-    rasterize_triangle(
-        triangle_data,
-        self.frame_buffer.width,
-        self.frame_buffer.height,
-        &self.frame_buffer.depth_buffer,
-        &self.frame_buffer.color_buffer,
-    );
-});
-```
-
-### 5. 统一纹理系统
-
-实现了统一的纹理数据抽象，使得不同类型的纹理（图像、面颜色、纯色）能够用一致的接口处理：
-
-```rust
-/// 统一的纹理类型枚举，支持多种纹理来源
-#[derive(Debug, Clone)]
-pub enum TextureData {
-    /// 从文件加载的图像纹理
-    Image(Arc<DynamicImage>),
-    /// 面颜色纹理（每个面一个颜色，使用面索引作为种子）
-    FaceColor(u64),
-    /// 简单的单色纹理
-    SolidColor(Vector3<f32>),
-    /// 无纹理标记
-    None,
-}
-```
-
-该设计简化了光栅化过程中的纹理采样逻辑，并确保了各种纹理类型的无缝集成：
-
-```rust
-fn sample_texture(triangle: &TriangleData, bary: Vector3<f32>) -> Color {
-    // 根据纹理来源类型处理
-    match &triangle.texture_data {
-        TextureData::Image(_) => {
-            // 图像纹理采样...
-        }
-        TextureData::FaceColor(seed) => {
-            // 使用面索引生成随机颜色
-            let color = get_random_color(*seed, true);
-            Color::new(color.x, color.y, color.z)
-        }
-        TextureData::SolidColor(color) => {
-            // 使用固定颜色
-            Color::new(color.x, color.y, color.z)
-        }
-        TextureData::None => {
-            // 无纹理，返回白色
-            Color::new(1.0, 1.0, 1.0)
-        }
-    }
-}
-```
-
-### 6. GUI系统
-
-使用egui和eframe实现了交互式图形界面，支持所有渲染参数的实时调整：
-
-```rust
-impl eframe::App for RasterizerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // GUI布局和交互逻辑
-        egui::SidePanel::left("控制面板").show(ctx, |ui| {
-            self.draw_control_panel(ui);
-        });
-        
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.draw_render_view(ui);
-        });
-        
-        // 处理渲染和状态更新
-        self.handle_realtime_rendering(ctx);
-    }
-}
-```
-
-## 项目结构
-
-项目采用模块化设计，按功能划分为以下主要模块：
+项目采用模块化设计，以下是 `src` 目录的主要结构：
 
 ```bash
 src/
-├── main.rs                 # 程序入口点
-├── core/                   # 核心渲染功能
-│   ├── mod.rs              # 模块导出
-│   ├── renderer.rs         # 渲染器实现
-│   ├── rasterizer.rs       # 三角形光栅化
-│   ├── scene.rs            # 场景管理
-│   └── scene_object.rs     # 场景对象实现
-├── geometry/               # 几何处理模块
-│   ├── mod.rs              # 模块导出
-│   ├── transform.rs        # 坐标变换
-│   ├── camera.rs           # 相机系统
-│   └── interpolation.rs    # 属性插值
-├── materials/              # 材质处理模块
-│   ├── mod.rs              # 模块导出
-│   ├── material_system.rs  # 材质系统实现
-│   ├── texture.rs          # 纹理处理
-│   ├── color.rs            # 颜色处理
-│   └── model_types.rs      # 模型数据结构
-├── io/                     # 输入输出模块
-│   ├── mod.rs              # 模块导出
-│   ├── args.rs             # 命令行参数
-│   └── loaders.rs          # 模型和资源加载
-├── ui/                     # GUI界面模块
-│   ├── mod.rs              # 模块导出
-│   ├── app.rs              # GUI主应用
-│   ├── widgets.rs          # 自定义控件
-│   ├── render.rs           # 渲染相关UI
-│   └── animation.rs        # 动画相关UI
-└── utils/                  # 工具函数
-    ├── mod.rs              # 模块导出
-    ├── image_utils.rs      # 图像处理工具
-    ├── render_utils.rs     # 渲染辅助功能
-    ├── animation_utils.rs  # 动画工具函数
-    ├── material_utils.rs   # 材质辅助工具
-    ├── model_utils.rs      # 模型处理工具
-    └── test_utils.rs       # 测试辅助工具
+├── core/
+│   ├── mod.rs               # 核心模块声明
+│   ├── rasterizer.rs        # 光栅化算法实现
+│   ├── render_config.rs     # 渲染配置数据结构
+│   └── renderer.rs          # 主渲染器逻辑
+├── geometry/
+│   ├── camera.rs            # 相机实现
+│   ├── culling.rs           # 剔除算法 (背面、小三角形等)
+│   ├── interpolation.rs     # 插值算法 (例如透视校正插值)
+│   ├── mod.rs               # 几何模块声明
+│   └── transform.rs         # 几何变换 (视图、投影、模型变换等)
+├── io/
+│   ├── args.rs              # 命令行参数解析
+│   ├── loaders.rs           # 模型文件加载 (OBJ等)
+│   └── mod.rs               # IO模块声明
+├── material_system/
+│   ├── color.rs             # 颜色相关的定义与操作
+│   ├── light.rs             # 光源定义
+│   ├── materials.rs         # 材质定义 (Phong, PBR等)
+│   ├── mod.rs               # 材质系统模块声明
+│   └── texture.rs           # 纹理加载与管理
+├── scene/
+│   ├── mod.rs               # 场景模块声明
+│   ├── scene_object.rs      # 场景对象定义
+│   └── scene_utils.rs       # 场景管理工具
+├── ui/
+│   ├── animation.rs         # UI相关的动画逻辑
+│   ├── app.rs               # eframe/egui 应用主逻辑
+│   ├── mod.rs               # UI模块声明
+│   ├── render.rs            # UI相关的渲染调用和状态管理
+│   └── widgets.rs           # 自定义UI组件和侧边栏绘制
+├── utils/
+│   ├── mod.rs               # 工具模块声明
+│   ├── model_utils.rs       # 模型处理相关的工具函数
+│   ├── render_utils.rs      # 渲染相关的工具函数
+│   └── save_utils.rs        #图像保存等工具函数
+└── main.rs                  # 程序入口点
 ```
 
-## 性能优化
+**各主要模块功能概览：**
 
-本渲染器采用了多种性能优化策略：
+- **`core`**: 包含渲染器 (`renderer.rs`)、光栅化逻辑 (`rasterizer.rs`)、渲染配置 (`render_config.rs`) 等核心渲染管线组件。
+- **`geometry`**: 处理几何变换 (`transform.rs`)、相机 (`camera.rs`)、插值 (`interpolation.rs`) 和剔除 (`culling.rs`) 等。
+- **`material_system`**: 定义材质 (`materials.rs`)、光源 (`light.rs`)、颜色 (`color.rs`) 和纹理 (`texture.rs`)。
+- **`scene`**: 管理场景图元，包括场景 (`scene_utils.rs`) 和场景对象 (`scene_object.rs`)。
+- **`io`**: 负责输入/输出，包括命令行参数解析 (`args.rs`) 和模型加载 (`loaders.rs`)。
+- **`ui`**: 实现图形用户界面，包括主应用逻辑 (`app.rs`)、UI组件 (`widgets.rs`)、以及与UI交互的渲染 (`render.rs`) 和动画 (`animation.rs`) 处理。
+- **`utils`**: 包含各种辅助函数，如模型处理 (`model_utils.rs`)、渲染辅助 (`render_utils.rs`) 和保存图像 (`save_utils.rs`)。
 
-1. **多线程渲染**：使用Rayon库实现三角形并行光栅化
-2. **早期剔除**：实现三角形剔除，跳过不可见的三角形
-3. **边界检查优化**：使用包围盒减少像素处理量
-4. **深度测试优化**：使用原子操作提高多线程下深度测试性能
-5. **缓存友好的数据结构**：设计考虑内存访问模式的数据结构，提高缓存命中率
-6. **统一纹理系统**：优化纹理处理流程，减少类型转换和冗余概念
-7. **GUI性能优化**：优化UI更新和渲染逻辑，减少不必要的重绘
+## 未来展望
 
-## 最近优化
-
-- **目录结构重组**：重新组织了项目的文件结构，将`model_types.rs`移至`materials`目录，简化了文件命名
-- **纹理系统重构**：简化了纹理相关文件的命名，将`texture_utils.rs`和`color_utils.rs`重命名为更简洁的`texture.rs`和`color.rs`
-- **材质系统改进**：优化了面颜色生成和材质回退机制，保持功能完整的同时提高了代码清晰度
-- **渲染流程优化**：简化了渲染器与光栅化器的数据传递，减少了不必要的类型转换
-- **测试系统完善**：增强了GUI和命令行模式的测试覆盖，确保所有功能正常工作
-
-## 未来改进方向
-
-- 优化深度缓冲区的并行访问性能
-- 实现更多高级材质模型和参数
-- 添加更多的图元支持(点、线)
-- 实现层次包围盒加速三角形遍历
-- 添加后处理效果如抗锯齿、景深等
-- 添加阴影映射支持
-- 扩展GUI功能，添加场景编辑器
-- 添加更多实时预览和交互功能
-- 添加骨骼动画支持
-- 实现更多的光照技术如环境光遮蔽(AO)
+- 更高级的材质和着色模型 (例如次表面散射、清漆层)。
+- 阴影映射 (Shadow Mapping)。
+- 后处理效果 (例如抗锯齿AA、景深DoF、辉光Bloom)。
+- 骨骼动画支持。
+- 更完善的场景管理和编辑器功能。
+- 性能分析和进一步优化。
 
 ## 许可证
 

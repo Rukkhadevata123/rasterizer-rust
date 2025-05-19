@@ -7,115 +7,21 @@ use std::time::Instant;
 mod core;
 mod geometry;
 mod io;
-mod materials;
+mod material_system;
 mod scene;
 mod ui;
 mod utils;
 
 // 导入语句
+use core::render_config::create_render_config;
 use core::renderer::Renderer;
-use geometry::camera::Camera;
-use io::args::{Args, parse_point3, parse_vec3};
+use io::args::Args;
 use io::loaders::load_obj_enhanced;
-use materials::model_types::ModelData;
 use scene::scene_utils::Scene;
-use utils::animation_utils::run_animation_loop;
-use utils::material_utils::{apply_pbr_parameters, apply_phong_parameters};
 use utils::model_utils::normalize_and_center_model;
-use utils::render_utils::{create_render_config, render_single_frame};
+use utils::render_utils::render_single_frame;
+use utils::render_utils::run_animation_loop;
 
-// 创建场景相机
-fn create_camera(args: &Args) -> Result<Camera, String> {
-    let aspect_ratio = args.width as f32 / args.height as f32;
-    let camera_from =
-        parse_point3(&args.camera_from).map_err(|e| format!("无效的相机位置格式: {}", e))?;
-    let camera_at =
-        parse_point3(&args.camera_at).map_err(|e| format!("无效的相机目标格式: {}", e))?;
-    let camera_up =
-        parse_vec3(&args.camera_up).map_err(|e| format!("无效的相机上方向格式: {}", e))?;
-
-    Ok(Camera::new(
-        camera_from,
-        camera_at,
-        camera_up,
-        args.camera_fov,
-        aspect_ratio,
-        0.1,   // 近平面距离
-        100.0, // 远平面距离
-    ))
-}
-
-/// 设置场景光源
-fn setup_lights(scene: &mut Scene, args: &Args) -> Result<(), String> {
-    // 使用Scene中的统一方法设置光照系统
-    scene.setup_lighting(
-        args.use_lighting,
-        &args.light_type,
-        &args.light_dir,
-        &args.light_pos,
-        &args.light_atten,
-        args.diffuse,
-        args.ambient,
-        &args.ambient_color,
-    )?;
-
-    // 打印光照信息
-    if args.use_lighting {
-        if args.light_type == "point" {
-            println!(
-                "使用点光源，位置: {}, 强度系数: {:.2}",
-                args.light_pos, args.diffuse
-            );
-        } else {
-            println!(
-                "使用定向光，方向: {}, 强度系数: {:.2}",
-                args.light_dir, args.diffuse
-            );
-        }
-    } else if let Ok(ambient_color) = parse_vec3(&args.ambient_color) {
-        println!("使用RGB环境光强度: {:?}", ambient_color);
-    } else {
-        println!("使用环境光强度: {:.2}", args.ambient);
-    }
-
-    Ok(())
-}
-
-/// 创建并设置场景
-fn setup_scene(model_data: ModelData, args: &Args) -> Result<Scene, String> {
-    // 创建相机
-    let camera = create_camera(args)?;
-
-    // 创建场景并设置相机
-    let mut scene = Scene::new(camera);
-
-    // 应用PBR材质参数(如果需要)和Phong材质参数(如果需要)
-    let mut modified_model_data = model_data.clone();
-    apply_pbr_parameters(&mut modified_model_data, args);
-    apply_phong_parameters(&mut modified_model_data, args);
-
-    // 设置场景对象
-    let object_count = args
-        .object_count
-        .as_ref()
-        .and_then(|count_str| count_str.parse::<usize>().ok());
-
-    scene.setup_from_model_data(modified_model_data, object_count);
-
-    // 如果有多个对象，打印信息
-    if let Some(count) = object_count {
-        if count > 1 {
-            println!("创建了环形排列的 {} 个附加对象", count - 1);
-        }
-    }
-
-    // 设置光照
-    setup_lights(&mut scene, args)?;
-
-    Ok(scene)
-}
-
-// 在main函数中添加对test_transformation_api的条件调用
 fn main() -> Result<(), String> {
     let args = Args::parse();
 
@@ -158,7 +64,7 @@ fn main() -> Result<(), String> {
 
     // --- 创建并设置场景 ---
     println!("创建场景...");
-    let mut scene = setup_scene(model_data, &args)?;
+    let mut scene = Scene::create_from_model_and_args(model_data, &args)?;
     println!(
         "创建了包含 {} 个对象、{} 个光源的场景",
         scene.object_count(),
@@ -173,7 +79,7 @@ fn main() -> Result<(), String> {
         run_animation_loop(&args, &mut scene, &renderer)?;
     } else {
         println!("--- 准备单帧渲染 ---");
-        // 使用从demos模块导入的create_render_config函数
+        // 使用从utils模块导入的create_render_config函数
         let config = create_render_config(&scene, &args);
         println!("使用{}渲染", config.get_lighting_description());
         render_single_frame(&args, &scene, &renderer, &config, &args.output)?;

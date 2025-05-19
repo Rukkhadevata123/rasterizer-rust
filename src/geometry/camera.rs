@@ -1,5 +1,4 @@
 use crate::geometry::transform::TransformFactory;
-use crate::scene::scene_object::{TransformOperations, Transformable};
 use nalgebra::{Matrix4, Point3, Vector3};
 
 /// 相机类，负责管理视角和投影变换
@@ -119,10 +118,17 @@ impl Camera {
         self.view_matrix = TransformFactory::view(&self.position, &self.target, &self.up);
 
         // 如果不是正交投影，则更新透视投影矩阵
+        // 如果是正交投影，其投影矩阵在 new_orthographic 中已设置
         if self.fov_y > 0.0 {
             self.projection_matrix =
                 TransformFactory::perspective(self.aspect_ratio, self.fov_y, self.near, self.far);
         }
+        // 注意: 如果是正交投影 (self.fov_y <= 0.0)，
+        // 它的 projection_matrix 是在 new_orthographic 中初始化的。
+        // 如果宽高比在相机创建后需要改变（例如通过 args），
+        // 并且不重新创建相机，那么需要一种机制来更新正交投影矩阵。
+        // 由于我们删除了 set_aspect_ratio，所以现在的假设是
+        // 当宽高比变化时，会重新创建相机。
 
         // 计算组合的视图-投影矩阵
         self.view_projection_matrix = self.projection_matrix * self.view_matrix;
@@ -144,14 +150,6 @@ impl Camera {
 
         // 更新矩阵
         self.update_matrices();
-    }
-
-    /// 围绕Y轴旋转相机（简化的orbit方法）
-    pub fn orbit_y(&mut self, angle_degrees: f32) {
-        // 将角度转换为弧度
-        let angle_rad = angle_degrees.to_radians();
-        // 调用orbit方法，围绕Y轴旋转
-        self.orbit(&Vector3::y_axis(), angle_rad);
     }
 
     /// 在XZ平面上平移相机（保持相机高度不变）
@@ -189,40 +187,9 @@ impl Camera {
         self.update_matrices();
     }
 
-    /// 改变相机的视场角（垂直FOV）
-    pub fn set_fov(&mut self, fov_y_degrees: f32) {
-        self.fov_y = fov_y_degrees.to_radians();
+    // set_fov 方法已删除
 
-        // 更新投影矩阵和视图-投影矩阵
-        self.projection_matrix =
-            TransformFactory::perspective(self.aspect_ratio, self.fov_y, self.near, self.far);
-        self.view_projection_matrix = self.projection_matrix * self.view_matrix;
-    }
-
-    /// 改变相机的宽高比
-    pub fn set_aspect_ratio(&mut self, aspect_ratio: f32) {
-        self.aspect_ratio = aspect_ratio;
-
-        // 更新投影矩阵和视图-投影矩阵
-        if self.fov_y > 0.0 {
-            self.projection_matrix =
-                TransformFactory::perspective(self.aspect_ratio, self.fov_y, self.near, self.far);
-        } else {
-            // 如果是正交投影，根据宽高比调整投影矩阵
-            let height = 2.0;
-            let width = height * aspect_ratio;
-            self.projection_matrix = TransformFactory::orthographic(
-                -width / 2.0,
-                width / 2.0,
-                -height / 2.0,
-                height / 2.0,
-                self.near,
-                self.far,
-            );
-        }
-
-        self.view_projection_matrix = self.projection_matrix * self.view_matrix;
-    }
+    // set_aspect_ratio 方法已删除
 
     /// 获取视图矩阵
     pub fn get_view_matrix(&self) -> Matrix4<f32> {
@@ -230,11 +197,24 @@ impl Camera {
     }
 
     /// 获取投影矩阵
+    /// 注意：此方法现在依赖于相机实例化时设置的投影类型。
+    /// 如果需要动态切换投影类型而不重新创建相机，则需要更复杂的逻辑。
     pub fn get_projection_matrix(&self, projection_type: &str) -> Matrix4<f32> {
-        // 如果请求特定投影类型，则可能需要重新计算投影矩阵
-        if projection_type == "orthographic" && self.fov_y > 0.0 {
-            // 需要创建正交投影矩阵
-            let height = 2.0;
+        // 简单的实现：如果请求的类型与当前fov_y暗示的类型不匹配，
+        // 并且我们想要严格按请求类型返回，可能需要按需计算。
+        // 但更稳健的做法是确保相机在创建时就配置了正确的投影类型。
+        // 为简化，这里假设相机已正确配置。
+
+        let is_currently_perspective = self.fov_y > 0.0;
+
+        if projection_type == "orthographic" && is_currently_perspective {
+            // 当前是透视，但请求正交：按需计算一个通用的正交矩阵
+            // 这里的宽高比和尺寸可能需要根据具体场景调整
+            // 或者，更好的做法是确保相机在创建时就是正确的投影类型
+            // 如果应用总是重新创建相机，这种情况可能不会发生
+            // 或者，应该返回错误或当前矩阵
+            // 为简单起见，我们创建一个基于当前宽高比的通用正交投影
+            let height = 2.0; // 假设正交视图高度
             let width = height * self.aspect_ratio;
             TransformFactory::orthographic(
                 -width / 2.0,
@@ -244,16 +224,17 @@ impl Camera {
                 self.near,
                 self.far,
             )
-        } else if projection_type == "perspective" && self.fov_y <= 0.0 {
-            // 需要创建透视投影矩阵
+        } else if projection_type == "perspective" && !is_currently_perspective {
+            // 当前是正交，但请求透视：按需计算一个通用的透视矩阵
+            // 使用一个默认的FOV，例如60度
             TransformFactory::perspective(
                 self.aspect_ratio,
-                60.0f32.to_radians(),
+                60.0f32.to_radians(), // 默认FOV
                 self.near,
                 self.far,
             )
         } else {
-            // 使用当前投影矩阵
+            // 请求的类型与当前类型匹配，或者不关心特定类型，返回当前存储的投影矩阵
             self.projection_matrix
         }
     }
@@ -273,100 +254,20 @@ impl Camera {
             Self::new_perspective(position, target, up, fov_y_degrees, aspect_ratio, near, far)
         } else {
             // 对于正交投影，使用与视图的宽高比一致的视口大小
+            // 这里的 height = 2.0 是一个惯用值，定义了正交视图在相机空间中的垂直大小。
             let height = 2.0;
             let width = height * aspect_ratio;
             Self::new_orthographic(position, target, up, width, height, near, far)
         }
     }
 
-    /// 从视图矩阵更新相机位置、目标和方向
-    fn update_camera_from_view_matrix(&mut self) {
-        // 视图矩阵的逆变换包含相机的世界变换
-        if let Some(view_inverse) = self.view_matrix.try_inverse() {
-            // 从视图矩阵的逆提取相机位置
-            self.position = Point3::new(
-                view_inverse[(0, 3)],
-                view_inverse[(1, 3)],
-                view_inverse[(2, 3)],
-            );
-
-            // 提取相机的方向向量
-            let forward = Vector3::new(
-                -view_inverse[(0, 2)],
-                -view_inverse[(1, 2)],
-                -view_inverse[(2, 2)],
-            );
-
-            // 计算目标点
-            self.target = self.position + forward;
-
-            // 提取上方向
-            self.up = Vector3::new(
-                view_inverse[(0, 1)],
-                view_inverse[(1, 1)],
-                view_inverse[(2, 1)],
-            );
-
-            // 提取右方向
-            self.right = Vector3::new(
-                view_inverse[(0, 0)],
-                view_inverse[(1, 0)],
-                view_inverse[(2, 0)],
-            );
-        }
+    /// 移动相机（同时移动位置和目标点）
+    pub fn move_camera(&mut self, translation: &Vector3<f32>) {
+        self.position += translation;
+        self.target += translation;
+        self.update_matrices();
     }
 }
-
-impl Transformable for Camera {
-    fn get_transform(&self) -> &Matrix4<f32> {
-        &self.view_matrix
-    }
-
-    fn set_transform(&mut self, transform: Matrix4<f32>) {
-        // 设置视图矩阵并更新其他相关矩阵
-        self.view_matrix = transform;
-        self.view_projection_matrix = self.projection_matrix * self.view_matrix;
-
-        // 注意：这不会更新position、target和up，如果需要完全一致性，应该从视图矩阵提取这些值
-    }
-
-    fn apply_local(&mut self, transform: Matrix4<f32>) {
-        // 相机的局部变换是视图矩阵的逆变换的局部变换
-        // 对于相机，"局部"是指相机坐标系
-        let view_inverse = self
-            .view_matrix
-            .try_inverse()
-            .unwrap_or_else(Matrix4::identity);
-        let new_view_inverse = view_inverse * transform;
-        self.view_matrix = new_view_inverse
-            .try_inverse()
-            .unwrap_or_else(Matrix4::identity);
-        self.view_projection_matrix = self.projection_matrix * self.view_matrix;
-
-        // 从视图矩阵更新相机属性
-        self.update_camera_from_view_matrix();
-    }
-
-    fn apply_global(&mut self, transform: Matrix4<f32>) {
-        // 相机的全局变换是视图矩阵的变换
-        // 对于相机，"全局"是指世界坐标系
-        let view_inverse = self
-            .view_matrix
-            .try_inverse()
-            .unwrap_or_else(Matrix4::identity);
-        let new_view_inverse = transform * view_inverse;
-        self.view_matrix = new_view_inverse
-            .try_inverse()
-            .unwrap_or_else(Matrix4::identity);
-        self.view_projection_matrix = self.projection_matrix * self.view_matrix;
-
-        // 从视图矩阵更新相机属性
-        self.update_camera_from_view_matrix();
-    }
-}
-
-// 为Camera实现TransformOperations特性
-impl TransformOperations for Camera {}
 
 impl Default for Camera {
     fn default() -> Self {
