@@ -367,3 +367,17 @@ impl Transformable for Camera {
 
 // 为Camera实现TransformOperations特性
 impl TransformOperations for Camera {}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Camera::new_perspective(
+            Point3::new(0.0, 0.0, 3.0),
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            45.0,
+            1.0,
+            0.1,
+            100.0,
+        )
+    }
+}

@@ -41,148 +41,178 @@ impl FrameBuffer {
         }
     }
 
-    /// 清除所有缓冲区，并根据配置选择性地绘制背景
+    /// 清除所有缓冲区，并根据配置绘制背景和地面
     pub fn clear(&self, config: &RenderConfig) {
-        // 重置深度缓冲区，为了避免数据竞争，使用原子操作
+        // 重置深度缓冲区，使用原子操作避免数据竞争
         self.depth_buffer.par_iter().for_each(|atomic_depth| {
             atomic_depth.store(f32::INFINITY, Ordering::Relaxed);
         });
 
-        // 重置颜色缓冲区，并根据配置绘制背景
-        if config.enable_gradient_background {
-            (0..self.height).into_par_iter().for_each(|y| {
-                let t = y as f32 / (self.height - 1) as f32;
-                let color =
-                    config.gradient_top_color * (1.0 - t) + config.gradient_bottom_color * t;
+        // 根据配置绘制背景和地面
+        (0..self.height).into_par_iter().for_each(|y| {
+            for x in 0..self.width {
+                let buffer_index = y * self.width + x;
+                let color_index = buffer_index * 3;
+
+                // 计算标准化屏幕坐标 (0-1)
+                let t_y = y as f32 / (self.height - 1) as f32;
+                let t_x = x as f32 / (self.width - 1) as f32;
+
+                // 1. 首先绘制渐变背景
+                let mut final_color = if config.enable_gradient_background {
+                    // 渐变背景色计算
+                    config.gradient_top_color * (1.0 - t_y) + config.gradient_bottom_color * t_y
+                } else {
+                    // 默认黑色背景
+                    Vector3::new(0.0, 0.0, 0.0)
+                };
+                // 地面平面处理部分改进 - 结合屏幕空间渲染和射线追踪网格
+
+                // 2. 如果启用地面平面，在下半部分应用地面效果
+                if config.enable_ground_plane {
+                    // 获取地面在世界空间中的Y坐标（高度）
+                    let ground_y_world = config.ground_plane_height;
+
+                    // 如果像素在视图下半部分，考虑应用地面效果
+                    let ground_factor = if t_y > 0.5 {
+                        // 从像素创建射线，以获得精确的网格线
+                        let aspect_ratio = self.width as f32 / self.height as f32;
+                        let camera_ref = &Camera::default();
+                        let fov_rad = camera_ref.fov_y;
+                        let ndc_x = (x as f32 + 0.5) / self.width as f32 * 2.0 - 1.0;
+                        let ndc_y = 1.0 - (y as f32 + 0.5) / self.height as f32 * 2.0;
+
+                        let view_x = ndc_x * aspect_ratio * (fov_rad / 2.0).tan();
+                        let view_y = ndc_y * (fov_rad / 2.0).tan();
+                        let view_dir = Vector3::new(view_x, view_y, -1.0).normalize();
+
+                        let view_to_world = camera_ref
+                            .view_matrix
+                            .try_inverse()
+                            .unwrap_or_else(nalgebra::Matrix4::identity);
+                        let world_ray_dir = view_to_world.transform_vector(&view_dir).normalize();
+                        let world_ray_origin = camera_ref.position;
+
+                        // 计算与地面平面的交点
+                        let ground_normal = Vector3::y();
+                        let denominator = ground_normal.dot(&world_ray_dir);
+
+                        if denominator.abs() <= 1e-6 {
+                            // 射线几乎与地面平行，使用屏幕空间计算作为后备
+                            let ground_influence = (t_y - 0.5) * 2.0;
+                            let depth_enhanced = ground_influence.powf(1.2);
+
+                            // 使用屏幕空间坐标创建网格
+                            let perspective_factor = 1.0 + (t_y - 0.5) * 3.0;
+                            let grid_density = 16.0 * perspective_factor;
+
+                            let grid_x = (t_x * grid_density) % 1.0;
+                            let grid_z = (t_y * grid_density * 1.2) % 1.0;
+
+                            let line_width = 0.05 / perspective_factor.max(0.2);
+                            let x_distance = (grid_x - 0.5).abs() - (0.5 - line_width);
+                            let z_distance = (grid_z - 0.5).abs() - (0.5 - line_width);
+
+                            let is_grid_line = x_distance > 0.0 || z_distance > 0.0;
+                            let line_strength = if is_grid_line {
+                                0.3 * (1.0 / perspective_factor).min(1.0)
+                            } else {
+                                0.0
+                            };
+
+                            // 边缘淡出
+                            let center_x = 0.5;
+                            let dx = t_x - center_x;
+                            let distance_factor =
+                                ((dx * 1.4).powi(2) + (t_y - 0.9).powi(2) * 0.7).sqrt() * 1.3;
+                            let edge_softness = 0.2;
+                            let edge_factor =
+                                (1.0 - distance_factor.min(1.0)).powf(1.0 / edge_softness);
+
+                            edge_factor * depth_enhanced * (1.0 - line_strength * 0.9)
+                        } else {
+                            // 射线与地面相交，使用精确的世界空间计算
+                            let t = (Point3::new(0.0, ground_y_world, 0.0) - world_ray_origin)
+                                .dot(&ground_normal)
+                                / denominator;
+
+                            if t < 0.0 {
+                                // 交点在相机后方
+                                0.0
+                            } else {
+                                // 计算交点
+                                let intersection = world_ray_origin + t * world_ray_dir;
+
+                                // 网格大小参数
+                                let grid_size = 1.0; // 物理单位中的网格大小
+
+                                // 计算网格坐标
+                                let grid_x = (intersection.x / grid_size).abs() % 1.0;
+                                let grid_z = (intersection.z / grid_size).abs() % 1.0;
+
+                                // 创建更加清晰的网格线
+                                let is_grid_line = !(0.05..=0.95).contains(&grid_x)
+                                    || !(0.05..=0.95).contains(&grid_z);
+                                let grid_factor = if is_grid_line { 0.4 } else { 0.0 };
+
+                                // 计算距离中心的衰减
+                                let distance_from_center =
+                                    (intersection.x.powi(2) + intersection.z.powi(2)).sqrt();
+                                let max_distance = 50.0;
+                                let distance_factor =
+                                    (distance_from_center / max_distance).min(1.0);
+
+                                // 计算最终的地面因子
+                                let ground_influence = (t_y - 0.5) * 2.0;
+                                let depth_enhanced = ground_influence.powf(1.2);
+
+                                // 应用所有效果
+                                (1.0 - distance_factor).powf(0.5)
+                                    * depth_enhanced
+                                    * (1.0 - grid_factor * 0.95)
+                            }
+                        }
+                    } else {
+                        0.0
+                    };
+
+                    if ground_factor > 0.0 {
+                        // 混合地面颜色和背景色
+                        let mut ground_color = config.ground_plane_color;
+
+                        // 使用更微妙的颜色变化
+                        let t_x_centered = (t_x - 0.5) * 2.0; // -1.0 到 1.0
+
+                        // 添加轻微的色调变化，创建更自然的地面外观
+                        ground_color.x *= 1.0 + t_x_centered * 0.05; // 红色分量变化
+                        ground_color.y *= 1.0 - t_x_centered.abs() * 0.03; // 绿色分量变化
+
+                        // 远处颜色略微偏蓝，模拟大气透视
+                        let distance_from_center =
+                            ((t_x - 0.5).powi(2) + (t_y - 0.75).powi(2)).sqrt();
+                        let atmospheric_factor = distance_from_center * 0.2;
+                        ground_color = ground_color * (1.0 - atmospheric_factor)
+                            + Vector3::new(0.6, 0.7, 0.9) * atmospheric_factor;
+
+                        // 应用微弱的反射效果
+                        let sky_reflection = config.gradient_top_color * 0.08;
+                        ground_color =
+                            ground_color + sky_reflection * (1.0 - (t_y - 0.5) * 1.2).max(0.0);
+
+                        // 使用平滑过渡进行颜色混合
+                        final_color =
+                            final_color * (1.0 - ground_factor) + ground_color * ground_factor;
+                    }
+                }
+
+                // 转换为u8颜色并保存到缓冲区
                 let color_u8 = crate::materials::color::linear_rgb_to_u8(
-                    &color,
+                    &final_color,
                     config.apply_gamma_correction,
                 );
-                for x in 0..self.width {
-                    let index = (y * self.width + x) * 3;
-                    self.color_buffer[index].store(color_u8[0], Ordering::Relaxed);
-                    self.color_buffer[index + 1].store(color_u8[1], Ordering::Relaxed);
-                    self.color_buffer[index + 2].store(color_u8[2], Ordering::Relaxed);
-                }
-            });
-        } else {
-            // 默认黑色背景
-            self.color_buffer
-                .par_iter()
-                .for_each(|atomic_color| atomic_color.store(0, Ordering::Relaxed));
-        }
-    }
-
-    pub fn draw_ground_plane(&self, camera: &Camera, config: &RenderConfig) {
-        if !config.enable_ground_plane {
-            return; // 如果未启用地面平面，则直接返回
-        }
-
-        // 获取地面颜色并转换为u8格式
-        let ground_color_u8 = crate::materials::color::linear_rgb_to_u8(
-            &config.ground_plane_color,
-            config.apply_gamma_correction,
-        );
-
-        // 获取地面在世界空间中的Y坐标（高度）
-        let ground_y_world = config.ground_plane_height;
-
-        // 创建网格图案参数
-        let grid_size = 1.0; // 网格大小
-        let grid_intensity = 0.2; // 网格线强度
-
-        // 并行处理屏幕上的每个像素
-        (0..self.height).into_par_iter().for_each(|screen_y| {
-            for screen_x in 0..self.width {
-                let buffer_index = screen_y * self.width + screen_x;
-
-                // 检查该像素是否已被物体渲染
-                let current_depth = self.depth_buffer[buffer_index].load(Ordering::Relaxed);
-
-                // 只有当深度缓冲区仍为初始值时，才考虑绘制地面
-                if current_depth != f32::INFINITY {
-                    continue; // 跳过已被物体占用的像素
-                }
-
-                // 从像素创建射线
-                let aspect_ratio = self.width as f32 / self.height as f32;
-                let fov_rad = camera.fov_y;
-                let ndc_x = (screen_x as f32 + 0.5) / self.width as f32 * 2.0 - 1.0;
-                let ndc_y = 1.0 - (screen_y as f32 + 0.5) / self.height as f32 * 2.0;
-
-                let view_x = ndc_x * aspect_ratio * (fov_rad / 2.0).tan();
-                let view_y = ndc_y * (fov_rad / 2.0).tan();
-                let view_dir = Vector3::new(view_x, view_y, -1.0).normalize();
-
-                let view_to_world = camera
-                    .view_matrix
-                    .try_inverse()
-                    .unwrap_or_else(nalgebra::Matrix4::identity);
-                let world_ray_dir = view_to_world.transform_vector(&view_dir).normalize();
-                let world_ray_origin = camera.position;
-
-                // 计算与地面平面的交点
-                let ground_normal = Vector3::y();
-                let denominator = ground_normal.dot(&world_ray_dir);
-
-                if denominator.abs() <= 1e-6 {
-                    continue; // 无交点
-                }
-
-                let t = (Point3::new(0.0, ground_y_world, 0.0) - world_ray_origin)
-                    .dot(&ground_normal)
-                    / denominator;
-
-                if t < 0.0 {
-                    continue; // 交点在相机后方
-                }
-
-                // 计算交点
-                let intersection = world_ray_origin + t * world_ray_dir;
-
-                // 计算交点在地面上的坐标，用于创建网格效果
-                let grid_x = (intersection.x / grid_size).abs() % 1.0;
-                let grid_z = (intersection.z / grid_size).abs() % 1.0;
-
-                // 创建网格效果
-                let is_grid_line =
-                    !(0.05..=0.95).contains(&grid_x) || !(0.05..=0.95).contains(&grid_z);
-                let grid_factor = if is_grid_line { grid_intensity } else { 0.0 };
-
-                // 模拟距离物体边缘的阴影效果
-                // 检查周围像素是否有物体
-                let shadow_intensity = 0.0f32; // 这里可以实现边缘阴影效果，但需要额外计算
-
-                // 计算颜色混合因子
-                let distance_from_center = (intersection.x.powi(2) + intersection.z.powi(2)).sqrt();
-                let max_distance = 50.0;
-                let distance_factor = (distance_from_center / max_distance).min(1.0);
-
-                // 获取背景颜色
-                let color_index = buffer_index * 3;
-                let r = self.color_buffer[color_index].load(Ordering::Relaxed);
-                let g = self.color_buffer[color_index + 1].load(Ordering::Relaxed);
-                let b = self.color_buffer[color_index + 2].load(Ordering::Relaxed);
-                let bg_color = [r, g, b];
-
-                // 应用网格效果调暗地面颜色
-                let ground_r = (ground_color_u8[0] as f32 * (1.0 - grid_factor)) as u8;
-                let ground_g = (ground_color_u8[1] as f32 * (1.0 - grid_factor)) as u8;
-                let ground_b = (ground_color_u8[2] as f32 * (1.0 - grid_factor)) as u8;
-
-                // 颜色混合: 地面颜色，背景颜色，以及阴影
-                let shadow_factor = (1.0 - shadow_intensity).max(0.0);
-                let final_r = ((1.0 - distance_factor) * ground_r as f32 * shadow_factor
-                    + distance_factor * bg_color[0] as f32) as u8;
-                let final_g = ((1.0 - distance_factor) * ground_g as f32 * shadow_factor
-                    + distance_factor * bg_color[1] as f32) as u8;
-                let final_b = ((1.0 - distance_factor) * ground_b as f32 * shadow_factor
-                    + distance_factor * bg_color[2] as f32) as u8;
-
-                // 更新颜色缓冲区（不需要更新深度缓冲区，因为地面仅在空白区域绘制）
-                self.color_buffer[color_index].store(final_r, Ordering::Relaxed);
-                self.color_buffer[color_index + 1].store(final_g, Ordering::Relaxed);
-                self.color_buffer[color_index + 2].store(final_b, Ordering::Relaxed);
+                self.color_buffer[color_index].store(color_u8[0], Ordering::Relaxed);
+                self.color_buffer[color_index + 1].store(color_u8[1], Ordering::Relaxed);
+                self.color_buffer[color_index + 2].store(color_u8[2], Ordering::Relaxed);
             }
         });
     }
@@ -440,10 +470,7 @@ impl Renderer {
         config.ambient_intensity = scene.ambient_intensity;
         config.ambient_color = scene.ambient_color;
 
-        // 清除帧缓冲区
-        let camera = &scene.active_camera;
         self.frame_buffer.clear(config);
-        self.frame_buffer.draw_ground_plane(camera, config);
 
         // 逐个渲染场景中的每个对象
         for object in &scene.objects {

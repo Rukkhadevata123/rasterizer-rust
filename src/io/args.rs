@@ -24,10 +24,6 @@ pub struct Args {
     #[arg(long, default_value_t = 120)]
     pub total_frames: usize,
 
-    /// 测试API模式 - 仅用于测试未使用的变换API
-    #[arg(long, default_value_t = false)]
-    pub test_api: bool,
-
     // ===== 输出设置 =====
     /// 输出文件的基础名称（例如: "render" -> "render_color.png", "render_depth.png"）
     #[arg(short, long, default_value = "output")]

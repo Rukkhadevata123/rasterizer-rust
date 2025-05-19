@@ -23,7 +23,6 @@ use utils::animation_utils::run_animation_loop;
 use utils::material_utils::{apply_pbr_parameters, apply_phong_parameters};
 use utils::model_utils::normalize_and_center_model;
 use utils::render_utils::{create_render_config, render_single_frame};
-use utils::test_utils::test_transformation_api;
 
 // 创建场景相机
 fn create_camera(args: &Args) -> Result<Camera, String> {
@@ -127,11 +126,6 @@ fn main() -> Result<(), String> {
             return Err(format!("GUI启动失败: {}", err));
         }
         return Ok(());
-    }
-
-    // 如果指定了test_api参数，则运行API测试
-    if args.test_api {
-        return test_transformation_api(&args.obj);
     }
 
     let start_time = Instant::now();
