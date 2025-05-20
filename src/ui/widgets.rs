@@ -663,31 +663,55 @@ impl WidgetMethods for RasterizerApp {
             // 视频生成按钮独占一行
             ui.add_space(10.0);
 
-            let video_button_text = if self.is_generating_video {
-                let progress = self.video_progress.load(Ordering::SeqCst);
-                let percent = (progress as f32 / self.total_frames as f32 * 100.0).round();
-                format!("生成视频中... {}%", percent)
-            } else if self.ffmpeg_available {
-                "生成视频".to_string()
-            } else {
-                "生成视频 (需安装ffmpeg)".to_string()
-            };
+            ui.horizontal(|ui| {
+                let video_button_text = if self.is_generating_video {
+                    let progress = self.video_progress.load(Ordering::SeqCst);
+                    let percent = (progress as f32 / self.total_frames as f32 * 100.0).round();
+                    format!("生成视频中... {}%", percent)
+                } else if self.ffmpeg_available {
+                    "生成视频".to_string()
+                } else {
+                    "生成视频 (需ffmpeg)".to_string()
+                };
 
-            let is_video_enabled = !self.is_realtime_rendering && !self.is_generating_video;
+                let is_video_button_enabled = !self.is_realtime_rendering && !self.is_generating_video && self.ffmpeg_available;
 
-            // 视频生成按钮
-            let video_button = ui.add_enabled(
-                is_video_enabled,
-                egui::Button::new(RichText::new(video_button_text).size(15.0))
-                .min_size(Vec2::new(ui.available_width(), 40.0))
-            );
+                // 计算按钮的可用宽度
+                let available_w_for_buttons = ui.available_width();
+                let spacing_x = ui.spacing().item_spacing.x;
 
-            if video_button.clicked() {
-                self.start_video_generation(ctx);
-            }
+                // 为“生成视频”按钮分配大约 60% 的空间，为“清空缓冲区”按钮分配大约 40%
+                let video_button_width = (available_w_for_buttons - spacing_x) * 0.6;
+                let clear_buffer_button_width = (available_w_for_buttons - spacing_x) * 0.4;
 
-            Self::add_tooltip(video_button, ctx,
-                              "在后台渲染多帧并生成MP4视频。\n需要系统安装ffmpeg。\n生成过程不会影响UI使用。");
+                // 视频生成按钮
+                let video_button_response = ui.add_enabled(
+                    is_video_button_enabled,
+                    egui::Button::new(RichText::new(video_button_text).size(15.0))
+                        .min_size(Vec2::new(video_button_width.max(80.0), 40.0))
+                );
+
+                if video_button_response.clicked() {
+                    self.start_video_generation(ctx);
+                }
+                Self::add_tooltip(video_button_response, ctx,
+                                  "在后台渲染多帧并生成MP4视频。\n需要系统安装ffmpeg。\n生成过程不会影响UI使用。");
+
+                // 清空缓冲区按钮
+                let is_clear_buffer_enabled = !self.pre_rendered_frames.lock().unwrap().is_empty() || self.is_pre_rendering;
+                let clear_buffer_text = RichText::new("清空缓冲区").size(15.0);
+                let clear_buffer_response = ui.add_enabled(
+                    is_clear_buffer_enabled,
+                    egui::Button::new(clear_buffer_text)
+                        .min_size(Vec2::new(clear_buffer_button_width.max(80.0), 40.0))
+                );
+
+                if clear_buffer_response.clicked() {
+                    self.clear_pre_rendered_frames();
+                }
+                Self::add_tooltip(clear_buffer_response, ctx,
+                                  "清除已预渲染的动画帧，释放内存。\n如果预渲染模式开启，下次播放时会重新生成。");
+            });
 
             // 渲染信息
             if let Some(time) = self.last_render_time {

@@ -126,7 +126,7 @@ impl RasterizerApp {
             last_frame_time: None,
 
             // 预渲染字段初始化
-            pre_render_mode: true, // 默认启用
+            pre_render_mode: false, // 默认禁用
             is_pre_rendering: false,
             pre_rendered_frames: Arc::new(Mutex::new(Vec::new())),
             current_frame_index: 0,
@@ -193,6 +193,39 @@ impl RasterizerApp {
 
         // 更新状态消息
         self.status_message = "已重置所有参数为默认值".to_string();
+    }
+
+    /// 清空预渲染的动画帧并停止进行中的预渲染
+    pub fn clear_pre_rendered_frames(&mut self) {
+        let was_pre_rendering = self.is_pre_rendering;
+        let mut frames_were_present = false;
+
+        if let Ok(mut guard) = self.pre_rendered_frames.lock() {
+            if !guard.is_empty() {
+                frames_were_present = true;
+                guard.clear();
+            }
+        }
+
+        if self.is_pre_rendering {
+            self.is_pre_rendering = false;
+            // 预渲染线程将完成其当前工作，但 handle_pre_rendering_tasks 不会再轮询它。
+        }
+
+        self.current_frame_index = 0;
+        self.pre_render_progress.store(0, Ordering::SeqCst);
+
+        if was_pre_rendering && frames_were_present {
+            self.status_message = "预渲染已停止，缓冲区已清空。".to_string();
+        } else if was_pre_rendering {
+            self.status_message = "预渲染已停止。".to_string();
+        } else if frames_were_present {
+            self.status_message = "预渲染动画缓冲区已清空。".to_string();
+        } else {
+            self.status_message = "预渲染动画缓冲区已为空。".to_string();
+        }
+        // 请求UI重绘以更新按钮状态和状态消息
+        // self.is_realtime_rendering = false; // 根据需要决定是否要停止实时渲染
     }
 
     /// 更新帧率统计，计算平滑帧率
