@@ -300,8 +300,8 @@ graph TD
 | 参数                        | 描述                                                                   | 默认值            |
 | :-------------------------- | :--------------------------------------------------------------------- | :---------------- |
 | `--animate`                 | 渲染动画序列而非单帧 (仅CLI模式)。                                       | `false`           |
-| `--total-frames <NUM>`      | 动画的总帧数 (用于 `--animate` 或GUI视频生成)。                           | `120`             |
 | `--fps <NUM>`               | 视频生成及预渲染帧率（每秒帧数）。                                        | `30`              |
+| `--rotation-cycles <NUM>`   | 动画完成的旋转圈数，影响生成的总帧数。                                    | `1.0`             |
 | `--animation-type <TYPE>`   | 动画类型: `CameraOrbit`, `ObjectLocalRotation`, `None`。                 | `CameraOrbit`     |
 | `--rotation-axis <AXIS>`    | 动画旋转轴: `X`, `Y`, `Z`, `Custom`。                                    | `Y`               |
 | `--custom-rotation-axis <X,Y,Z>` | 自定义旋转轴 (当 `rotation-axis` 为 `Custom` 时使用), 格式 "x,y,z"。 | `0,1,0`           |
@@ -374,7 +374,7 @@ cargo run --release -- \
 
 #### 4. 生成动画序列 (相机轨道)
 
-为兔子模型生成一个120帧的相机轨道动画序列。
+为兔子模型生成一个相机轨道动画序列，完成一整圈旋转。
 
 ```bash
 cargo run --release -- \
@@ -387,7 +387,8 @@ cargo run --release -- \
     --camera-at "0,0.1,0" \
     --use-phong \
     --animate \
-    --total-frames 120 \
+    --rotation-cycles 1.0 \
+    --fps 30 \
     --animation-type CameraOrbit \
     --rotation-axis Y
 ```

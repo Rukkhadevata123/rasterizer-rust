@@ -46,9 +46,9 @@ pub struct Args {
     #[arg(long, default_value_t = 1.0)]
     pub rotation_speed: f32,
 
-    /// 动画的总帧数
-    #[arg(long, default_value_t = 120)]
-    pub total_frames: usize,
+    /// 完整旋转圈数，用于视频生成(默认1圈)
+    #[arg(long, default_value_t = 1.0)]
+    pub rotation_cycles: f32,
 
     /// 动画类型 (用于 animate 模式或实时渲染)
     #[arg(long, value_enum, default_value_t = AnimationType::CameraOrbit)]

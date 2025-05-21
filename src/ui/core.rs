@@ -1,5 +1,5 @@
 use crate::ui::app::RasterizerApp;
-use egui::Color32;
+use egui::{Color32, ColorImage};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -196,7 +196,27 @@ impl CoreMethods for RasterizerApp {
             self.current_frame_index = 0;
             self.pre_render_progress.store(0, Ordering::SeqCst);
 
-            self.status_message = "已清空预渲染缓冲区".to_string();
+            // 检查是否正在生成视频，如果是，更新状态消息
+            if self.is_generating_video {
+                // 计算旋转参数，获取视频帧数
+                let (_, _, frames_per_rotation) =
+                    crate::utils::render_utils::calculate_rotation_parameters(
+                        self.args.rotation_speed,
+                        self.args.fps,
+                    );
+                let total_frames =
+                    (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
+                let progress = self.video_progress.load(Ordering::SeqCst);
+                let percent = (progress as f32 / total_frames as f32 * 100.0).round();
+
+                // 更新状态消息，不再区分是否使用预渲染帧
+                self.status_message = format!(
+                    "生成视频中... ({}/{}，{:.0}%)",
+                    progress, total_frames, percent
+                );
+            } else {
+                self.status_message = "已清空预渲染缓冲区".to_string();
+            }
         } else {
             self.status_message = "缓冲区已为空".to_string();
         }
@@ -291,4 +311,22 @@ impl CoreMethods for RasterizerApp {
             // - 优化内存分配
         }
     }
+}
+
+/// 辅助函数：将ColorImage转换为PNG格式的字节数组
+///
+/// # 参数
+/// * `image` - egui的ColorImage对象引用
+///
+/// # 返回值
+/// 转换为RGB格式的字节数组，可用于保存PNG图像
+pub fn frame_to_png_data(image: &ColorImage) -> Vec<u8> {
+    // ColorImage是RGBA格式，我们需要转换为RGB格式
+    let mut rgb_data = Vec::with_capacity(image.width() * image.height() * 3);
+    for pixel in &image.pixels {
+        rgb_data.push(pixel.r());
+        rgb_data.push(pixel.g());
+        rgb_data.push(pixel.b());
+    }
+    rgb_data
 }

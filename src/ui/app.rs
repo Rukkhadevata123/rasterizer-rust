@@ -203,26 +203,45 @@ impl eframe::App for RasterizerApp {
             // 检查线程是否已完成
             if let Some(handle) = &self.video_generation_thread {
                 if handle.is_finished() {
-                    // 线程已完成，更新状态
-                    let progress = self.video_progress.load(Ordering::SeqCst);
-                    if progress >= self.args.total_frames {
-                        // 视频生成成功完成
-                        self.status_message = format!(
-                            "视频生成完成，已保存到 {}/{}.mp4",
-                            self.args.output_dir, self.args.output
-                        );
-                        // 重置线程句柄和状态
-                        self.video_generation_thread = None;
-                        self.is_generating_video = false;
+                    // 线程已完成，获取结果并更新状态
+                    let result = std::mem::replace(&mut self.video_generation_thread, None)
+                        .unwrap()
+                        .join()
+                        .unwrap_or_else(|_| (false, "线程崩溃".to_string()));
+
+                    // 更新应用状态
+                    self.is_generating_video = false;
+
+                    // 根据结果更新状态消息，不再提及使用预渲染帧
+                    if result.0 {
+                        self.status_message = format!("视频生成成功: {}", result.1);
+                    } else {
+                        self.set_error(format!("视频生成失败: {}", result.1));
                     }
+
+                    // 重置进度
+                    self.video_progress.store(0, Ordering::SeqCst);
                 } else {
-                    // 线程仍在运行，更新进度显示
+                    // 线程仍在运行，更新进度显示...
                     let progress = self.video_progress.load(Ordering::SeqCst);
-                    let percent = (progress as f32 / self.args.total_frames as f32 * 100.0).round();
+
+                    // 使用通用函数计算实际帧数
+                    let (_, _, frames_per_rotation) =
+                        crate::utils::render_utils::calculate_rotation_parameters(
+                            self.args.rotation_speed,
+                            self.args.fps,
+                        );
+                    let total_frames =
+                        (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
+
+                    let percent = (progress as f32 / total_frames as f32 * 100.0).round();
+
+                    // 简化状态消息，不再区分是否使用预渲染帧
                     self.status_message = format!(
-                        "后台生成视频中... ({}/{}，{:.0}%)",
-                        progress, self.args.total_frames, percent
+                        "生成视频中... ({}/{}，{:.0}%)",
+                        progress, total_frames, percent
                     );
+
                     ctx.request_repaint_after(std::time::Duration::from_millis(500));
                 }
             }

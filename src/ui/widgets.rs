@@ -488,23 +488,29 @@ impl WidgetMethods for RasterizerApp {
 
             // 动画设置部分
             ui.collapsing("动画设置", |ui| {
-                // ... (total_frames, fps, pre_render_mode, rotation_speed 不变) ...
                 ui.horizontal(|ui| {
-                    ui.label("总帧数 (视频生成):");
-                    let resp = ui.add(egui::DragValue::new(&mut self.args.total_frames)
-                    .speed(1)
-                    .range(10..=1000));
-                    Self::add_tooltip(resp, ctx, "生成视频的总帧数");
+                    ui.label("旋转圈数:");
+                    let resp = ui.add(egui::DragValue::new(&mut self.args.rotation_cycles)
+                        .speed(0.1)
+                        .range(0.1..=10.0));
+                    Self::add_tooltip(resp, ctx, "动画完成的旋转圈数，影响生成的总帧数");
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("视频生成及预渲染帧率 (FPS):");
                     let resp = ui.add(egui::DragValue::new(&mut self.args.fps)
-                    .speed(1)
-                    .range(1..=60));
+                        .speed(1)
+                        .range(1..=60));
                     Self::add_tooltip(resp, ctx, "生成视频的每秒帧数");
                 });
 
+                let (_, seconds_per_rotation, frames_per_rotation) =
+                crate::utils::render_utils::calculate_rotation_parameters(self.args.rotation_speed, self.args.fps);
+                let total_frames = (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
+                    let total_seconds = (seconds_per_rotation * self.args.rotation_cycles) as f32;
+
+                ui.label(format!("估计总帧数: {} (视频长度: {:.1}秒)",
+                                        total_frames, total_seconds));
 
                 // 动画类型选择
                 ui.horizontal(|ui| {
@@ -681,7 +687,16 @@ impl WidgetMethods for RasterizerApp {
             ui.horizontal(|ui| {
                 let video_button_text = if self.is_generating_video {
                     let progress = self.video_progress.load(Ordering::SeqCst);
-                    let percent = (progress as f32 / self.args.total_frames as f32 * 100.0).round();
+
+                    // 使用通用函数计算实际帧数
+                    let (_, _, frames_per_rotation) =
+                        crate::utils::render_utils::calculate_rotation_parameters(
+                            self.args.rotation_speed,
+                            self.args.fps
+                        );
+                    let total_frames = (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
+
+                    let percent = (progress as f32 / total_frames as f32 * 100.0).round();
                     format!("生成视频中... {}%", percent)
                 } else if self.ffmpeg_available {
                     "生成视频".to_string()

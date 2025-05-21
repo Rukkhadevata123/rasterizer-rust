@@ -7,6 +7,8 @@ use crate::utils::save_utils::save_render_with_args;
 use nalgebra::Vector3;
 use std::time::Instant;
 
+const BASE_SPEED: f32 = 60.0; // 1s旋转60度
+
 /// 渲染单帧并保存结果
 ///
 /// 完整处理单帧渲染过程：渲染场景、保存输出、打印信息
@@ -98,7 +100,7 @@ pub fn animate_scene_step(
 /// 旋转角度增量（弧度）
 pub fn calculate_rotation_delta(rotation_speed: f32, dt: f32) -> f32 {
     // 硬编码基础速度系数为50.0
-    const BASE_SPEED: f32 = 50.0;
+
     (rotation_speed * dt * BASE_SPEED).to_radians()
 }
 
@@ -126,9 +128,6 @@ pub fn calculate_frame_rotation(total_frames: usize, direction: f32) -> f32 {
 /// # 返回值
 /// (有效旋转速度（度/秒），每圈秒数，每圈帧数)
 pub fn calculate_rotation_parameters(rotation_speed: f32, fps: usize) -> (f32, f32, usize) {
-    // 硬编码基础速度系数为50.0
-    const BASE_SPEED: f32 = 50.0;
-
     // 计算有效旋转速度 (度/秒)
     let mut effective_rotation_speed_dps = rotation_speed * BASE_SPEED;
 
@@ -167,11 +166,21 @@ pub fn run_animation_loop(
     scene: &mut Scene,
     renderer: &Renderer,
 ) -> Result<(), String> {
-    let total_frames = args.total_frames;
-    println!("开始动画渲染 ({} 帧)...", total_frames);
+    // 使用通用函数计算旋转参数
+    let (effective_rotation_speed_dps, _, frames_to_render) =
+        calculate_rotation_parameters(args.rotation_speed, args.fps);
+
+    // 根据用户要求的旋转圈数计算实际帧数
+    let total_frames = (frames_to_render as f32 * args.rotation_cycles) as usize;
+
     println!(
-        "动画类型: {:?}, 旋转轴类型: {:?}",
-        args.animation_type, args.rotation_axis
+        "开始动画渲染 ({} 帧, {:.2} 秒)...",
+        total_frames,
+        total_frames as f32 / args.fps as f32
+    );
+    println!(
+        "动画类型: {:?}, 旋转轴类型: {:?}, 速度: {:.1}度/秒",
+        args.animation_type, args.rotation_axis, effective_rotation_speed_dps
     );
 
     // 计算旋转方向
@@ -180,14 +189,14 @@ pub fn run_animation_loop(
         println!("自定义旋转轴: {:?}", rotation_axis_vec);
     }
 
-    // 计算每帧的旋转角度，基于总帧数
+    // 计算每帧的旋转角度
     let rotation_per_frame_rad =
-        calculate_frame_rotation(total_frames, args.rotation_speed.signum());
+        (360.0 / frames_to_render as f32).to_radians() * args.rotation_speed.signum();
 
-    // 计算每一帧
+    // 渲染所有帧
     for frame_num in 0..total_frames {
         let frame_start_time = Instant::now();
-        println!("--- 准备帧 {} ---", frame_num);
+        println!("--- 准备帧 {} / {} ---", frame_num + 1, total_frames);
 
         // 第一帧通常不旋转，保留原始状态
         if frame_num > 0 {
@@ -211,6 +220,9 @@ pub fn run_animation_loop(
         );
     }
 
-    println!("动画渲染完成。");
+    println!(
+        "动画渲染完成。总时长：{:.2}秒",
+        total_frames as f32 / args.fps as f32
+    );
     Ok(())
 }

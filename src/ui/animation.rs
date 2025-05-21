@@ -1,20 +1,97 @@
 use crate::core::render_config::create_render_config;
 use crate::core::renderer::Renderer;
-use crate::io::args::get_animation_axis_vector;
+use crate::io::args::{Args, get_animation_axis_vector};
+use crate::scene::scene_utils::Scene;
+use crate::ui::core::frame_to_png_data;
 use crate::utils::render_utils::{
-    animate_scene_step, calculate_frame_rotation, calculate_rotation_delta,
-    calculate_rotation_parameters,
+    animate_scene_step, calculate_rotation_delta, calculate_rotation_parameters,
 };
 use crate::utils::save_utils::save_image;
 use egui::{ColorImage, Context, TextureOptions};
 use std::fs;
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use super::app::RasterizerApp;
 use super::core::CoreMethods;
 use super::render_ui::RenderMethods;
+
+/// 渲染一圈的动画帧
+///
+/// # 参数
+/// * `scene_copy` - 场景的克隆
+/// * `args` - 渲染参数
+/// * `progress_arc` - 进度计数器
+/// * `ctx_clone` - UI上下文，用于更新界面
+/// * `width` - 渲染宽度
+/// * `height` - 渲染高度
+/// * `on_frame_rendered` - 帧渲染完成后的回调函数，参数为(帧序号, RGB颜色数据)
+///
+/// # 返回值
+/// 渲染的总帧数
+fn render_one_rotation_cycle<F>(
+    mut scene_copy: Scene,
+    args: &Args,
+    progress_arc: &Arc<AtomicUsize>,
+    ctx_clone: &Context,
+    width: usize,
+    height: usize,
+    mut on_frame_rendered: F,
+) -> usize
+where
+    F: FnMut(usize, Vec<u8>),
+{
+    // 创建线程渲染器
+    let thread_renderer = Renderer::new(width, height);
+
+    // 计算旋转参数
+    let (effective_rotation_speed_dps, _, frames_to_render) =
+        calculate_rotation_parameters(args.rotation_speed, args.fps);
+
+    // 计算旋转轴和每帧旋转角度
+    let rotation_axis_vec = get_animation_axis_vector(&args);
+    let rotation_increment_rad_per_frame =
+        (360.0 / frames_to_render as f32).to_radians() * effective_rotation_speed_dps.signum();
+
+    // 渲染每一帧
+    for frame_num in 0..frames_to_render {
+        progress_arc.store(frame_num, Ordering::SeqCst);
+
+        if frame_num > 0 {
+            // 使用通用函数执行动画步骤
+            animate_scene_step(
+                &mut scene_copy,
+                &args.animation_type,
+                &rotation_axis_vec,
+                rotation_increment_rad_per_frame,
+            );
+        }
+
+        // 渲染当前帧
+        let config = create_render_config(&scene_copy, args);
+        let mut config_for_render = config.clone();
+        thread_renderer.render_scene(&scene_copy, &mut config_for_render);
+
+        // 获取颜色数据
+        let color_data_rgb = thread_renderer.frame_buffer.get_color_buffer_bytes();
+
+        // 调用回调函数处理渲染结果
+        on_frame_rendered(frame_num, color_data_rgb);
+
+        // 定期请求UI更新
+        if frame_num % (frames_to_render.max(1) / 20).max(1) == 0 {
+            ctx_clone.request_repaint();
+        }
+    }
+
+    // 设置进度为完成状态
+    progress_arc.store(frames_to_render, Ordering::SeqCst);
+    ctx_clone.request_repaint();
+
+    frames_to_render
+}
 
 /// 动画与视频生成相关方法的特质
 pub trait AnimationMethods {
@@ -181,6 +258,14 @@ impl AnimationMethods for RasterizerApp {
                     return;
                 }
 
+                // 计算旋转参数，获取视频帧数
+                let (_, _, frames_per_rotation) =
+                    calculate_rotation_parameters(self.args.rotation_speed, self.args.fps);
+
+                let total_frames =
+                    (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
+
+                // 如果场景未加载，尝试加载
                 if self.scene.is_none() {
                     let obj_path = self.args.obj.clone();
                     match self.load_model(&obj_path) {
@@ -194,63 +279,147 @@ impl AnimationMethods for RasterizerApp {
 
                 let args_for_thread = self.args.clone();
                 let video_progress_arc = self.video_progress.clone();
-                let total_frames = self.args.total_frames;
                 let fps = self.args.fps;
                 let scene_clone = self.scene.as_ref().expect("场景已检查").clone();
 
+                // 检查是否有预渲染帧
+                let has_pre_rendered_frames = {
+                    let frames_guard = self.pre_rendered_frames.lock().unwrap();
+                    !frames_guard.is_empty()
+                };
+
+                // 如果没有预渲染帧，那么我们需要同时为预渲染缓冲区生成帧
+                let frames_for_pre_render = if !has_pre_rendered_frames {
+                    Some(self.pre_rendered_frames.clone())
+                } else {
+                    None
+                };
+
+                // 设置渲染状态
                 self.is_generating_video = true;
                 video_progress_arc.store(0, Ordering::SeqCst);
-                self.status_message = format!("开始后台生成视频 (0/{})...", total_frames);
+
+                // 更新状态消息 - 不再区分使用预渲染帧
+                self.status_message = format!(
+                    "开始生成视频 (0/{} 帧，{:.1} 秒时长)...",
+                    total_frames,
+                    total_frames as f32 / fps as f32
+                );
+
                 ctx.request_repaint();
                 let ctx_clone = ctx.clone();
                 let video_filename = format!("{}.mp4", args_for_thread.output);
                 let video_output_path = format!("{}/{}", output_dir, video_filename);
                 let frames_dir_clone = frames_dir.clone();
 
+                // 如果有预渲染帧，复制到线程中
+                let pre_rendered_frames_clone = if has_pre_rendered_frames {
+                    let frames_guard = self.pre_rendered_frames.lock().unwrap();
+                    Some(frames_guard.clone())
+                } else {
+                    None
+                };
+
                 let thread_handle = thread::spawn(move || {
-                    let mut scene_copy = scene_clone;
-                    let thread_renderer =
-                        Renderer::new(args_for_thread.width, args_for_thread.height);
+                    let width = args_for_thread.width;
+                    let height = args_for_thread.height;
+                    let mut rendered_frames = Vec::new();
 
-                    // 使用通用函数计算旋转角度
-                    let rotation_per_frame_rad = calculate_frame_rotation(
-                        total_frames,
-                        args_for_thread.rotation_speed.signum(),
-                    );
-                    let rotation_axis_vec = get_animation_axis_vector(&args_for_thread);
+                    // 使用预渲染帧或重新渲染
+                    if let Some(frames) = pre_rendered_frames_clone {
+                        // 使用预渲染帧 - 预渲染帧是一整圈动画
+                        let pre_rendered_count = frames.len();
 
-                    for frame_num in 0..total_frames {
-                        video_progress_arc.store(frame_num, Ordering::SeqCst);
+                        for frame_num in 0..total_frames {
+                            video_progress_arc.store(frame_num, Ordering::SeqCst);
 
-                        if frame_num > 0 {
-                            // 使用通用函数执行动画步骤
-                            animate_scene_step(
-                                &mut scene_copy,
-                                &args_for_thread.animation_type,
-                                &rotation_axis_vec,
-                                rotation_per_frame_rad,
-                            );
+                            // 计算当前帧在哪个圈和圈内的位置
+                            let cycle_position = frame_num % frames_per_rotation;
+
+                            // 将圈内位置映射到预渲染帧索引
+                            // 这处理了预渲染帧数量可能与理论帧数不匹配的情况
+                            let pre_render_idx =
+                                (cycle_position * pre_rendered_count) / frames_per_rotation;
+
+                            let frame = &frames[pre_render_idx.min(pre_rendered_count - 1)]; // 避免越界访问
+
+                            // 将ColorImage转换为PNG并保存
+                            let frame_path =
+                                format!("{}/frame_{:04}.png", frames_dir_clone, frame_num);
+                            let color_data = frame_to_png_data(frame);
+                            save_image(&frame_path, &color_data, width as u32, height as u32);
+
+                            if frame_num % (total_frames.max(1) / 20).max(1) == 0 {
+                                ctx_clone.request_repaint();
+                            }
                         }
+                    } else {
+                        // 使用通用渲染函数渲染一圈或部分圈
+                        let frames_arc = frames_for_pre_render.clone();
 
-                        let config = create_render_config(&scene_copy, &args_for_thread);
-                        let mut config_for_render = config.clone();
-                        thread_renderer.render_scene(&scene_copy, &mut config_for_render);
-                        let frame_path = format!("{}/frame_{:04}.png", frames_dir_clone, frame_num);
-                        let color_data = thread_renderer.frame_buffer.get_color_buffer_bytes();
-                        save_image(
-                            &frame_path,
-                            &color_data,
-                            args_for_thread.width as u32,
-                            args_for_thread.height as u32,
+                        let rendered_frame_count = render_one_rotation_cycle(
+                            scene_clone,
+                            &args_for_thread,
+                            &video_progress_arc,
+                            &ctx_clone,
+                            width,
+                            height,
+                            |frame_num, color_data_rgb| {
+                                // 保存RGB数据用于后续复用
+                                rendered_frames.push(color_data_rgb.clone());
+
+                                // 同时为视频保存PNG文件
+                                let frame_path =
+                                    format!("{}/frame_{:04}.png", frames_dir_clone, frame_num);
+                                save_image(
+                                    &frame_path,
+                                    &color_data_rgb,
+                                    width as u32,
+                                    height as u32,
+                                );
+
+                                // 如果需要同时保存到预渲染缓冲区
+                                if let Some(ref frames_arc) = frames_arc {
+                                    // 转换为RGBA格式以用于预渲染帧
+                                    let mut rgba_data = Vec::with_capacity(width * height * 4);
+                                    for chunk in color_data_rgb.chunks_exact(3) {
+                                        rgba_data.extend_from_slice(chunk);
+                                        rgba_data.push(255); // Alpha
+                                    }
+                                    let color_image = ColorImage::from_rgba_unmultiplied(
+                                        [width, height],
+                                        &rgba_data,
+                                    );
+                                    frames_arc.lock().unwrap().push(color_image);
+                                }
+                            },
                         );
 
-                        if frame_num % (total_frames.max(1) / 20).max(1) == 0 {
-                            ctx_clone.request_repaint();
+                        // 如果需要多于一圈，使用前面渲染的帧复用
+                        if rendered_frame_count < total_frames {
+                            for frame_num in rendered_frame_count..total_frames {
+                                video_progress_arc.store(frame_num, Ordering::SeqCst);
+
+                                // 复用之前渲染的帧
+                                let source_frame_idx = frame_num % rendered_frame_count;
+                                let source_data = &rendered_frames[source_frame_idx];
+
+                                // 保存为图片文件
+                                let frame_path =
+                                    format!("{}/frame_{:04}.png", frames_dir_clone, frame_num);
+                                save_image(&frame_path, &source_data, width as u32, height as u32);
+
+                                if frame_num % (total_frames.max(1) / 20).max(1) == 0 {
+                                    ctx_clone.request_repaint();
+                                }
+                            }
                         }
                     }
+
                     video_progress_arc.store(total_frames, Ordering::SeqCst);
                     ctx_clone.request_repaint();
 
+                    // 使用ffmpeg将帧序列合成为视频，并解决阻塞问题
                     let frames_pattern = format!("{}/frame_%04d.png", frames_dir_clone);
                     let ffmpeg_status = std::process::Command::new("ffmpeg")
                         .args([
@@ -268,15 +437,15 @@ impl AnimationMethods for RasterizerApp {
                             &video_output_path,
                         ])
                         .status();
+
                     let success = ffmpeg_status.is_ok_and(|s| s.success());
-                    if success {
-                        println!("视频生成成功：{}", video_output_path);
-                    } else {
-                        println!("ffmpeg调用失败或视频生成未成功。");
-                    }
+
+                    // 视频生成后清理临时文件
                     let _ = std::fs::remove_dir_all(&frames_dir_clone);
+
                     (success, video_output_path)
                 });
+
                 self.video_generation_thread = Some(thread_handle);
             }
             Err(e) => self.set_error(e),
@@ -308,7 +477,7 @@ impl AnimationMethods for RasterizerApp {
                 }
 
                 // 使用通用函数计算旋转参数
-                let (effective_rotation_speed_dps, seconds_per_rotation, frames_to_render) =
+                let (_, seconds_per_rotation, frames_to_render) =
                     calculate_rotation_parameters(self.args.rotation_speed, self.args.fps);
 
                 self.total_frames_for_pre_render_cycle = frames_to_render;
@@ -324,7 +493,6 @@ impl AnimationMethods for RasterizerApp {
                 let width = args_for_thread.width;
                 let height = args_for_thread.height;
                 let scene_clone = self.scene.as_ref().expect("场景已检查存在").clone();
-                let rotation_axis_vec = get_animation_axis_vector(&args_for_thread);
 
                 self.status_message = format!(
                     "开始预渲染动画 (0/{} 帧，转一圈需 {:.1} 秒)...",
@@ -334,47 +502,26 @@ impl AnimationMethods for RasterizerApp {
                 let ctx_clone = ctx.clone();
 
                 thread::spawn(move || {
-                    let mut scene_copy = scene_clone;
-                    let thread_renderer = Renderer::new(width, height);
-
-                    // 计算每帧旋转增量
-                    let rotation_increment_rad_per_frame = (360.0 / frames_to_render as f32)
-                        .to_radians()
-                        * effective_rotation_speed_dps.signum();
-
-                    for frame_num in 0..frames_to_render {
-                        progress_arc.store(frame_num, Ordering::SeqCst);
-
-                        if frame_num > 0 {
-                            // 使用通用函数执行动画步骤
-                            animate_scene_step(
-                                &mut scene_copy,
-                                &args_for_thread.animation_type,
-                                &rotation_axis_vec,
-                                rotation_increment_rad_per_frame,
-                            );
-                        }
-
-                        let config = create_render_config(&scene_copy, &args_for_thread);
-                        let mut config_for_render = config.clone();
-                        thread_renderer.render_scene(&scene_copy, &mut config_for_render);
-                        let color_data_rgb = thread_renderer.frame_buffer.get_color_buffer_bytes();
-                        let mut rgba_data = Vec::with_capacity(width * height * 4);
-                        for chunk in color_data_rgb.chunks_exact(3) {
-                            rgba_data.extend_from_slice(chunk);
-                            rgba_data.push(255); // Alpha
-                        }
-                        let color_image =
-                            ColorImage::from_rgba_unmultiplied([width, height], &rgba_data);
-                        frames_arc.lock().unwrap().push(color_image);
-
-                        if frame_num % (frames_to_render.max(1) / 20).max(1) == 0 {
-                            ctx_clone.request_repaint();
-                        }
-                    }
-
-                    progress_arc.store(frames_to_render, Ordering::SeqCst);
-                    ctx_clone.request_repaint();
+                    // 使用通用渲染函数
+                    render_one_rotation_cycle(
+                        scene_clone,
+                        &args_for_thread,
+                        &progress_arc,
+                        &ctx_clone,
+                        width,
+                        height,
+                        |_, color_data_rgb| {
+                            // 将RGB数据转换为RGBA并存储为ColorImage
+                            let mut rgba_data = Vec::with_capacity(width * height * 4);
+                            for chunk in color_data_rgb.chunks_exact(3) {
+                                rgba_data.extend_from_slice(chunk);
+                                rgba_data.push(255); // Alpha
+                            }
+                            let color_image =
+                                ColorImage::from_rgba_unmultiplied([width, height], &rgba_data);
+                            frames_arc.lock().unwrap().push(color_image);
+                        },
+                    );
                 });
             }
             Err(e) => {
