@@ -13,7 +13,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::app::RasterizerApp;
-use super::render::RenderMethods;
+use super::core::CoreMethods;
+use super::render_ui::RenderMethods;
 
 /// 动画与视频生成相关方法的特质
 pub trait AnimationMethods {
@@ -107,10 +108,9 @@ impl AnimationMethods for RasterizerApp {
         } else {
             1.0 / 60.0 // 默认 dt
         };
-
         if let Some(last_time) = self.last_frame_time {
             let frame_time = now.duration_since(last_time);
-            self.update_fps_stats(frame_time);
+            CoreMethods::update_fps_stats(self, frame_time);
         }
         self.last_frame_time = Some(now);
 
@@ -283,34 +283,10 @@ impl AnimationMethods for RasterizerApp {
         }
     }
 
-    /// 切换预渲染模式
+    /// 切换预渲染模式 (使用CoreMethods实现)
     fn toggle_pre_render_mode(&mut self) {
-        // 如果当前正在执行任务，不允许切换模式
-        if self.is_pre_rendering || self.is_generating_video {
-            self.status_message = "无法更改渲染模式: 当前有任务正在执行".to_string();
-            return;
-        }
-
-        // 切换模式
-        self.pre_render_mode = !self.pre_render_mode;
-
-        // 如果关闭预渲染模式，自动清空缓冲区
-        if !self.pre_render_mode {
-            if !self.pre_rendered_frames.lock().unwrap().is_empty() {
-                if let Ok(mut guard) = self.pre_rendered_frames.lock() {
-                    guard.clear();
-                }
-                self.status_message = "已关闭预渲染模式并清空缓冲区".to_string();
-            } else {
-                self.status_message = "已关闭预渲染模式".to_string();
-            }
-        } else {
-            // 如果开启预渲染模式，确保有最小的旋转速度
-            if self.args.rotation_speed.abs() < 0.01 {
-                self.args.rotation_speed = 1.0;
-            }
-            self.status_message = "已启用预渲染模式".to_string();
-        }
+        // 直接调用CoreMethods中的实现
+        CoreMethods::toggle_pre_render_mode(self);
     }
 
     fn start_pre_rendering(&mut self, ctx: &Context) {
@@ -472,9 +448,9 @@ impl AnimationMethods for RasterizerApp {
                 ctx.request_repaint_after(time_to_wait);
                 return;
             }
-            self.update_fps_stats(time_since_last_display);
+            CoreMethods::update_fps_stats(self, time_since_last_display);
         } else {
-            self.update_fps_stats(target_frame_duration);
+            CoreMethods::update_fps_stats(self, target_frame_duration);
         }
         self.last_frame_time = Some(now);
 

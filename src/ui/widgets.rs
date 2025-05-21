@@ -4,9 +4,10 @@ use std::sync::atomic::Ordering;
 
 use super::animation::AnimationMethods;
 use super::app::RasterizerApp;
+use super::core::CoreMethods;
 use crate::io::args::{AnimationType, RotationAxis, parse_vec3}; // 导入 parse_vec3 用于颜色字符串解析
 
-use super::render::RenderMethods;
+use super::render_ui::RenderMethods;
 
 /// UI组件和工具提示相关方法的特质
 pub trait WidgetMethods {
@@ -497,7 +498,7 @@ impl WidgetMethods for RasterizerApp {
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label("视频生成帧率 (FPS):");
+                    ui.label("视频生成及预渲染帧率 (FPS):");
                     let resp = ui.add(egui::DragValue::new(&mut self.args.fps)
                     .speed(1)
                     .range(1..=60));
@@ -553,7 +554,7 @@ impl WidgetMethods for RasterizerApp {
                 Self::add_tooltip(ui.label(""), ctx, "选择实时渲染和视频生成时的动画效果和旋转轴");
 
                 // 简化预渲染模式复选框逻辑
-                let pre_render_enabled = !self.is_pre_rendering && !self.is_generating_video && !self.is_realtime_rendering;
+                let pre_render_enabled = self.can_toggle_pre_render();
                 let mut pre_render_value = self.pre_render_mode;
 
                 let pre_render_resp = ui.add_enabled(
@@ -562,7 +563,7 @@ impl WidgetMethods for RasterizerApp {
                 );
 
                 if pre_render_resp.changed() && pre_render_value != self.pre_render_mode {
-                    self.toggle_pre_render_mode();
+                    super::animation::AnimationMethods::toggle_pre_render_mode(self);
                 }
                 Self::add_tooltip(pre_render_resp, ctx,
                         "启用后，首次开始实时渲染时会预先计算所有帧，\n然后以选定帧率无卡顿播放。\n要求更多内存，但播放更流畅。");
@@ -613,16 +614,14 @@ impl WidgetMethods for RasterizerApp {
                 Self::add_tooltip(render_button, ctx, "快捷键: Ctrl+R");
             });
 
-            ui.add_space(10.0);
-
-            // 动画渲染和截图按钮一行
+            ui.add_space(10.0);            // 动画渲染和截图按钮一行
             ui.horizontal(|ui| {
                 // 使用固定宽度代替计算的宽度
                 let button_width = 150.0;  // 固定宽度
 
-                // 动画渲染按钮
-                let realtime_button = ui.add_sized(
-                    [button_width, 40.0],
+                // 动画渲染按钮 - 使用add_enabled和sized分开处理
+                let realtime_button = ui.add_enabled(
+                    self.can_render_animation(), // 使用 can_render_animation 检查是否可以渲染
                     egui::Button::new(
                         RichText::new(if self.is_realtime_rendering {
                             "停止动画渲染"
@@ -631,26 +630,23 @@ impl WidgetMethods for RasterizerApp {
                         })
                         .size(15.0)
                     )
+                    .min_size(Vec2::new(button_width, 40.0)) // 使用min_size设置固定大小
                 );
 
                 if realtime_button.clicked() {
                     // 如果当前在播放预渲染帧，点击时只是停止播放
                     if self.is_realtime_rendering && self.pre_render_mode {
                         self.is_realtime_rendering = false;
-                        self.status_message = "已停止动画渲染".to_string();
-                    }
+                        self.status_message = "已停止动画渲染".to_string();                    } 
                     // 否则切换实时渲染状态
-                    else {
-                        self.is_realtime_rendering = !self.is_realtime_rendering;
-                        if self.is_realtime_rendering {
-                            self.last_frame_time = None; // 重置时间计时
-                            self.current_fps = 0.0;      // 重置帧率计数器
-                            self.fps_history.clear();    // 清空帧率历史记录
-                            self.avg_fps = 0.0;          // 重置平均帧率
-                            self.status_message = "开始动画渲染...".to_string();
-                        } else {
-                            self.status_message = "已停止动画渲染".to_string();
+                    else if !self.is_realtime_rendering {
+                        // 使用CoreMethods中的开始动画渲染方法
+                        if let Err(e) = self.start_animation_rendering() {
+                            self.set_error(e);
                         }
+                    } else {
+                        // 使用CoreMethods中的停止动画渲染方法
+                        self.stop_animation_rendering();
                     }
                 }
 
@@ -693,7 +689,7 @@ impl WidgetMethods for RasterizerApp {
                     "生成视频 (需ffmpeg)".to_string()
                 };
 
-                let is_video_button_enabled = !self.is_realtime_rendering && !self.is_generating_video && self.ffmpeg_available;
+                let is_video_button_enabled = self.can_generate_video();
 
                 // 计算按钮的可用宽度
                 let available_w_for_buttons = ui.available_width();
@@ -714,21 +710,18 @@ impl WidgetMethods for RasterizerApp {
                     self.start_video_generation(ctx);
                 }
                 Self::add_tooltip(video_button_response, ctx,
-                                  "在后台渲染多帧并生成MP4视频。\n需要系统安装ffmpeg。\n生成过程不会影响UI使用。");
-
-                // 清空缓冲区按钮
-                let has_frames = !self.pre_rendered_frames.lock().unwrap().is_empty();
-                let is_clear_buffer_enabled = has_frames && !self.is_realtime_rendering && !self.is_pre_rendering;
+                                  "在后台渲染多帧并生成MP4视频。\n需要系统安装ffmpeg。\n生成过程不会影响UI使用。");                // 清空缓冲区按钮
+                // 使用can_clear_buffer函数检查是否有可清空的帧
+                let is_clear_buffer_enabled = self.can_clear_buffer();
 
                 let clear_buffer_text = RichText::new("清空缓冲区").size(15.0);
                 let clear_buffer_response = ui.add_enabled(
                     is_clear_buffer_enabled,
                     egui::Button::new(clear_buffer_text)
                         .min_size(Vec2::new(clear_buffer_button_width.max(80.0), 40.0))
-                );
-
-                if clear_buffer_response.clicked() {
-                    self.clear_pre_rendered_frames();
+                );                if clear_buffer_response.clicked() {
+                    // 使用CoreMethods实现
+                    CoreMethods::clear_pre_rendered_frames(self);
                 }
                 Self::add_tooltip(clear_buffer_response, ctx,
                 "清除已预渲染的动画帧，释放内存。\n请先停止动画渲染再清除缓冲区。");

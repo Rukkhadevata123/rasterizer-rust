@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex};
 
 // 导入其他UI模块
 use super::animation::AnimationMethods;
-use super::render::RenderMethods;
+use super::core::CoreMethods;
+use super::render_ui::RenderMethods;
 use super::widgets::WidgetMethods;
 
 /// GUI应用状态
@@ -138,7 +139,9 @@ impl RasterizerApp {
 
     /// 设置错误信息并显示错误对话框
     pub fn set_error(&mut self, message: String) {
-        self.status_message = message.clone();
+        // 使用CoreMethods中的实现
+        CoreMethods::set_error(self, message.clone());
+        // 额外设置UI特有的错误对话框
         self.error_message = message;
         self.show_error_dialog = true;
     }
@@ -172,84 +175,12 @@ impl RasterizerApp {
         // 更新Args对象
         self.args = new_args;
 
-        // 更新状态消息
-        self.status_message = "已重置所有参数为默认值".to_string();
+        // 使用CoreMethods中的实现重置应用状态
+        CoreMethods::reset_to_defaults(self);
     }
 
-    /// 清空预渲染的动画帧并停止进行中的预渲染
-    pub fn clear_pre_rendered_frames(&mut self) {
-        // 如果正在实时渲染，不允许清除缓冲区
-        if self.is_realtime_rendering {
-            self.status_message = "请先停止动画渲染，再清除缓冲区".to_string();
-            return;
-        }
-
-        // 如果正在预渲染，不允许清除缓冲区
-        if self.is_pre_rendering {
-            self.status_message = "正在预渲染中，无法清空缓冲区".to_string();
-            return;
-        }
-
-        // 获取当前是否有预渲染帧
-        let mut frames_were_present = false;
-        if let Ok(mut guard) = self.pre_rendered_frames.lock() {
-            if !guard.is_empty() {
-                frames_were_present = true;
-                guard.clear();
-            }
-        }
-
-        // 重置状态
-        self.current_frame_index = 0;
-        self.pre_render_progress.store(0, Ordering::SeqCst);
-        self.pre_render_mode = false; // 清空后自动关闭预渲染模式
-
-        // 更新状态消息
-        if frames_were_present {
-            self.status_message = "预渲染动画缓冲区已清空".to_string();
-        } else {
-            self.status_message = "预渲染动画缓冲区已为空".to_string();
-        }
-    }
-
-    /// 更新帧率统计，计算平滑帧率
-    pub fn update_fps_stats(&mut self, frame_time: std::time::Duration) {
-        // 计算当前帧率
-        // 避免除零，使用一个最小值
-        if frame_time > std::time::Duration::from_micros(1) {
-            self.current_fps = 1.0 / frame_time.as_secs_f32();
-        }
-
-        // 保持最多30个历史帧率记录
-        const MAX_HISTORY: usize = 30;
-        if self.fps_history.len() >= MAX_HISTORY {
-            self.fps_history.remove(0); // 移除最早的记录
-        }
-        self.fps_history.push(self.current_fps);
-
-        // 计算平均帧率
-        if !self.fps_history.is_empty() {
-            let sum: f32 = self.fps_history.iter().sum();
-            self.avg_fps = sum / self.fps_history.len() as f32;
-        }
-    }
-
-    /// 获取适合显示的帧率文本和颜色
-    fn get_fps_display(&self) -> (String, egui::Color32) {
-        // 根据帧率高低选择颜色
-        let color = if self.avg_fps >= 30.0 {
-            egui::Color32::GREEN // 高帧率: 绿色
-        } else if self.avg_fps >= 15.0 {
-            egui::Color32::YELLOW // 中等帧率: 黄色
-        } else {
-            egui::Color32::RED // 低帧率: 红色
-        };
-
-        // 帧率文本
-        let text = format!("{:.1} FPS", self.avg_fps);
-
-        (text, color)
-    }
+    // 注意：clear_pre_rendered_frames, update_fps_stats 和 get_fps_display
+    // 方法已删除，直接使用 CoreMethods trait 的实现
 }
 
 impl eframe::App for RasterizerApp {
@@ -305,7 +236,7 @@ impl eframe::App for RasterizerApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // 仅在实时渲染时显示帧率
                     if self.is_realtime_rendering {
-                        let (fps_text, fps_color) = self.get_fps_display();
+                        let (fps_text, fps_color) = CoreMethods::get_fps_display(self);
                         ui.label(RichText::new(&fps_text).color(fps_color));
                         ui.separator();
                     }
@@ -356,6 +287,9 @@ impl eframe::App for RasterizerApp {
                 });
             }
         });
+
+        // 在每帧更新结束时清理不需要的资源
+        self.cleanup_resources();
     }
 }
 
