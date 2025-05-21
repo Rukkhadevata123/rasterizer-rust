@@ -38,6 +38,14 @@ pub struct Args {
     #[arg(long, default_value_t = false)]
     pub animate: bool,
 
+    /// 动画帧率 (fps)，用于视频生成和预渲染
+    #[arg(long, default_value_t = 30)]
+    pub fps: usize,
+
+    /// 旋转速度系数，控制动画旋转的速度
+    #[arg(long, default_value_t = 1.0)]
+    pub rotation_speed: f32,
+
     /// 动画的总帧数
     #[arg(long, default_value_t = 120)]
     pub total_frames: usize,

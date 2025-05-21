@@ -490,7 +490,7 @@ impl WidgetMethods for RasterizerApp {
                 // ... (total_frames, fps, pre_render_mode, rotation_speed 不变) ...
                 ui.horizontal(|ui| {
                     ui.label("总帧数 (视频生成):");
-                    let resp = ui.add(egui::DragValue::new(&mut self.total_frames)
+                    let resp = ui.add(egui::DragValue::new(&mut self.args.total_frames)
                     .speed(1)
                     .range(10..=1000));
                     Self::add_tooltip(resp, ctx, "生成视频的总帧数");
@@ -498,7 +498,7 @@ impl WidgetMethods for RasterizerApp {
 
                 ui.horizontal(|ui| {
                     ui.label("视频生成帧率 (FPS):");
-                    let resp = ui.add(egui::DragValue::new(&mut self.fps)
+                    let resp = ui.add(egui::DragValue::new(&mut self.args.fps)
                     .speed(1)
                     .range(1..=60));
                     Self::add_tooltip(resp, ctx, "生成视频的每秒帧数");
@@ -552,13 +552,24 @@ impl WidgetMethods for RasterizerApp {
                 }
                 Self::add_tooltip(ui.label(""), ctx, "选择实时渲染和视频生成时的动画效果和旋转轴");
 
-                let pre_render_resp = ui.checkbox(&mut self.pre_render_mode, "启用预渲染模式");
+                // 简化预渲染模式复选框逻辑
+                let pre_render_enabled = !self.is_pre_rendering && !self.is_generating_video && !self.is_realtime_rendering;
+                let mut pre_render_value = self.pre_render_mode;
+
+                let pre_render_resp = ui.add_enabled(
+                    pre_render_enabled,
+                    egui::Checkbox::new(&mut pre_render_value, "启用预渲染模式")
+                );
+
+                if pre_render_resp.changed() && pre_render_value != self.pre_render_mode {
+                    self.toggle_pre_render_mode();
+                }
                 Self::add_tooltip(pre_render_resp, ctx,
-                                "启用后，首次开始实时渲染时会预先计算所有帧，\n然后以选定帧率无卡顿播放。\n要求更多内存，但播放更流畅。");
+                        "启用后，首次开始实时渲染时会预先计算所有帧，\n然后以选定帧率无卡顿播放。\n要求更多内存，但播放更流畅。");
 
                 ui.horizontal(|ui| {
                     ui.label("旋转速度 (实时渲染):");
-                    let resp = ui.add(egui::Slider::new(&mut self.rotation_speed, 0.1..=5.0));
+                    let resp = ui.add(egui::Slider::new(&mut self.args.rotation_speed, 0.1..=5.0));
                     Self::add_tooltip(resp, ctx, "实时渲染中的旋转速度倍率");
                 });
             });
@@ -623,15 +634,23 @@ impl WidgetMethods for RasterizerApp {
                 );
 
                 if realtime_button.clicked() {
-                    self.is_realtime_rendering = !self.is_realtime_rendering;
-                    if self.is_realtime_rendering {
-                        self.last_frame_time = None; // 重置时间计时
-                        self.current_fps = 0.0;      // 重置帧率计数器
-                        self.fps_history.clear();    // 清空帧率历史记录
-                        self.avg_fps = 0.0;          // 重置平均帧率
-                        self.status_message = "开始动画渲染...".to_string();
-                    } else {
+                    // 如果当前在播放预渲染帧，点击时只是停止播放
+                    if self.is_realtime_rendering && self.pre_render_mode {
+                        self.is_realtime_rendering = false;
                         self.status_message = "已停止动画渲染".to_string();
+                    }
+                    // 否则切换实时渲染状态
+                    else {
+                        self.is_realtime_rendering = !self.is_realtime_rendering;
+                        if self.is_realtime_rendering {
+                            self.last_frame_time = None; // 重置时间计时
+                            self.current_fps = 0.0;      // 重置帧率计数器
+                            self.fps_history.clear();    // 清空帧率历史记录
+                            self.avg_fps = 0.0;          // 重置平均帧率
+                            self.status_message = "开始动画渲染...".to_string();
+                        } else {
+                            self.status_message = "已停止动画渲染".to_string();
+                        }
                     }
                 }
 
@@ -666,7 +685,7 @@ impl WidgetMethods for RasterizerApp {
             ui.horizontal(|ui| {
                 let video_button_text = if self.is_generating_video {
                     let progress = self.video_progress.load(Ordering::SeqCst);
-                    let percent = (progress as f32 / self.total_frames as f32 * 100.0).round();
+                    let percent = (progress as f32 / self.args.total_frames as f32 * 100.0).round();
                     format!("生成视频中... {}%", percent)
                 } else if self.ffmpeg_available {
                     "生成视频".to_string()
@@ -698,7 +717,9 @@ impl WidgetMethods for RasterizerApp {
                                   "在后台渲染多帧并生成MP4视频。\n需要系统安装ffmpeg。\n生成过程不会影响UI使用。");
 
                 // 清空缓冲区按钮
-                let is_clear_buffer_enabled = !self.pre_rendered_frames.lock().unwrap().is_empty() || self.is_pre_rendering;
+                let has_frames = !self.pre_rendered_frames.lock().unwrap().is_empty();
+                let is_clear_buffer_enabled = has_frames && !self.is_realtime_rendering && !self.is_pre_rendering;
+
                 let clear_buffer_text = RichText::new("清空缓冲区").size(15.0);
                 let clear_buffer_response = ui.add_enabled(
                     is_clear_buffer_enabled,
@@ -710,7 +731,7 @@ impl WidgetMethods for RasterizerApp {
                     self.clear_pre_rendered_frames();
                 }
                 Self::add_tooltip(clear_buffer_response, ctx,
-                                  "清除已预渲染的动画帧，释放内存。\n如果预渲染模式开启，下次播放时会重新生成。");
+                "清除已预渲染的动画帧，释放内存。\n请先停止动画渲染再清除缓冲区。");
             });
 
             // 渲染信息

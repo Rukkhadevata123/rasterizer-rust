@@ -1,6 +1,6 @@
 use crate::core::render_config::{RenderConfig, create_render_config};
 use crate::core::renderer::Renderer;
-use crate::io::args::{AnimationType, Args, get_animation_axis_vector}; // 导入 AnimationType 和 get_animation_axis_vector
+use crate::io::args::{AnimationType, Args, get_animation_axis_vector};
 use crate::scene::scene_object::Transformable;
 use crate::scene::scene_utils::Scene;
 use crate::utils::save_utils::save_render_with_args;
@@ -56,30 +56,112 @@ pub fn render_single_frame(
     Ok(())
 }
 
-/// 使场景中的所有对象围绕其局部自定义轴旋转。
-fn animate_objects_local_rotation(
+/// 执行单个步骤的场景动画
+///
+/// 根据指定的动画类型、旋转轴和角度增量更新场景
+///
+/// # 参数
+/// * `scene` - 要更新的场景
+/// * `animation_type` - 动画类型
+/// * `rotation_axis` - 旋转轴向量
+/// * `rotation_delta_rad` - 旋转角度增量（弧度）
+pub fn animate_scene_step(
     scene: &mut Scene,
+    animation_type: &AnimationType,
     rotation_axis: &Vector3<f32>,
-    rotation_increment_rad: f32,
+    rotation_delta_rad: f32,
 ) {
-    for object in scene.objects.iter_mut() {
-        // SceneObject 实现了 Transformable, Transformable 提供了 rotate 方法
-        object.rotate(rotation_axis, rotation_increment_rad);
+    match animation_type {
+        AnimationType::CameraOrbit => {
+            let mut camera = scene.active_camera.clone();
+            camera.orbit(rotation_axis, rotation_delta_rad);
+            scene.set_camera(camera);
+        }
+        AnimationType::ObjectLocalRotation => {
+            for object in scene.objects.iter_mut() {
+                object.rotate(rotation_axis, rotation_delta_rad);
+            }
+        }
+        AnimationType::None => { /* 无动画 */ }
     }
 }
 
-/// 使相机围绕场景的世界自定义轴旋转（轨道动画）。
-fn animate_camera_orbit(
-    scene: &mut Scene,
-    rotation_axis: &Vector3<f32>,
-    rotation_increment_rad: f32,
-) {
-    let mut camera = scene.active_camera.clone();
-    // 直接使用 Camera 结构中已有的 orbit 方法
-    camera.orbit(rotation_axis, rotation_increment_rad);
-    scene.set_camera(camera);
+/// 计算旋转增量的辅助函数
+///
+/// 根据速度系数和时间增量计算旋转角度
+///
+/// # 参数
+/// * `rotation_speed` - 旋转速度系数
+/// * `dt` - 时间增量（秒）
+///
+/// # 返回值
+/// 旋转角度增量（弧度）
+pub fn calculate_rotation_delta(rotation_speed: f32, dt: f32) -> f32 {
+    // 硬编码基础速度系数为50.0
+    const BASE_SPEED: f32 = 50.0;
+    (rotation_speed * dt * BASE_SPEED).to_radians()
 }
 
+/// 计算每帧旋转增量（用于动画/视频生成）
+///
+/// # 参数
+/// * `total_frames` - 总帧数
+/// * `direction` - 旋转方向，正/负值
+///
+/// # 返回值
+/// 每帧的旋转角度（弧度）
+pub fn calculate_frame_rotation(total_frames: usize, direction: f32) -> f32 {
+    let rotation_per_frame_rad = (360.0 / total_frames.max(1) as f32).to_radians();
+    rotation_per_frame_rad * direction.signum()
+}
+
+/// 计算有效旋转速度及旋转周期
+///
+/// 确保旋转速度不会太小，并计算完成一圈所需的时间和帧数
+///
+/// # 参数
+/// * `rotation_speed` - 原始旋转速度系数
+/// * `fps` - 每秒帧数
+///
+/// # 返回值
+/// (有效旋转速度（度/秒），每圈秒数，每圈帧数)
+pub fn calculate_rotation_parameters(rotation_speed: f32, fps: usize) -> (f32, f32, usize) {
+    // 硬编码基础速度系数为50.0
+    const BASE_SPEED: f32 = 50.0;
+
+    // 计算有效旋转速度 (度/秒)
+    let mut effective_rotation_speed_dps = rotation_speed * BASE_SPEED;
+
+    // 确保旋转速度不会太小
+    if effective_rotation_speed_dps.abs() < 0.001 {
+        effective_rotation_speed_dps = 0.1_f32.copysign(rotation_speed.signum());
+        if effective_rotation_speed_dps == 0.0 {
+            effective_rotation_speed_dps = 0.1;
+        }
+    }
+
+    // 计算完成一圈需要的秒数
+    let seconds_per_rotation = 360.0 / effective_rotation_speed_dps.abs();
+
+    // 计算一圈需要的帧数
+    let frames_for_one_rotation = (seconds_per_rotation * fps as f32).ceil() as usize;
+
+    (
+        effective_rotation_speed_dps,
+        seconds_per_rotation,
+        frames_for_one_rotation,
+    )
+}
+
+/// 执行完整的动画渲染循环
+///
+/// # 参数
+/// * `args` - 命令行参数引用
+/// * `scene` - 场景引用
+/// * `renderer` - 渲染器引用
+///
+/// # 返回值
+/// Result，成功为()，失败为包含错误信息的字符串
 pub fn run_animation_loop(
     args: &Args,
     scene: &mut Scene,
@@ -92,37 +174,32 @@ pub fn run_animation_loop(
         args.animation_type, args.rotation_axis
     );
 
+    // 计算旋转方向
     let rotation_axis_vec = get_animation_axis_vector(args);
     if args.rotation_axis == crate::io::args::RotationAxis::Custom {
         println!("自定义旋转轴: {:?}", rotation_axis_vec);
     }
 
-    let rotation_per_frame_deg = 360.0 / total_frames as f32;
-    let rotation_per_frame_rad = rotation_per_frame_deg.to_radians();
+    // 计算每帧的旋转角度，基于总帧数
+    let rotation_per_frame_rad =
+        calculate_frame_rotation(total_frames, args.rotation_speed.signum());
 
+    // 计算每一帧
     for frame_num in 0..total_frames {
         let frame_start_time = Instant::now();
         println!("--- 准备帧 {} ---", frame_num);
 
+        // 第一帧通常不旋转，保留原始状态
         if frame_num > 0 {
-            // 第一帧是初始状态
-            match args.animation_type {
-                AnimationType::CameraOrbit => {
-                    animate_camera_orbit(scene, &rotation_axis_vec, rotation_per_frame_rad);
-                }
-                AnimationType::ObjectLocalRotation => {
-                    animate_objects_local_rotation(
-                        scene,
-                        &rotation_axis_vec,
-                        rotation_per_frame_rad,
-                    );
-                }
-                AnimationType::None => {
-                    // 无动画
-                }
-            }
+            animate_scene_step(
+                scene,
+                &args.animation_type,
+                &rotation_axis_vec,
+                rotation_per_frame_rad,
+            );
         }
 
+        // 渲染和保存当前帧
         let config = create_render_config(scene, args);
         let frame_output_name = format!("frame_{:03}", frame_num);
         render_single_frame(args, scene, renderer, &config, &frame_output_name)?;

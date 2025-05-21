@@ -1,5 +1,5 @@
 use crate::core::renderer::Renderer;
-use crate::io::args::{AnimationType, Args, RotationAxis}; // 确保导入 AnimationType 和 RotationAxis
+use crate::io::args::Args; // 确保导入 AnimationType 和 RotationAxis
 use crate::material_system::materials::ModelData;
 use crate::scene::scene_utils::Scene;
 use clap::Parser;
@@ -29,11 +29,6 @@ pub struct RasterizerApp {
     pub show_error_dialog: bool,
     pub error_message: String,
 
-    // 动画相关参数
-    pub total_frames: usize,
-    pub fps: usize,
-    pub rotation_speed: f32,
-
     // 实时渲染性能统计
     pub current_fps: f32,      // 当前实时帧率
     pub fps_history: Vec<f32>, // 帧率历史记录，用于平滑显示
@@ -48,15 +43,9 @@ pub struct RasterizerApp {
     pub is_pre_rendering: bool, // 是否正在预渲染
     pub pre_rendered_frames: Arc<Mutex<Vec<ColorImage>>>, // 预渲染的帧集合
     pub current_frame_index: usize, // 当前显示的帧索引
-    pub pre_render_progress: Arc<AtomicUsize>,
-    pub animation_time: f32, // 全局动画计时器，用于跟踪动画总时长
-    pub total_frames_for_pre_render_cycle: usize, // 预渲染一个完整周期所需的总帧数                 // 预渲染进度
-    // 用于跟踪上次预渲染时的参数
-    pub last_pre_render_fps: Option<usize>,
-    pub last_pre_render_speed: Option<f32>,
-    pub last_pre_render_animation_type: Option<AnimationType>, // 新增
-    pub last_pre_render_rotation_axis: Option<RotationAxis>,   // 新增
-    pub last_pre_render_custom_axis: Option<String>,           // 新增
+    pub pre_render_progress: Arc<AtomicUsize>, // 预渲染进度
+    pub animation_time: f32,    // 全局动画计时器，用于跟踪动画总时长
+    pub total_frames_for_pre_render_cycle: usize, // 预渲染一个完整周期所需的总帧数
 
     // 视频生成状态
     pub is_generating_video: bool,
@@ -115,9 +104,6 @@ impl RasterizerApp {
             show_error_dialog: false,
             error_message: String::new(),
 
-            total_frames: 120,
-            fps: 30,
-            rotation_speed: 1.0,
             current_fps: 0.0,        // 初始化当前帧率
             fps_history: Vec::new(), // 初始化帧率历史记录
             avg_fps: 0.0,            // 初始化平均帧率
@@ -133,11 +119,6 @@ impl RasterizerApp {
             pre_render_progress: Arc::new(AtomicUsize::new(0)),
             animation_time: 0.0,
             total_frames_for_pre_render_cycle: 0,
-            last_pre_render_fps: None,
-            last_pre_render_speed: None,
-            last_pre_render_animation_type: None, // 初始化新增字段
-            last_pre_render_rotation_axis: None,  // 初始化新增字段
-            last_pre_render_custom_axis: None,
 
             is_generating_video: false,
             video_generation_thread: None,
@@ -197,9 +178,20 @@ impl RasterizerApp {
 
     /// 清空预渲染的动画帧并停止进行中的预渲染
     pub fn clear_pre_rendered_frames(&mut self) {
-        let was_pre_rendering = self.is_pre_rendering;
-        let mut frames_were_present = false;
+        // 如果正在实时渲染，不允许清除缓冲区
+        if self.is_realtime_rendering {
+            self.status_message = "请先停止动画渲染，再清除缓冲区".to_string();
+            return;
+        }
 
+        // 如果正在预渲染，不允许清除缓冲区
+        if self.is_pre_rendering {
+            self.status_message = "正在预渲染中，无法清空缓冲区".to_string();
+            return;
+        }
+
+        // 获取当前是否有预渲染帧
+        let mut frames_were_present = false;
         if let Ok(mut guard) = self.pre_rendered_frames.lock() {
             if !guard.is_empty() {
                 frames_were_present = true;
@@ -207,25 +199,17 @@ impl RasterizerApp {
             }
         }
 
-        if self.is_pre_rendering {
-            self.is_pre_rendering = false;
-            // 预渲染线程将完成其当前工作，但 handle_pre_rendering_tasks 不会再轮询它。
-        }
-
+        // 重置状态
         self.current_frame_index = 0;
         self.pre_render_progress.store(0, Ordering::SeqCst);
+        self.pre_render_mode = false; // 清空后自动关闭预渲染模式
 
-        if was_pre_rendering && frames_were_present {
-            self.status_message = "预渲染已停止，缓冲区已清空。".to_string();
-        } else if was_pre_rendering {
-            self.status_message = "预渲染已停止。".to_string();
-        } else if frames_were_present {
-            self.status_message = "预渲染动画缓冲区已清空。".to_string();
+        // 更新状态消息
+        if frames_were_present {
+            self.status_message = "预渲染动画缓冲区已清空".to_string();
         } else {
-            self.status_message = "预渲染动画缓冲区已为空。".to_string();
+            self.status_message = "预渲染动画缓冲区已为空".to_string();
         }
-        // 请求UI重绘以更新按钮状态和状态消息
-        // self.is_realtime_rendering = false; // 根据需要决定是否要停止实时渲染
     }
 
     /// 更新帧率统计，计算平滑帧率
@@ -290,7 +274,7 @@ impl eframe::App for RasterizerApp {
                 if handle.is_finished() {
                     // 线程已完成，更新状态
                     let progress = self.video_progress.load(Ordering::SeqCst);
-                    if progress >= self.total_frames {
+                    if progress >= self.args.total_frames {
                         // 视频生成成功完成
                         self.status_message = format!(
                             "视频生成完成，已保存到 {}/{}.mp4",
@@ -303,10 +287,10 @@ impl eframe::App for RasterizerApp {
                 } else {
                     // 线程仍在运行，更新进度显示
                     let progress = self.video_progress.load(Ordering::SeqCst);
-                    let percent = (progress as f32 / self.total_frames as f32 * 100.0).round();
+                    let percent = (progress as f32 / self.args.total_frames as f32 * 100.0).round();
                     self.status_message = format!(
                         "后台生成视频中... ({}/{}，{:.0}%)",
-                        progress, self.total_frames, percent
+                        progress, self.args.total_frames, percent
                     );
                     ctx.request_repaint_after(std::time::Duration::from_millis(500));
                 }
