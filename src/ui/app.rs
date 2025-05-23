@@ -1,5 +1,5 @@
 use crate::core::renderer::Renderer;
-use crate::io::args::Args; // 确保导入 AnimationType 和 RotationAxis
+use crate::io::render_settings::RenderSettings; // 替换原有的Args导入
 use crate::material_system::materials::ModelData;
 use crate::scene::scene_utils::Scene;
 use clap::Parser;
@@ -20,8 +20,8 @@ pub struct RasterizerApp {
     pub scene: Option<Scene>,
     pub model_data: Option<ModelData>,
 
-    // 命令行参数（所有渲染参数现在都在这里）
-    pub args: Args,
+    // 渲染设置（替换原有的args字段）
+    pub settings: RenderSettings,
 
     // UI状态
     pub rendered_image: Option<egui::TextureHandle>,
@@ -59,12 +59,11 @@ pub struct RasterizerApp {
 
 impl RasterizerApp {
     /// 创建新的GUI应用实例
-    pub fn new(args: Args, cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(settings: RenderSettings, cc: &eframe::CreationContext<'_>) -> Self {
         // 配置字体，添加中文支持
         let mut fonts = egui::FontDefinitions::default();
 
         // 尝试添加一个支持中文的字体
-        // 注意：这里使用系统中可能存在的中文字体，如果字体不存在，可能需要调整
         fonts.font_data.insert(
             "chinese_font".to_owned(),
             egui::FontData::from_static(include_bytes!(
@@ -81,13 +80,13 @@ impl RasterizerApp {
         // 应用字体设置
         cc.egui_ctx.set_fonts(fonts);
 
-        // 确保args中的Phong着色开启，PBR关闭（这是一个浅复制，不会改变原始args）
-        let mut args_copy = args.clone();
-        args_copy.use_phong = true;
-        args_copy.use_pbr = false; // 确保PBR默认关闭
+        // 确保settings中的Phong着色开启，PBR关闭（这是一个浅复制，不会改变原始settings）
+        let mut settings_copy = settings.clone();
+        settings_copy.use_phong = true;
+        settings_copy.use_pbr = false; // 确保PBR默认关闭
 
         // 创建渲染器
-        let renderer = Renderer::new(args_copy.width, args_copy.height);
+        let renderer = Renderer::new(settings_copy.width, settings_copy.height);
 
         // 检查ffmpeg是否可用
         let ffmpeg_available = Self::check_ffmpeg_available();
@@ -97,7 +96,7 @@ impl RasterizerApp {
             renderer,
             scene: None,
             model_data: None,
-            args: args_copy,
+            settings: settings_copy,
 
             rendered_image: None,
             last_render_time: None,
@@ -149,34 +148,34 @@ impl RasterizerApp {
     /// 重置所有参数为默认值
     pub fn reset_to_defaults(&mut self) {
         // 保留当前的文件路径和输出设置
-        let output_dir = self.args.output_dir.clone();
-        let output_name = self.args.output.clone();
+        let output_dir = self.settings.output_dir.clone();
+        let output_name = self.settings.output.clone();
 
-        // 创建新的默认Args实例
-        let mut new_args = if let Some(obj_path) = &self.args.obj {
-            Args::parse_from(["program_name", "--obj", obj_path].iter())
+        // 创建新的默认RenderSettings实例
+        let mut new_settings = if let Some(obj_path) = &self.settings.obj {
+            RenderSettings::parse_from(["program_name", "--obj", obj_path].iter())
         } else {
-            Args::parse_from(["program_name"].iter())
+            RenderSettings::parse_from(["program_name"].iter())
         };
 
         // 恢复保留的路径
-        new_args.output_dir = output_dir;
-        new_args.output = output_name;
-        new_args.use_phong = true; // 确保Phong着色默认开启
-        new_args.use_pbr = false; // 确保PBR渲染默认关闭
+        new_settings.output_dir = output_dir;
+        new_settings.output = output_name;
+        new_settings.use_phong = true; // 确保Phong着色默认开启
+        new_settings.use_pbr = false; // 确保PBR渲染默认关闭
 
         // 如果宽度或高度发生变化，需要重新创建渲染器
-        if self.renderer.frame_buffer.width != new_args.width
-            || self.renderer.frame_buffer.height != new_args.height
+        if self.renderer.frame_buffer.width != new_settings.width
+            || self.renderer.frame_buffer.height != new_settings.height
         {
             // 创建新的渲染器，使用新的宽高
-            self.renderer = Renderer::new(new_args.width, new_args.height);
+            self.renderer = Renderer::new(new_settings.width, new_settings.height);
             // 清除已渲染的图像
             self.rendered_image = None;
         }
 
-        // 更新Args对象
-        self.args = new_args;
+        // 更新Settings对象
+        self.settings = new_settings;
 
         // 使用CoreMethods中的实现重置应用状态
         CoreMethods::reset_to_defaults(self);
@@ -231,11 +230,11 @@ impl eframe::App for RasterizerApp {
                     // 使用通用函数计算实际帧数
                     let (_, _, frames_per_rotation) =
                         crate::utils::render_utils::calculate_rotation_parameters(
-                            self.args.rotation_speed,
-                            self.args.fps,
+                            self.settings.rotation_speed,
+                            self.settings.fps,
                         );
                     let total_frames =
-                        (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
+                        (frames_per_rotation as f32 * self.settings.rotation_cycles) as usize;
 
                     let percent = (progress as f32 / total_frames as f32 * 100.0).round();
 
@@ -316,7 +315,7 @@ impl eframe::App for RasterizerApp {
 }
 
 /// 启动GUI应用
-pub fn start_gui(args: Args) -> Result<(), eframe::Error> {
+pub fn start_gui(settings: RenderSettings) -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1350.0, 900.0])
@@ -327,6 +326,6 @@ pub fn start_gui(args: Args) -> Result<(), eframe::Error> {
     eframe::run_native(
         "光栅化渲染器",
         options,
-        Box::new(|cc| Ok(Box::new(RasterizerApp::new(args, cc)))),
+        Box::new(|cc| Ok(Box::new(RasterizerApp::new(settings, cc)))),
     )
 }

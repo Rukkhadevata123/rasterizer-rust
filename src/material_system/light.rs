@@ -1,4 +1,4 @@
-use crate::io::args::{parse_point3, parse_vec3};
+use crate::io::render_settings::{parse_point3, parse_vec3};
 use clap::ValueEnum;
 use nalgebra::{Point3, Vector3};
 

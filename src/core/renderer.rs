@@ -1,8 +1,8 @@
 use crate::core::rasterizer::{TextureSource, TriangleData, VertexRenderData, rasterize_triangle};
-use crate::core::render_config::RenderConfig;
 use crate::geometry::camera::Camera;
 use crate::geometry::culling::{is_backface, should_cull_small_triangle}; // 导入剔除函数
 use crate::geometry::transform::transform_pipeline_batch;
+use crate::io::render_settings::RenderSettings; // 从io模块导入RenderSettings
 use crate::material_system::materials::{Material, MaterialView, ModelData, Vertex};
 use crate::scene::scene_object::SceneObject;
 use atomic_float::AtomicF32;
@@ -42,13 +42,13 @@ impl FrameBuffer {
     }
 
     /// 清除所有缓冲区，并根据配置绘制背景和地面
-    pub fn clear(&self, config: &RenderConfig) {
+    pub fn clear(&self, settings: &RenderSettings) {
         // 重置深度缓冲区，使用原子操作避免数据竞争
         self.depth_buffer.par_iter().for_each(|atomic_depth| {
             atomic_depth.store(f32::INFINITY, Ordering::Relaxed);
         });
 
-        // 根据配置绘制背景和地面
+        // 根据设置绘制背景和地面
         (0..self.height).into_par_iter().for_each(|y| {
             for x in 0..self.width {
                 let buffer_index = y * self.width + x;
@@ -59,9 +59,10 @@ impl FrameBuffer {
                 let t_x = x as f32 / (self.width - 1) as f32;
 
                 // 1. 首先绘制渐变背景
-                let mut final_color = if config.enable_gradient_background {
+                let mut final_color = if settings.enable_gradient_background {
                     // 渐变背景色计算
-                    config.gradient_top_color * (1.0 - t_y) + config.gradient_bottom_color * t_y
+                    settings.gradient_top_color_vec * (1.0 - t_y)
+                        + settings.gradient_bottom_color_vec * t_y
                 } else {
                     // 默认黑色背景
                     Vector3::new(0.0, 0.0, 0.0)
@@ -69,9 +70,9 @@ impl FrameBuffer {
                 // 地面平面处理部分改进 - 结合屏幕空间渲染和射线追踪网格
 
                 // 2. 如果启用地面平面，在下半部分应用地面效果
-                if config.enable_ground_plane {
+                if settings.enable_ground_plane {
                     // 获取地面在世界空间中的Y坐标（高度）
-                    let ground_y_world = config.ground_plane_height;
+                    let ground_y_world = settings.ground_plane_height;
 
                     // 如果像素在视图下半部分，考虑应用地面效果
                     let ground_factor = if t_y > 0.5 {
@@ -178,7 +179,7 @@ impl FrameBuffer {
 
                     if ground_factor > 0.0 {
                         // 混合地面颜色和背景色
-                        let mut ground_color = config.ground_plane_color;
+                        let mut ground_color = settings.ground_plane_color_vec;
 
                         // 使用更微妙的颜色变化
                         let t_x_centered = (t_x - 0.5) * 2.0; // -1.0 到 1.0
@@ -195,7 +196,7 @@ impl FrameBuffer {
                             + Vector3::new(0.6, 0.7, 0.9) * atmospheric_factor;
 
                         // 应用微弱的反射效果
-                        let sky_reflection = config.gradient_top_color * 0.08;
+                        let sky_reflection = settings.gradient_top_color_vec * 0.08;
                         ground_color =
                             ground_color + sky_reflection * (1.0 - (t_y - 0.5) * 1.2).max(0.0);
 
@@ -208,7 +209,7 @@ impl FrameBuffer {
                 // 转换为u8颜色并保存到缓冲区
                 let color_u8 = crate::material_system::color::linear_rgb_to_u8(
                     &final_color,
-                    config.apply_gamma_correction,
+                    settings.use_gamma,
                 );
                 self.color_buffer[color_index].store(color_u8[0], Ordering::Relaxed);
                 self.color_buffer[color_index + 1].store(color_u8[1], Ordering::Relaxed);
@@ -251,20 +252,19 @@ impl Renderer {
     pub fn render_scene(
         &self,
         scene: &crate::scene::scene_utils::Scene,
-        config: &mut RenderConfig,
+        settings: &RenderSettings,
     ) {
-        // 从场景中获取环境光设置
-        config.ambient_intensity = scene.ambient_intensity;
-        config.ambient_color = scene.ambient_color;
+        // 使用场景中的环境光设置
+        // 注意：不需要修改settings中的环境光值，因为这些值将在render_settings中的update_from_scene方法中更新
 
-        self.frame_buffer.clear(config);
+        self.frame_buffer.clear(settings);
 
         // 逐个渲染场景中的每个对象
         for object in &scene.objects {
             // 获取该对象引用的模型数据
             if object.model_id < scene.models.len() {
                 let model = &scene.models[object.model_id];
-                self.render(model, object, &scene.active_camera, config);
+                self.render(model, object, &scene.active_camera, settings);
             } else {
                 println!("警告：对象引用了无效的模型 ID {}", object.model_id);
             }
@@ -278,7 +278,7 @@ impl Renderer {
         model_data: &ModelData,
         scene_object: &SceneObject,
         camera: &Camera,
-        config: &RenderConfig,
+        settings: &RenderSettings,
     ) {
         let start_time = Instant::now();
 
@@ -303,7 +303,7 @@ impl Renderer {
 
         // 使用优化的几何变换函数
         let (all_pixel_coords, all_view_coords, all_view_normals, mesh_vertex_offsets) =
-            self.transform_geometry(model_data, scene_object, camera, config);
+            self.transform_geometry(model_data, scene_object, camera, settings);
 
         let transform_duration = transform_start_time.elapsed();
 
@@ -333,7 +333,7 @@ impl Renderer {
             &all_view_normals,
             &mesh_vertex_offsets,
             material_override,
-            config,
+            settings,
         );
 
         // --- 光栅化 ---
@@ -341,7 +341,7 @@ impl Renderer {
         let raster_start_time = Instant::now();
 
         // 光栅化三角形 - 使用配置的多线程设置
-        if config.use_multithreading {
+        if settings.use_multithreading {
             // 并行处理所有三角形
             triangles_to_render.par_iter().for_each(|triangle_data| {
                 rasterize_triangle(
@@ -350,7 +350,7 @@ impl Renderer {
                     self.frame_buffer.height,
                     &self.frame_buffer.depth_buffer,
                     &self.frame_buffer.color_buffer,
-                    config,
+                    settings,
                 );
             });
         } else {
@@ -362,7 +362,7 @@ impl Renderer {
                     self.frame_buffer.height,
                     &self.frame_buffer.depth_buffer,
                     &self.frame_buffer.color_buffer,
-                    config,
+                    settings,
                 );
             });
         }
@@ -393,12 +393,12 @@ impl Renderer {
         all_view_normals: &[Vector3<f32>],
         mesh_vertex_offsets: &[usize],
         material_override: Option<&'a Material>,
-        config: &'a RenderConfig,
+        settings: &'a RenderSettings,
     ) -> Vec<TriangleData<'a>> {
         // 准备环境光和光源数据
-        let ambient_intensity = config.ambient_intensity;
-        let ambient_color = config.ambient_color;
-        let lights = &config.lights; // 使用光源管理器中的所有光源
+        let ambient_intensity = settings.ambient;
+        let ambient_color = settings.ambient_color_vec;
+        let lights = &settings.lights; // 使用RenderSettings中的光源
 
         // 创建要渲染的三角形列表
         model_data
@@ -462,35 +462,38 @@ impl Renderer {
                         let view_pos2 = all_view_coords[global_i2];
 
                         // --- 背面剔除 ---
-                        if config.use_backface_culling
+                        if settings.backface_culling
                             && is_backface(&view_pos0, &view_pos1, &view_pos2)
                         {
                             return None; // 剔除背面
                         }
 
                         // --- 小三角形剔除 ---
-                        if config.cull_small_triangles
+                        if settings.cull_small_triangles
                             && should_cull_small_triangle(
                                 &pix0,
                                 &pix1,
                                 &pix2,
-                                config.min_triangle_area,
+                                settings.min_triangle_area,
                             )
                         {
                             return None; // 剔除小三角形
                         }
 
                         // --- 确定纹理源 ---
-                        let texture_source =
-                            self.determine_texture_source(config, material_opt, global_face_index);
+                        let texture_source = self.determine_texture_source(
+                            settings,
+                            material_opt,
+                            global_face_index,
+                        );
 
                         // --- 确定基础颜色 ---
                         let base_color =
-                            self.determine_base_color(config, &texture_source, material_opt);
+                            self.determine_base_color(settings, &texture_source, material_opt);
 
                         // --- 创建材质视图 ---
                         let material_view = material_opt.map(|m| {
-                            if config.use_pbr {
+                            if settings.use_pbr {
                                 MaterialView::PBR(m)
                             } else {
                                 MaterialView::BlinnPhong(m)
@@ -534,7 +537,7 @@ impl Renderer {
                             lights, // 使用多光源引用
                             ambient_intensity,
                             ambient_color,
-                            is_perspective: config.is_perspective(),
+                            is_perspective: settings.is_perspective(),
                         })
                     })
                     .collect::<Vec<_>>() // 在展平前先收集这个网格的所有三角形
@@ -545,15 +548,15 @@ impl Renderer {
     /// 确定纹理来源
     fn determine_texture_source<'a>(
         &self,
-        config: &RenderConfig,
+        settings: &RenderSettings,
         material_opt: Option<&'a Material>,
         global_face_index: u64,
     ) -> TextureSource<'a> {
         // 首先判断是否启用纹理功能
-        if !config.use_texture {
+        if !settings.use_texture {
             // 未启用纹理功能时：
             // 检查是否启用面颜色模式，即使未启用纹理也可以应用面颜色
-            if config.use_face_colors {
+            if settings.colorize {
                 return TextureSource::FaceColor(global_face_index);
             }
             return TextureSource::None;
@@ -567,7 +570,7 @@ impl Renderer {
         }
 
         // 2. 其次检查是否应用面随机颜色
-        if config.use_face_colors {
+        if settings.colorize {
             return TextureSource::FaceColor(global_face_index);
         }
 
@@ -582,7 +585,7 @@ impl Renderer {
     /// 确定基础颜色
     fn determine_base_color(
         &self,
-        _config: &RenderConfig,         // 添加下划线避免未使用警告
+        _settings: &RenderSettings,     // 添加下划线避免未使用警告
         texture_source: &TextureSource, // 改为借用而非所有权转移
         material_opt: Option<&Material>,
     ) -> Vector3<f32> {
@@ -638,7 +641,7 @@ impl Renderer {
         model_data: &ModelData,
         scene_object: &SceneObject,
         camera: &Camera,
-        config: &RenderConfig,
+        settings: &RenderSettings,
     ) -> GeometryTransformResult {
         // 获取对象的模型矩阵
         let model_matrix = scene_object.transform;
@@ -657,7 +660,13 @@ impl Renderer {
 
         // 获取相机变换矩阵
         let view_matrix = camera.get_view_matrix();
-        let projection_matrix = camera.get_projection_matrix(&config.projection_type);
+        // 使用projection字段来确定投影类型
+        let projection_type = if settings.is_perspective() {
+            "perspective"
+        } else {
+            "orthographic"
+        };
+        let projection_matrix = camera.get_projection_matrix(projection_type);
 
         // 直接调用 transform.rs 中的变换函数
         let (all_pixel_coords, all_view_coords, all_view_normals) = transform_pipeline_batch(

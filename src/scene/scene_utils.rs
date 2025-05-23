@@ -1,6 +1,6 @@
 // scene_utils.rs
 use crate::geometry::camera::Camera;
-use crate::io::args::{Args, parse_point3, parse_vec3};
+use crate::io::render_settings::{RenderSettings, parse_point3, parse_vec3};
 use crate::material_system::light::Light;
 use crate::material_system::materials::ModelData;
 use crate::material_system::materials::material_applicator::{
@@ -50,59 +50,62 @@ impl Scene {
         }
     }
 
-    /// 根据命令行参数创建相机
+    /// 根据渲染设置创建相机
     ///
     /// # 参数
-    /// * `args` - 命令行参数
+    /// * `settings` - 渲染设置
     ///
     /// # 返回值
     /// 创建的相机对象
-    pub fn setup_camera_from_args(args: &Args) -> Result<Camera, String> {
-        let aspect_ratio = args.width as f32 / args.height as f32;
-        let camera_from =
-            parse_point3(&args.camera_from).map_err(|e| format!("无效的相机位置格式: {}", e))?;
+    pub fn setup_camera_from_settings(settings: &RenderSettings) -> Result<Camera, String> {
+        let aspect_ratio = settings.width as f32 / settings.height as f32;
+        let camera_from = parse_point3(&settings.camera_from)
+            .map_err(|e| format!("无效的相机位置格式: {}", e))?;
         let camera_at =
-            parse_point3(&args.camera_at).map_err(|e| format!("无效的相机目标格式: {}", e))?;
+            parse_point3(&settings.camera_at).map_err(|e| format!("无效的相机目标格式: {}", e))?;
         let camera_up =
-            parse_vec3(&args.camera_up).map_err(|e| format!("无效的相机上方向格式: {}", e))?;
+            parse_vec3(&settings.camera_up).map_err(|e| format!("无效的相机上方向格式: {}", e))?;
 
         Ok(Camera::new(
             camera_from,
             camera_at,
             camera_up,
-            args.camera_fov,
+            settings.camera_fov,
             aspect_ratio,
             0.1,   // 近平面距离
             100.0, // 远平面距离
         ))
     }
 
-    /// 从模型数据和命令行参数创建完整场景
+    /// 从模型数据和渲染设置创建完整场景
     ///
     /// 这个函数是场景创建的统一接口，处理相机设置、材质应用、场景对象和光照
     ///
     /// # 参数
     /// * `model_data` - 预加载的模型数据
-    /// * `args` - 命令行参数
+    /// * `settings` - 渲染设置
     ///
     /// # 返回值
     /// 完整配置的场景对象
-    pub fn create_from_model_and_args(model_data: ModelData, args: &Args) -> Result<Self, String> {
+    pub fn create_from_model_and_settings(
+        model_data: ModelData,
+        settings: &RenderSettings,
+    ) -> Result<Self, String> {
         // 创建相机和基础场景
-        let camera = Self::setup_camera_from_args(args)?;
+        let camera = Self::setup_camera_from_settings(settings)?;
         let mut scene = Self::new(camera);
 
         // 创建并配置模型和场景对象
         let mut modified_model_data = model_data.clone();
 
         // 应用材质参数
-        scene.apply_material_parameters(&mut modified_model_data, args);
+        scene.apply_material_parameters(&mut modified_model_data, settings);
 
         // 添加模型和对象
         let model_id = scene.add_model(modified_model_data);
 
         // 创建主对象和额外对象
-        let object_count = args
+        let object_count = settings
             .object_count
             .as_ref()
             .and_then(|count_str| count_str.parse::<usize>().ok());
@@ -121,29 +124,29 @@ impl Scene {
         }
 
         // 设置场景光照
-        scene.setup_lighting_from_args(args)?;
+        scene.setup_lighting_from_settings(settings)?;
 
         Ok(scene)
     }
 
     /// 应用材质参数到模型数据
-    fn apply_material_parameters(&self, model_data: &mut ModelData, args: &Args) {
+    fn apply_material_parameters(&self, model_data: &mut ModelData, settings: &RenderSettings) {
         // 应用PBR材质参数(如果需要)
-        if args.use_pbr {
+        if settings.use_pbr {
             println!(
                 "应用PBR材质参数 - 金属度: {}, 粗糙度: {}",
-                args.metallic, args.roughness
+                settings.metallic, settings.roughness
             );
-            apply_pbr_parameters(model_data, args);
+            apply_pbr_parameters(model_data, settings);
         }
 
         // 应用Phong材质参数(如果需要)
-        if args.use_phong {
+        if settings.use_phong {
             println!(
                 "应用Phong材质参数 - 高光系数: {}, 光泽度: {}",
-                args.specular, args.shininess
+                settings.specular, settings.shininess
             );
-            apply_phong_parameters(model_data, args);
+            apply_phong_parameters(model_data, settings);
         }
     }
 
@@ -250,19 +253,19 @@ impl Scene {
         self.ambient_color = color;
     }
 
-    /// 从命令行参数设置灯光
-    fn setup_lighting_from_args(&mut self, args: &Args) -> Result<(), String> {
+    /// 从渲染设置设置灯光
+    fn setup_lighting_from_settings(&mut self, settings: &RenderSettings) -> Result<(), String> {
         // 设置环境光
-        let color = if !args.ambient_color.is_empty() {
-            parse_vec3(&args.ambient_color).unwrap_or_else(|_| Vector3::new(1.0, 1.0, 1.0))
+        let color = if !settings.ambient_color.is_empty() {
+            parse_vec3(&settings.ambient_color).unwrap_or_else(|_| Vector3::new(1.0, 1.0, 1.0))
         } else {
             Vector3::new(1.0, 1.0, 1.0)
         };
 
-        self.set_ambient_light(args.ambient, color);
+        self.set_ambient_light(settings.ambient, color);
 
         // 如果不使用光照，直接返回
-        if !args.use_lighting {
+        if !settings.use_lighting {
             return Ok(());
         }
 
@@ -270,11 +273,11 @@ impl Scene {
         self.clear_lights();
 
         // 从预设创建光源
-        if args.directional_lights.is_empty() && args.point_lights.is_empty() {
+        if settings.directional_lights.is_empty() && settings.point_lights.is_empty() {
             // 如果没有明确配置，从预设创建
             let preset_lights = crate::material_system::light::create_lights_from_preset(
-                args.lighting_preset.clone(),
-                args.main_light_intensity,
+                settings.lighting_preset.clone(),
+                settings.main_light_intensity,
             );
 
             for light in preset_lights {
@@ -283,7 +286,7 @@ impl Scene {
         } else {
             // 否则使用配置的光源
             // 添加方向光源
-            for (i, light) in args.directional_lights.iter().enumerate() {
+            for (i, light) in settings.directional_lights.iter().enumerate() {
                 if light.enabled {
                     match light.to_light() {
                         Ok(l) => self.lights.push(l),
@@ -293,7 +296,7 @@ impl Scene {
             }
 
             // 添加点光源
-            for (i, light) in args.point_lights.iter().enumerate() {
+            for (i, light) in settings.point_lights.iter().enumerate() {
                 if light.enabled {
                     match light.to_light() {
                         Ok(l) => self.lights.push(l),

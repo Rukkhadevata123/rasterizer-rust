@@ -1,7 +1,5 @@
-use crate::core::render_config::{RenderConfig, create_render_config};
-use crate::io::args::parse_vec3;
 use crate::scene::scene_utils::Scene;
-use crate::utils::save_utils::save_render_with_args;
+use crate::utils::save_utils::save_render_with_settings;
 use egui::{Color32, Context};
 use native_dialog::FileDialogBuilder;
 use std::fs;
@@ -21,9 +19,6 @@ pub trait RenderMethods {
     /// 加载模型并设置场景
     fn load_model(&mut self, obj_path: &str) -> Result<(), String>;
 
-    /// 保存渲染结果
-    fn save_render_result(&self, config: &RenderConfig);
-
     /// 在UI中显示渲染结果
     fn display_render_result(&mut self, ctx: &Context);
 
@@ -38,109 +33,12 @@ pub trait RenderMethods {
 }
 
 impl RenderMethods for RasterizerApp {
-    /// 验证渲染参数
+    /// 验证渲染参数 - 直接调用RenderSettings的validate方法
     fn validate_parameters(&self) -> Result<(), String> {
-        // 检查基本参数
-        if self.args.width == 0 || self.args.height == 0 {
-            return Err("错误: 图像宽度和高度必须大于0".to_string());
-        }
-
-        // 检查OBJ文件是否存在
-        let obj_path = match &self.args.obj {
-            Some(path) => path,
-            None => return Err("错误: 未指定OBJ文件路径".to_string()),
-        };
-
-        if !Path::new(obj_path).exists() {
-            return Err(format!("错误: 找不到OBJ文件 '{}'", obj_path));
-        }
-
-        // 检查输出目录和文件名
-        if self.args.output_dir.trim().is_empty() {
-            return Err("错误: 输出目录不能为空".to_string());
-        }
-
-        if self.args.output.trim().is_empty() {
-            return Err("错误: 输出文件名不能为空".to_string());
-        }
-
-        // 验证相机参数
-        if parse_vec3(&self.args.camera_from).is_err() {
-            return Err("错误: 相机位置格式不正确，应为 x,y,z 格式".to_string());
-        }
-
-        if parse_vec3(&self.args.camera_at).is_err() {
-            return Err("错误: 相机目标格式不正确，应为 x,y,z 格式".to_string());
-        }
-
-        if parse_vec3(&self.args.camera_up).is_err() {
-            return Err("错误: 相机上方向格式不正确，应为 x,y,z 格式".to_string());
-        }
-
-        // 验证光照参数
-        if self.args.use_lighting {
-            // 验证环境光颜色
-            if !self.args.ambient_color.is_empty() && parse_vec3(&self.args.ambient_color).is_err()
-            {
-                return Err("错误: 环境光颜色格式不正确，应为 r,g,b 格式".to_string());
-            }
-
-            // 验证光源配置数组
-            for (i, light) in self.args.directional_lights.iter().enumerate() {
-                if light.enabled {
-                    if parse_vec3(&light.direction).is_err() {
-                        return Err(format!(
-                            "错误: 方向光 #{} 的方向格式不正确，应为 x,y,z 格式",
-                            i + 1
-                        ));
-                    }
-                    if parse_vec3(&light.color).is_err() {
-                        return Err(format!(
-                            "错误: 方向光 #{} 的颜色格式不正确，应为 r,g,b 格式",
-                            i + 1
-                        ));
-                    }
-                }
-            }
-
-            for (i, light) in self.args.point_lights.iter().enumerate() {
-                if light.enabled {
-                    if parse_vec3(&light.position).is_err() {
-                        return Err(format!(
-                            "错误: 点光源 #{} 的位置格式不正确，应为 x,y,z 格式",
-                            i + 1
-                        ));
-                    }
-                    if parse_vec3(&light.color).is_err() {
-                        return Err(format!(
-                            "错误: 点光源 #{} 的颜色格式不正确，应为 r,g,b 格式",
-                            i + 1
-                        ));
-                    }
-                }
-            }
-        }
-
-        // 验证PBR参数
-        if self.args.use_pbr {
-            if self.args.metallic < 0.0 || self.args.metallic > 1.0 {
-                return Err("错误: 金属度必须在0.0到1.0之间".to_string());
-            }
-            if self.args.roughness < 0.0 || self.args.roughness > 1.0 {
-                return Err("错误: 粗糙度必须在0.0到1.0之间".to_string());
-            }
-            if !self.args.base_color.is_empty() && parse_vec3(&self.args.base_color).is_err() {
-                return Err("错误: 基础颜色格式不正确，应为 r,g,b 格式".to_string());
-            }
-            if !self.args.emissive.is_empty() && parse_vec3(&self.args.emissive).is_err() {
-                return Err("错误: 自发光颜色格式不正确，应为 r,g,b 格式".to_string());
-            }
-        }
-
-        Ok(())
+        // 直接调用RenderSettings中的validate方法，消除代码重复
+        self.settings.validate()
     }
 
-    /// 渲染当前场景
     /// 渲染当前场景
     fn render(&mut self, ctx: &egui::Context) {
         // 验证参数
@@ -148,7 +46,7 @@ impl RenderMethods for RasterizerApp {
             Ok(_) => {
                 // 参数验证通过，继续渲染流程
                 // 获取OBJ路径
-                let obj_path = match &self.args.obj {
+                let obj_path = match &self.settings.obj {
                     Some(path) => path.clone(),
                     None => {
                         self.set_error("错误: 未指定OBJ文件路径".to_string());
@@ -167,7 +65,7 @@ impl RenderMethods for RasterizerApp {
                         ctx.request_repaint();
 
                         // 确保输出目录存在
-                        let output_dir = self.args.output_dir.clone();
+                        let output_dir = self.settings.output_dir.clone();
                         if let Err(e) = fs::create_dir_all(&output_dir) {
                             self.set_error(format!("创建输出目录失败: {}", e));
                             return;
@@ -177,24 +75,29 @@ impl RenderMethods for RasterizerApp {
                         let start_time = Instant::now();
 
                         if let Some(scene) = &self.scene {
-                            // 创建渲染配置
-                            let config = create_render_config(scene, &self.args);
+                            // 更新渲染设置的颜色向量和光源
+                            self.settings.update_color_vectors();
+                            self.settings.update_from_scene(scene);
 
                             println!(
                                 "环境光: 强度={}, 颜色={:?}",
-                                config.ambient_intensity, config.ambient_color
+                                self.settings.ambient, self.settings.ambient_color_vec
                             );
 
-                            // 渲染到帧缓冲区 - 确保使用不可变引用避免修改配置
-                            self.renderer.render_scene(scene, &mut config.clone());
+                            // 渲染到帧缓冲区 - 直接使用场景和设置
+                            self.renderer.render_scene(scene, &self.settings);
 
                             // 保存输出文件
-                            self.save_render_result(&config);
+                            if let Err(e) =
+                                save_render_with_settings(&self.renderer, &self.settings, None)
+                            {
+                                println!("警告：保存渲染结果时发生错误: {}", e);
+                            }
 
                             // 更新状态
                             self.last_render_time = Some(start_time.elapsed());
-                            let output_dir = self.args.output_dir.clone();
-                            let output_name = self.args.output.clone();
+                            let output_dir = self.settings.output_dir.clone();
+                            let output_name = self.settings.output.clone();
                             let elapsed = self.last_render_time.unwrap();
                             self.status_message = format!(
                                 "渲染完成，耗时 {:.2?}，已保存到 {}/{}",
@@ -223,27 +126,19 @@ impl RenderMethods for RasterizerApp {
         use crate::utils::model_utils::normalize_and_center_model;
 
         // 加载模型数据
-        let mut model_data = load_obj_enhanced(obj_path, &self.args)?;
+        let mut model_data = load_obj_enhanced(obj_path, &self.settings)?;
 
         // 归一化模型
         let (_center, _scale) = normalize_and_center_model(&mut model_data);
 
         // 使用统一的场景创建方法
-        self.scene = Some(Scene::create_from_model_and_args(
+        self.scene = Some(Scene::create_from_model_and_settings(
             model_data.clone(),
-            &self.args,
+            &self.settings,
         )?);
         self.model_data = Some(model_data);
 
         Ok(())
-    }
-
-    /// 保存渲染结果
-    fn save_render_result(&self, config: &RenderConfig) {
-        // 使用共享的渲染工具函数保存渲染结果
-        if let Err(e) = save_render_with_args(&self.renderer, &self.args, config, None) {
-            println!("警告：保存渲染结果时发生错误: {}", e);
-        }
     }
 
     /// 在UI中显示渲染结果
@@ -287,7 +182,7 @@ impl RenderMethods for RasterizerApp {
     /// 保存当前渲染结果为截图
     fn take_screenshot(&mut self) -> Result<String, String> {
         // 确保输出目录存在
-        if let Err(e) = fs::create_dir_all(&self.args.output_dir) {
+        if let Err(e) = fs::create_dir_all(&self.settings.output_dir) {
             return Err(format!("创建输出目录失败: {}", e));
         }
 
@@ -297,26 +192,24 @@ impl RenderMethods for RasterizerApp {
             .map_err(|e| format!("获取时间戳失败: {}", e))?
             .as_secs();
 
-        let snapshot_name = format!("{}_snapshot_{}", self.args.output, timestamp);
+        let snapshot_name = format!("{}_snapshot_{}", self.settings.output, timestamp);
 
         // 检查是否有可用的渲染结果
         if self.rendered_image.is_none() {
             return Err("没有可用的渲染结果".to_string());
         }
 
-        // 获取当前渲染配置
-        let config = if let Some(scene) = &self.scene {
-            create_render_config(scene, &self.args)
-        } else {
-            return Err("无法创建渲染配置".to_string());
-        };
+        // 确保场景信息已更新到设置中
+        if let Some(scene) = &self.scene {
+            self.settings.update_from_scene(scene);
+        }
 
         // 使用共享的渲染工具函数保存截图
-        save_render_with_args(&self.renderer, &self.args, &config, Some(&snapshot_name))?;
+        save_render_with_settings(&self.renderer, &self.settings, Some(&snapshot_name))?;
 
         // 返回颜色图像的路径
         let color_path =
-            Path::new(&self.args.output_dir).join(format!("{}_color.png", snapshot_name));
+            Path::new(&self.settings.output_dir).join(format!("{}_color.png", snapshot_name));
         Ok(color_path.to_string_lossy().to_string())
     }
 
@@ -331,7 +224,7 @@ impl RenderMethods for RasterizerApp {
         match result {
             Ok(Some(path)) => {
                 if let Some(path_str) = path.to_str() {
-                    self.args.obj = Some(path_str.to_string());
+                    self.settings.obj = Some(path_str.to_string());
                     self.status_message = format!("已选择模型: {}", path_str);
                 }
             }
@@ -354,7 +247,7 @@ impl RenderMethods for RasterizerApp {
         match result {
             Ok(Some(path)) => {
                 if let Some(path_str) = path.to_str() {
-                    self.args.output_dir = path_str.to_string();
+                    self.settings.output_dir = path_str.to_string();
                     self.status_message = format!("已选择输出目录: {}", path_str);
                 }
             }

@@ -172,8 +172,8 @@ impl CoreMethods for RasterizerApp {
 
         if self.pre_render_mode {
             // 确保旋转速度合理
-            if self.args.rotation_speed.abs() < 0.01 {
-                self.args.rotation_speed = 1.0;
+            if self.settings.rotation_speed.abs() < 0.01 {
+                self.settings.rotation_speed = 1.0;
             }
             self.status_message = "已启用预渲染模式，开始动画渲染时将预先计算所有帧".to_string();
         } else {
@@ -201,11 +201,11 @@ impl CoreMethods for RasterizerApp {
                 // 计算旋转参数，获取视频帧数
                 let (_, _, frames_per_rotation) =
                     crate::utils::render_utils::calculate_rotation_parameters(
-                        self.args.rotation_speed,
-                        self.args.fps,
+                        self.settings.rotation_speed,
+                        self.settings.fps,
                     );
                 let total_frames =
-                    (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
+                    (frames_per_rotation as f32 * self.settings.rotation_cycles) as usize;
                 let progress = self.video_progress.load(Ordering::SeqCst);
                 let percent = (progress as f32 / total_frames as f32 * 100.0).round();
 

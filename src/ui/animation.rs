@@ -1,6 +1,5 @@
-use crate::core::render_config::create_render_config;
 use crate::core::renderer::Renderer;
-use crate::io::args::{Args, get_animation_axis_vector};
+use crate::io::render_settings::{RenderSettings, get_animation_axis_vector};
 use crate::scene::scene_utils::Scene;
 use crate::ui::core::frame_to_png_data;
 use crate::utils::render_utils::{
@@ -22,7 +21,7 @@ use super::render_ui::RenderMethods;
 ///
 /// # 参数
 /// * `scene_copy` - 场景的克隆
-/// * `args` - 渲染参数
+/// * `settings` - 渲染参数
 /// * `progress_arc` - 进度计数器
 /// * `ctx_clone` - UI上下文，用于更新界面
 /// * `width` - 渲染宽度
@@ -33,7 +32,7 @@ use super::render_ui::RenderMethods;
 /// 渲染的总帧数
 fn render_one_rotation_cycle<F>(
     mut scene_copy: Scene,
-    args: &Args,
+    settings: &RenderSettings,
     progress_arc: &Arc<AtomicUsize>,
     ctx_clone: &Context,
     width: usize,
@@ -48,10 +47,10 @@ where
 
     // 计算旋转参数
     let (effective_rotation_speed_dps, _, frames_to_render) =
-        calculate_rotation_parameters(args.rotation_speed, args.fps);
+        calculate_rotation_parameters(settings.rotation_speed, settings.fps);
 
     // 计算旋转轴和每帧旋转角度
-    let rotation_axis_vec = get_animation_axis_vector(&args);
+    let rotation_axis_vec = get_animation_axis_vector(settings);
     let rotation_increment_rad_per_frame =
         (360.0 / frames_to_render as f32).to_radians() * effective_rotation_speed_dps.signum();
 
@@ -63,16 +62,14 @@ where
             // 使用通用函数执行动画步骤
             animate_scene_step(
                 &mut scene_copy,
-                &args.animation_type,
+                &settings.animation_type,
                 &rotation_axis_vec,
                 rotation_increment_rad_per_frame,
             );
         }
 
         // 渲染当前帧
-        let config = create_render_config(&scene_copy, args);
-        let mut config_for_render = config.clone();
-        thread_renderer.render_scene(&scene_copy, &mut config_for_render);
+        thread_renderer.render_scene(&scene_copy, settings);
 
         // 获取颜色数据
         let color_data_rgb = thread_renderer.frame_buffer.get_color_buffer_bytes();
@@ -124,7 +121,7 @@ impl AnimationMethods for RasterizerApp {
         {
             // 检查模型是否已加载
             if self.scene.is_none() {
-                let obj_path = match &self.args.obj {
+                let obj_path = match &self.settings.obj {
                     Some(path) => path.clone(),
                     None => {
                         self.set_error("错误: 未指定OBJ文件路径".to_string());
@@ -163,7 +160,7 @@ impl AnimationMethods for RasterizerApp {
 
         // --- 常规实时渲染 ---
         if self.scene.is_none() {
-            let obj_path = match &self.args.obj {
+            let obj_path = match &self.settings.obj {
                 Some(path) => path.clone(),
                 None => {
                     self.set_error("错误: 未指定OBJ文件路径".to_string());
@@ -183,14 +180,14 @@ impl AnimationMethods for RasterizerApp {
             }
         }
 
-        if self.renderer.frame_buffer.width != self.args.width
-            || self.renderer.frame_buffer.height != self.args.height
+        if self.renderer.frame_buffer.width != self.settings.width
+            || self.renderer.frame_buffer.height != self.settings.height
         {
-            self.renderer = Renderer::new(self.args.width, self.args.height);
+            self.renderer = Renderer::new(self.settings.width, self.settings.height);
             self.rendered_image = None;
             println!(
                 "重新创建渲染器，尺寸: {}x{}",
-                self.args.width, self.args.height
+                self.settings.width, self.settings.height
             );
         }
 
@@ -206,41 +203,38 @@ impl AnimationMethods for RasterizerApp {
         }
         self.last_frame_time = Some(now);
 
-        if self.is_realtime_rendering && self.args.rotation_speed.abs() < 0.01 {
-            self.args.rotation_speed = 1.0; // 确保实时渲染时有旋转速度
+        if self.is_realtime_rendering && self.settings.rotation_speed.abs() < 0.01 {
+            self.settings.rotation_speed = 1.0; // 确保实时渲染时有旋转速度
         }
 
         self.animation_time += dt;
 
         if let Some(scene) = &mut self.scene {
             // 使用通用函数计算旋转增量
-            let rotation_delta_rad = calculate_rotation_delta(self.args.rotation_speed, dt);
-            let rotation_axis_vec = get_animation_axis_vector(&self.args);
+            let rotation_delta_rad = calculate_rotation_delta(self.settings.rotation_speed, dt);
+            let rotation_axis_vec = get_animation_axis_vector(&self.settings);
 
             // 使用通用函数执行动画步骤
             animate_scene_step(
                 scene,
-                &self.args.animation_type,
+                &self.settings.animation_type,
                 &rotation_axis_vec,
                 rotation_delta_rad,
             );
-
-            let config = create_render_config(scene, &self.args);
 
             if cfg!(debug_assertions) {
                 println!(
                     "实时渲染中: FPS={:.1}, 动画类型={:?}, 轴={:?}, 旋转速度={}, 角度增量={:.3}rad, Phong={}",
                     self.avg_fps,
-                    self.args.animation_type,
-                    self.args.rotation_axis,
-                    self.args.rotation_speed,
+                    self.settings.animation_type,
+                    self.settings.rotation_axis,
+                    self.settings.rotation_speed,
                     rotation_delta_rad,
-                    self.args.use_phong
+                    self.settings.use_phong
                 );
             }
 
-            let mut config_clone = config.clone();
-            self.renderer.render_scene(scene, &mut config_clone);
+            self.renderer.render_scene(scene, &self.settings);
             self.display_render_result(ctx);
             ctx.request_repaint();
         }
@@ -258,7 +252,7 @@ impl AnimationMethods for RasterizerApp {
 
         match self.validate_parameters() {
             Ok(_) => {
-                let output_dir = self.args.output_dir.clone();
+                let output_dir = self.settings.output_dir.clone();
                 if let Err(e) = fs::create_dir_all(&output_dir) {
                     self.set_error(format!("创建输出目录失败: {}", e));
                     return;
@@ -275,14 +269,14 @@ impl AnimationMethods for RasterizerApp {
 
                 // 计算旋转参数，获取视频帧数
                 let (_, _, frames_per_rotation) =
-                    calculate_rotation_parameters(self.args.rotation_speed, self.args.fps);
+                    calculate_rotation_parameters(self.settings.rotation_speed, self.settings.fps);
 
                 let total_frames =
-                    (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
+                    (frames_per_rotation as f32 * self.settings.rotation_cycles) as usize;
 
                 // 如果场景未加载，尝试加载
                 if self.scene.is_none() {
-                    let obj_path = match &self.args.obj {
+                    let obj_path = match &self.settings.obj {
                         Some(path) => path.clone(),
                         None => {
                             self.set_error("错误: 未指定OBJ文件路径".to_string());
@@ -300,9 +294,9 @@ impl AnimationMethods for RasterizerApp {
                     }
                 }
 
-                let args_for_thread = self.args.clone();
+                let settings_for_thread = self.settings.clone();
                 let video_progress_arc = self.video_progress.clone();
-                let fps = self.args.fps;
+                let fps = self.settings.fps;
                 let scene_clone = self.scene.as_ref().expect("场景已检查").clone();
 
                 // 检查是否有预渲染帧
@@ -331,7 +325,7 @@ impl AnimationMethods for RasterizerApp {
 
                 ctx.request_repaint();
                 let ctx_clone = ctx.clone();
-                let video_filename = format!("{}.mp4", args_for_thread.output);
+                let video_filename = format!("{}.mp4", settings_for_thread.output);
                 let video_output_path = format!("{}/{}", output_dir, video_filename);
                 let frames_dir_clone = frames_dir.clone();
 
@@ -344,8 +338,8 @@ impl AnimationMethods for RasterizerApp {
                 };
 
                 let thread_handle = thread::spawn(move || {
-                    let width = args_for_thread.width;
-                    let height = args_for_thread.height;
+                    let width = settings_for_thread.width;
+                    let height = settings_for_thread.height;
                     let mut rendered_frames = Vec::new();
 
                     // 使用预渲染帧或重新渲染
@@ -382,7 +376,7 @@ impl AnimationMethods for RasterizerApp {
 
                         let rendered_frame_count = render_one_rotation_cycle(
                             scene_clone,
-                            &args_for_thread,
+                            &settings_for_thread,
                             &video_progress_arc,
                             &ctx_clone,
                             width,
@@ -489,7 +483,7 @@ impl AnimationMethods for RasterizerApp {
         match self.validate_parameters() {
             Ok(_) => {
                 if self.scene.is_none() {
-                    let obj_path = match &self.args.obj {
+                    let obj_path = match &self.settings.obj {
                         Some(path) => path.clone(),
                         None => {
                             self.set_error("错误: 未指定OBJ文件路径".to_string());
@@ -509,7 +503,7 @@ impl AnimationMethods for RasterizerApp {
 
                 // 使用通用函数计算旋转参数
                 let (_, seconds_per_rotation, frames_to_render) =
-                    calculate_rotation_parameters(self.args.rotation_speed, self.args.fps);
+                    calculate_rotation_parameters(self.settings.rotation_speed, self.settings.fps);
 
                 self.total_frames_for_pre_render_cycle = frames_to_render;
 
@@ -518,11 +512,11 @@ impl AnimationMethods for RasterizerApp {
                 self.pre_render_progress.store(0, Ordering::SeqCst);
                 self.current_frame_index = 0;
 
-                let args_for_thread = self.args.clone();
+                let settings_for_thread = self.settings.clone();
                 let progress_arc = self.pre_render_progress.clone();
                 let frames_arc = self.pre_rendered_frames.clone();
-                let width = args_for_thread.width;
-                let height = args_for_thread.height;
+                let width = settings_for_thread.width;
+                let height = settings_for_thread.height;
                 let scene_clone = self.scene.as_ref().expect("场景已检查存在").clone();
 
                 self.status_message = format!(
@@ -536,7 +530,7 @@ impl AnimationMethods for RasterizerApp {
                     // 使用通用渲染函数
                     render_one_rotation_cycle(
                         scene_clone,
-                        &args_for_thread,
+                        &settings_for_thread,
                         &progress_arc,
                         &ctx_clone,
                         width,
@@ -568,7 +562,7 @@ impl AnimationMethods for RasterizerApp {
 
         // 使用通用函数计算参数
         let (_, seconds_per_rotation, _) =
-            calculate_rotation_parameters(self.args.rotation_speed, self.args.fps);
+            calculate_rotation_parameters(self.settings.rotation_speed, self.settings.fps);
 
         self.status_message = format!(
             "预渲染动画中... ({}/{} 帧，{:.1}%，转一圈约需 {:.1} 秒)",
@@ -587,7 +581,7 @@ impl AnimationMethods for RasterizerApp {
             let final_frame_count = self.pre_rendered_frames.lock().unwrap().len();
             self.status_message = format!(
                 "预渲染完成！已缓存 {} 帧动画 (目标 {} FPS, 转一圈 {:.1} 秒)",
-                final_frame_count, self.args.fps, seconds_per_rotation
+                final_frame_count, self.settings.fps, seconds_per_rotation
             );
             if self.is_realtime_rendering || self.pre_render_mode {
                 self.current_frame_index = 0;
@@ -617,7 +611,7 @@ impl AnimationMethods for RasterizerApp {
         }
 
         let now = Instant::now();
-        let target_frame_duration = Duration::from_secs_f32(1.0 / self.args.fps.max(1) as f32);
+        let target_frame_duration = Duration::from_secs_f32(1.0 / self.settings.fps.max(1) as f32);
 
         if let Some(last_frame_display_time) = self.last_frame_time {
             let time_since_last_display = now.duration_since(last_frame_display_time);
@@ -639,13 +633,13 @@ impl AnimationMethods for RasterizerApp {
 
         // 使用通用函数计算参数
         let (_, seconds_per_rotation, _) =
-            calculate_rotation_parameters(self.args.rotation_speed, self.args.fps);
+            calculate_rotation_parameters(self.settings.rotation_speed, self.settings.fps);
 
         self.status_message = format!(
             "播放预渲染: 帧 {}/{} (目标 {} FPS, 平均 {:.1} FPS, 1圈 {:.1}秒)",
             frame_to_display_idx + 1,
             frames_len,
-            self.args.fps,
+            self.settings.fps,
             self.avg_fps,
             seconds_per_rotation
         );

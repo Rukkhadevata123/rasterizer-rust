@@ -1,4 +1,4 @@
-use crate::io::args::Args;
+use crate::io::render_settings::RenderSettings;
 use crate::material_system::materials::{Material, Mesh, ModelData, TextureOptions, Vertex};
 use crate::material_system::texture::{Texture, load_texture};
 use nalgebra::{Point3, Vector2, Vector3};
@@ -79,7 +79,10 @@ fn get_basename_from_path(path: &Path) -> String {
 }
 
 /// 加载并处理 OBJ 模型文件
-pub fn load_obj_enhanced<P: AsRef<Path>>(obj_path: P, args: &Args) -> Result<ModelData, String> {
+pub fn load_obj_enhanced<P: AsRef<Path>>(
+    obj_path: P,
+    args: &RenderSettings,
+) -> Result<ModelData, String> {
     let obj_path_ref = obj_path.as_ref();
     println!("加载 OBJ 文件: {:?}", obj_path_ref);
 

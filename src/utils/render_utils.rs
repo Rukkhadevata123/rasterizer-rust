@@ -1,9 +1,10 @@
-use crate::core::render_config::{RenderConfig, create_render_config};
 use crate::core::renderer::Renderer;
-use crate::io::args::{AnimationType, Args, get_animation_axis_vector};
+use crate::io::render_settings::{
+    AnimationType, RenderSettings, RotationAxis, get_animation_axis_vector,
+}; // 更新导入
 use crate::scene::scene_object::Transformable;
 use crate::scene::scene_utils::Scene;
-use crate::utils::save_utils::save_render_with_args;
+use crate::utils::save_utils::save_render_with_settings; // 更新为新函数名
 use nalgebra::Vector3;
 use std::time::Instant;
 
@@ -14,31 +15,31 @@ const BASE_SPEED: f32 = 60.0; // 1s旋转60度
 /// 完整处理单帧渲染过程：渲染场景、保存输出、打印信息
 ///
 /// # 参数
-/// * `args` - 命令行参数引用
+/// * `settings` - 渲染设置引用（CLI参数）
 /// * `scene` - 场景引用
 /// * `renderer` - 渲染器引用
-/// * `config` - 渲染配置引用
+/// * `render_settings` - 实际用于渲染的设置引用
 /// * `output_name` - 输出文件名
 ///
 /// # 返回值
 /// Result，成功为()，失败为包含错误信息的字符串
 pub fn render_single_frame(
-    args: &Args,
+    settings: &RenderSettings, // 替换为RenderSettings
     scene: &Scene,
     renderer: &Renderer,
-    config: &RenderConfig,
+    render_settings: &RenderSettings, // 用于渲染的配置
     output_name: &str,
 ) -> Result<(), String> {
     let frame_start_time = Instant::now();
     println!("渲染帧: {}", output_name);
 
     // 渲染场景 - 克隆配置以避免可变引用问题
-    let mut config_clone = config.clone();
-    renderer.render_scene(scene, &mut config_clone);
+    let mut settings_clone = render_settings.clone();
+    renderer.render_scene(scene, &mut settings_clone);
 
     // 保存输出图像
     println!("保存 {} 的输出图像...", output_name);
-    save_render_with_args(renderer, args, config, Some(output_name))?;
+    save_render_with_settings(renderer, settings, Some(output_name))?;
 
     // 打印材质信息（调试用）
     if let Some(model) = scene.models.first() {
@@ -100,7 +101,6 @@ pub fn animate_scene_step(
 /// 旋转角度增量（弧度）
 pub fn calculate_rotation_delta(rotation_speed: f32, dt: f32) -> f32 {
     // 硬编码基础速度系数为50.0
-
     (rotation_speed * dt * BASE_SPEED).to_radians()
 }
 
@@ -155,43 +155,44 @@ pub fn calculate_rotation_parameters(rotation_speed: f32, fps: usize) -> (f32, f
 /// 执行完整的动画渲染循环
 ///
 /// # 参数
-/// * `args` - 命令行参数引用
+/// * `settings` - 渲染设置引用
 /// * `scene` - 场景引用
 /// * `renderer` - 渲染器引用
 ///
 /// # 返回值
 /// Result，成功为()，失败为包含错误信息的字符串
 pub fn run_animation_loop(
-    args: &Args,
+    settings: &RenderSettings, // 替换为RenderSettings
     scene: &mut Scene,
     renderer: &Renderer,
 ) -> Result<(), String> {
     // 使用通用函数计算旋转参数
     let (effective_rotation_speed_dps, _, frames_to_render) =
-        calculate_rotation_parameters(args.rotation_speed, args.fps);
+        calculate_rotation_parameters(settings.rotation_speed, settings.fps);
 
     // 根据用户要求的旋转圈数计算实际帧数
-    let total_frames = (frames_to_render as f32 * args.rotation_cycles) as usize;
+    let total_frames = (frames_to_render as f32 * settings.rotation_cycles) as usize;
 
     println!(
         "开始动画渲染 ({} 帧, {:.2} 秒)...",
         total_frames,
-        total_frames as f32 / args.fps as f32
+        total_frames as f32 / settings.fps as f32
     );
     println!(
         "动画类型: {:?}, 旋转轴类型: {:?}, 速度: {:.1}度/秒",
-        args.animation_type, args.rotation_axis, effective_rotation_speed_dps
+        settings.animation_type, settings.rotation_axis, effective_rotation_speed_dps
     );
 
     // 计算旋转方向
-    let rotation_axis_vec = get_animation_axis_vector(args);
-    if args.rotation_axis == crate::io::args::RotationAxis::Custom {
+    let rotation_axis_vec = get_animation_axis_vector(settings);
+    if settings.rotation_axis == RotationAxis::Custom {
+        // 使用新的导入
         println!("自定义旋转轴: {:?}", rotation_axis_vec);
     }
 
     // 计算每帧的旋转角度
     let rotation_per_frame_rad =
-        (360.0 / frames_to_render as f32).to_radians() * args.rotation_speed.signum();
+        (360.0 / frames_to_render as f32).to_radians() * settings.rotation_speed.signum();
 
     // 渲染所有帧
     for frame_num in 0..total_frames {
@@ -202,16 +203,24 @@ pub fn run_animation_loop(
         if frame_num > 0 {
             animate_scene_step(
                 scene,
-                &args.animation_type,
+                &settings.animation_type,
                 &rotation_axis_vec,
                 rotation_per_frame_rad,
             );
         }
 
         // 渲染和保存当前帧
-        let config = create_render_config(scene, args);
+        let mut render_settings = settings.clone();
+        render_settings.update_from_scene(scene); // 从场景更新配置
+
         let frame_output_name = format!("frame_{:03}", frame_num);
-        render_single_frame(args, scene, renderer, &config, &frame_output_name)?;
+        render_single_frame(
+            settings,
+            scene,
+            renderer,
+            &render_settings,
+            &frame_output_name,
+        )?;
 
         println!(
             "帧 {} 渲染完成，耗时 {:?}",
@@ -222,7 +231,7 @@ pub fn run_animation_loop(
 
     println!(
         "动画渲染完成。总时长：{:.2}秒",
-        total_frames as f32 / args.fps as f32
+        total_frames as f32 / settings.fps as f32
     );
     Ok(())
 }

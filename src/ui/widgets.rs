@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use super::animation::AnimationMethods;
 use super::app::RasterizerApp;
 use super::core::CoreMethods;
-use crate::io::args::{AnimationType, RotationAxis, parse_vec3}; // 导入 parse_vec3 用于颜色字符串解析
+use crate::io::render_settings::{AnimationType, RotationAxis, parse_vec3}; // 更新导入路径
 
 use super::render_ui::RenderMethods;
 
@@ -74,14 +74,14 @@ impl WidgetMethods for RasterizerApp {
                 ui.horizontal(|ui| {
                     ui.label("OBJ文件：");
                     // 使用临时变量来处理Option<String>
-                    let mut obj_text = self.args.obj.clone().unwrap_or_default();
+                    let mut obj_text = self.settings.obj.clone().unwrap_or_default();
                     let response = ui.text_edit_singleline(&mut obj_text);
-                    // 如果文本更改，更新args.obj
+                    // 如果文本更改，更新settings.obj
                     if response.changed() {
                         if obj_text.is_empty() {
-                            self.args.obj = None;
+                            self.settings.obj = None;
                         } else {
-                            self.args.obj = Some(obj_text);
+                            self.settings.obj = Some(obj_text);
                         }
                     }
                     Self::add_tooltip(response, ctx, "选择要渲染的3D模型文件（.obj格式）");
@@ -92,7 +92,7 @@ impl WidgetMethods for RasterizerApp {
 
                 ui.horizontal(|ui| {
                     ui.label("输出目录：");
-                    let response = ui.text_edit_singleline(&mut self.args.output_dir);
+                    let response = ui.text_edit_singleline(&mut self.settings.output_dir);
                     Self::add_tooltip(response, ctx, "选择渲染结果保存的目录");
                     if ui.button("浏览").clicked() {
                         self.select_output_dir();
@@ -101,13 +101,13 @@ impl WidgetMethods for RasterizerApp {
 
                 ui.horizontal(|ui| {
                     ui.label("输出文件名：");
-                    let response = ui.text_edit_singleline(&mut self.args.output);
+                    let response = ui.text_edit_singleline(&mut self.settings.output);
                     Self::add_tooltip(response, ctx, "渲染结果的文件名（不含扩展名）");
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label("宽度：");
-                    let response = ui.add(egui::DragValue::new(&mut self.args.width)
+                    let response = ui.add(egui::DragValue::new(&mut self.settings.width)
                     .speed(1)
                     .range(1..=4096));
                     Self::add_tooltip(response, ctx, "渲染图像的宽度（像素）");
@@ -115,12 +115,12 @@ impl WidgetMethods for RasterizerApp {
 
                 ui.horizontal(|ui| {
                     ui.label("高度：");
-                    let response = ui.add(egui::DragValue::new(&mut self.args.height)
+                    let response = ui.add(egui::DragValue::new(&mut self.settings.height)
                     .speed(1)
                     .range(1..=4096));
                     Self::add_tooltip(response, ctx, "渲染图像的高度（像素）");
                 });
-                let response = ui.checkbox(&mut self.args.save_depth, "保存深度图");
+                let response = ui.checkbox(&mut self.settings.save_depth, "保存深度图");
                 Self::add_tooltip(response, ctx, "同时保存深度图（深度信息可视化）");
             });
 
@@ -129,24 +129,24 @@ impl WidgetMethods for RasterizerApp {
                 ui.horizontal(|ui| {
                     ui.label("投影类型：");
                     let resp1 = ui.radio_value(
-                        &mut self.args.projection,
+                        &mut self.settings.projection,
                         "perspective".to_string(),
                                                "透视",
                     );
                     Self::add_tooltip(resp1, ctx, "使用透视投影（符合人眼观察方式）");
 
                     let resp2 = ui.radio_value(
-                        &mut self.args.projection,
+                        &mut self.settings.projection,
                         "orthographic".to_string(),
                                                "正交",
                     );
                     Self::add_tooltip(resp2, ctx, "使用正交投影（无透视变形）");
                 });
                 ui.separator();
-                let resp1 = ui.checkbox(&mut self.args.use_zbuffer, "深度缓冲");
+                let resp1 = ui.checkbox(&mut self.settings.use_zbuffer, "深度缓冲");
                 Self::add_tooltip(resp1, ctx, "启用Z缓冲进行深度测试，处理物体遮挡关系");
 
-                let resp2 = ui.checkbox(&mut self.args.use_lighting, "启用光照");
+                let resp2 = ui.checkbox(&mut self.settings.use_lighting, "启用光照");
                 Self::add_tooltip(resp2, ctx, "启用光照计算，产生明暗变化");
 
                 // 将"启用纹理"和"使用面颜色"改为互斥的单选项
@@ -154,31 +154,31 @@ impl WidgetMethods for RasterizerApp {
                     ui.label("表面颜色：");
 
                     // 启用纹理选项
-                    let texture_response = ui.radio_value(&mut self.args.use_texture, true, "使用纹理");
-                    if texture_response.clicked() && self.args.use_texture {
+                    let texture_response = ui.radio_value(&mut self.settings.use_texture, true, "使用纹理");
+                    if texture_response.clicked() && self.settings.use_texture {
                         // 如果选择了使用纹理，关闭面颜色
-                        self.args.colorize = false;
+                        self.settings.colorize = false;
                     }
                     Self::add_tooltip(texture_response, ctx,
                                       "使用模型的纹理贴图（如果有）\n优先级最高，会覆盖面颜色设置");
 
                     // 使用面颜色选项
-                    let face_color_response = ui.radio_value(&mut self.args.colorize, true, "使用面颜色");
-                    if face_color_response.clicked() && self.args.colorize {
+                    let face_color_response = ui.radio_value(&mut self.settings.colorize, true, "使用面颜色");
+                    if face_color_response.clicked() && self.settings.colorize {
                         // 如果选择了使用面颜色，关闭纹理
-                        self.args.use_texture = false;
+                        self.settings.use_texture = false;
                     }
                     Self::add_tooltip(face_color_response, ctx,
                                       "为每个面分配随机颜色\n仅在没有纹理或纹理被禁用时生效");
 
                     // 使用材质颜色选项 (实际上是关闭两者)
                     let material_color_response = ui.radio(
-                        !self.args.use_texture && !self.args.colorize,
+                        !self.settings.use_texture && !self.settings.colorize,
                         "使用材质颜色"
                     );
                     if material_color_response.clicked() {
-                        self.args.use_texture = false;
-                        self.args.colorize = false;
+                        self.settings.use_texture = false;
+                        self.settings.colorize = false;
                     }
                     Self::add_tooltip(material_color_response, ctx,
                                       "使用材质的基本颜色（如.mtl文件中定义）\n在没有纹理且不使用面颜色时生效");
@@ -188,44 +188,44 @@ impl WidgetMethods for RasterizerApp {
                 ui.horizontal(|ui| {
                     ui.label("着色模型：");
                     // Phong 着色选项（逐像素着色，在 Blinn-Phong 光照模型下）
-                    let phong_response = ui.radio_value(&mut self.args.use_phong, true, "Phong着色");
-                    if phong_response.clicked() && self.args.use_phong {
+                    let phong_response = ui.radio_value(&mut self.settings.use_phong, true, "Phong着色");
+                    if phong_response.clicked() && self.settings.use_phong {
                         // 如果选择了 Phong，关闭 PBR
-                        self.args.use_pbr = false;
+                        self.settings.use_pbr = false;
                     }
                     Self::add_tooltip(phong_response, ctx,
                                       "使用 Phong 着色（逐像素着色）和 Blinn-Phong 光照模型\n提供高质量的光照效果，适合大多数场景");
 
                     // PBR 渲染选项
-                    let pbr_response = ui.radio_value(&mut self.args.use_pbr, true, "PBR渲染");
-                    if pbr_response.clicked() && self.args.use_pbr {
+                    let pbr_response = ui.radio_value(&mut self.settings.use_pbr, true, "PBR渲染");
+                    if pbr_response.clicked() && self.settings.use_pbr {
                         // 如果选择了 PBR，关闭 Phong
-                        self.args.use_phong = false;
+                        self.settings.use_phong = false;
                     }
                     Self::add_tooltip(pbr_response, ctx,
                                       "使用基于物理的渲染（PBR）\n提供更真实的材质效果，但需要更多的参数调整");
                 });
 
-                let resp7 = ui.checkbox(&mut self.args.use_gamma, "Gamma校正");
+                let resp7 = ui.checkbox(&mut self.settings.use_gamma, "Gamma校正");
                 Self::add_tooltip(resp7, ctx, "应用伽马校正，使亮度显示更准确");
 
-                let resp8 = ui.checkbox(&mut self.args.backface_culling, "背面剔除");
+                let resp8 = ui.checkbox(&mut self.settings.backface_culling, "背面剔除");
                 Self::add_tooltip(resp8, ctx, "剔除背向相机的三角形面，提高渲染效率");
 
-                let resp9 = ui.checkbox(&mut self.args.wireframe, "线框模式");
+                let resp9 = ui.checkbox(&mut self.settings.wireframe, "线框模式");
                 Self::add_tooltip(resp9, ctx, "仅渲染三角形边缘，显示为线框");
 
                 ui.separator();
-                let resp10 = ui.checkbox(&mut self.args.use_multithreading, "启用多线程渲染");
+                let resp10 = ui.checkbox(&mut self.settings.use_multithreading, "启用多线程渲染");
                 Self::add_tooltip(resp10, ctx, "使用多线程加速渲染，提高性能");
 
                 ui.horizontal(|ui| {
-                    let resp = ui.checkbox(&mut self.args.cull_small_triangles, "剔除小三角形");
+                    let resp = ui.checkbox(&mut self.settings.cull_small_triangles, "剔除小三角形");
                     Self::add_tooltip(resp, ctx, "忽略投影后面积很小的三角形，提高性能");
 
-                    if self.args.cull_small_triangles {
+                    if self.settings.cull_small_triangles {
                         let resp = ui.add(
-                            egui::DragValue::new(&mut self.args.min_triangle_area)
+                            egui::DragValue::new(&mut self.settings.min_triangle_area)
                             .speed(0.0001)
                             .range(0.0..=1.0)
                             .prefix("面积阈值："),
@@ -236,15 +236,15 @@ impl WidgetMethods for RasterizerApp {
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label("纹理文件 (覆盖MTL)：");
-                    let mut texture_path_str = self.args.texture.clone().unwrap_or_default();
+                    let mut texture_path_str = self.settings.texture.clone().unwrap_or_default();
                     let resp = ui.text_edit_singleline(&mut texture_path_str);
                     Self::add_tooltip(resp.clone(), ctx, "选择自定义纹理，将覆盖MTL中的定义");
 
                     if resp.changed() {
                         if texture_path_str.is_empty() {
-                            self.args.texture = None;
+                            self.settings.texture = None;
                         } else {
-                            self.args.texture = Some(texture_path_str);
+                            self.settings.texture = Some(texture_path_str);
                         }
                     }
                     if ui.button("浏览").clicked() {
@@ -257,7 +257,7 @@ impl WidgetMethods for RasterizerApp {
                         match result {
                             Ok(Some(path)) => {
                                 if let Some(path_str) = path.to_str() {
-                                    self.args.texture = Some(path_str.to_string());
+                                    self.settings.texture = Some(path_str.to_string());
                                     self.status_message = format!("已选择纹理: {}", path_str);
                                 }
                             }
@@ -273,42 +273,42 @@ impl WidgetMethods for RasterizerApp {
             // 背景与环境设置
             ui.collapsing("背景与环境", |ui| {
                 // 渐变背景
-                let resp_grad_bg = ui.checkbox(&mut self.args.enable_gradient_background, "启用渐变背景");
+                let resp_grad_bg = ui.checkbox(&mut self.settings.enable_gradient_background, "启用渐变背景");
                 Self::add_tooltip(resp_grad_bg, ctx, "使用渐变色作为场景背景");
-                if self.args.enable_gradient_background {
+                if self.settings.enable_gradient_background {
                     ui.horizontal(|ui| {
                         ui.label("顶部颜色:");
-                        let top_color_rgb_vec = parse_vec3(&self.args.gradient_top_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.5, 0.7, 1.0));
+                        let top_color_rgb_vec = parse_vec3(&self.settings.gradient_top_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.5, 0.7, 1.0));
                         let mut top_color_rgb = [top_color_rgb_vec.x, top_color_rgb_vec.y, top_color_rgb_vec.z];
                         if ui.color_edit_button_rgb(&mut top_color_rgb).changed() {
-                            self.args.gradient_top_color = format!("{},{},{}", top_color_rgb[0], top_color_rgb[1], top_color_rgb[2]);
+                            self.settings.gradient_top_color = format!("{},{},{}", top_color_rgb[0], top_color_rgb[1], top_color_rgb[2]);
                         }
                     });
                     ui.horizontal(|ui| {
                         ui.label("底部颜色:");
-                        let bottom_color_rgb_vec = parse_vec3(&self.args.gradient_bottom_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.1, 0.2, 0.4));
+                        let bottom_color_rgb_vec = parse_vec3(&self.settings.gradient_bottom_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.1, 0.2, 0.4));
                         let mut bottom_color_rgb = [bottom_color_rgb_vec.x, bottom_color_rgb_vec.y, bottom_color_rgb_vec.z];
                         if ui.color_edit_button_rgb(&mut bottom_color_rgb).changed() {
-                            self.args.gradient_bottom_color = format!("{},{},{}", bottom_color_rgb[0], bottom_color_rgb[1], bottom_color_rgb[2]);
+                            self.settings.gradient_bottom_color = format!("{},{},{}", bottom_color_rgb[0], bottom_color_rgb[1], bottom_color_rgb[2]);
                         }
                     });
                 }
                 ui.separator();
                 // 地面平面
-                let resp_ground = ui.checkbox(&mut self.args.enable_ground_plane, "启用地面平面");
+                let resp_ground = ui.checkbox(&mut self.settings.enable_ground_plane, "启用地面平面");
                 Self::add_tooltip(resp_ground, ctx, "在场景中添加一个无限延伸的地面");
-                if self.args.enable_ground_plane {
+                if self.settings.enable_ground_plane {
                     ui.horizontal(|ui| {
                         ui.label("地面颜色:");
-                        let ground_color_rgb_vec = parse_vec3(&self.args.ground_plane_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.3, 0.5, 0.2));
+                        let ground_color_rgb_vec = parse_vec3(&self.settings.ground_plane_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.3, 0.5, 0.2));
                         let mut ground_color_rgb = [ground_color_rgb_vec.x, ground_color_rgb_vec.y, ground_color_rgb_vec.z];
                         if ui.color_edit_button_rgb(&mut ground_color_rgb).changed() {
-                            self.args.ground_plane_color = format!("{},{},{}", ground_color_rgb[0], ground_color_rgb[1], ground_color_rgb[2]);
+                            self.settings.ground_plane_color = format!("{},{},{}", ground_color_rgb[0], ground_color_rgb[1], ground_color_rgb[2]);
                         }
                     });
                     ui.horizontal(|ui| {
                         ui.label("地面高度 (Y):");
-                        let mut height_value = self.args.ground_plane_height;
+                        let mut height_value = self.settings.ground_plane_height;
                         let resp_height = ui.add(
                             egui::DragValue::new(&mut height_value)
                             .speed(0.1)
@@ -317,7 +317,7 @@ impl WidgetMethods for RasterizerApp {
 
                         // 如果值发生了变化，确保是负值或零
                         if resp_height.changed() {
-                            self.args.ground_plane_height = height_value.min(0.0);
+                            self.settings.ground_plane_height = height_value.min(0.0);
                         }
 
                         Self::add_tooltip(resp_height, ctx, "地面平面在Y轴上的高度（世界坐标系），必须小于等于0");
@@ -329,49 +329,49 @@ impl WidgetMethods for RasterizerApp {
             ui.collapsing("相机设置", |ui| {
                 ui.horizontal(|ui| {
                     ui.label("相机位置 (x,y,z)：");
-                    let resp = ui.text_edit_singleline(&mut self.args.camera_from);
+                    let resp = ui.text_edit_singleline(&mut self.settings.camera_from);
                     Self::add_tooltip(resp, ctx, "相机的位置坐标，格式为x,y,z");
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("相机目标 (x,y,z)：");
-                    let resp = ui.text_edit_singleline(&mut self.args.camera_at);
+                    let resp = ui.text_edit_singleline(&mut self.settings.camera_at);
                     Self::add_tooltip(resp, ctx, "相机看向的目标点坐标，格式为x,y,z");
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("相机上方向 (x,y,z)：");
-                    let resp = ui.text_edit_singleline(&mut self.args.camera_up);
+                    let resp = ui.text_edit_singleline(&mut self.settings.camera_up);
                     Self::add_tooltip(resp, ctx, "相机的上方向向量，格式为x,y,z");
                 });
 
                 ui.horizontal(|ui| {
                     ui.label("视场角 (度)：");
-                    let resp = ui.add(egui::Slider::new(&mut self.args.camera_fov, 10.0..=120.0));
+                    let resp = ui.add(egui::Slider::new(&mut self.settings.camera_fov, 10.0..=120.0));
                     Self::add_tooltip(resp, ctx, "相机视场角，值越大视野范围越广（鱼眼效果）");
                 });
             });
 
             // 光照设置部分
             ui.collapsing("光照设置", |ui| {
-                let resp = ui.checkbox(&mut self.args.use_lighting, "启用光照")
+                let resp = ui.checkbox(&mut self.settings.use_lighting, "启用光照")
                     .on_hover_text("总光照开关，关闭则仅使用环境光");
                 Self::add_tooltip(resp, ctx, "启用或禁用方向光源");
 
                 // 确保光源数组已初始化
-                self.args.ensure_light_arrays();
+                self.settings.ensure_light_arrays();
 
                 ui.separator();
 
                 // 环境光设置
                 ui.horizontal(|ui| {
                     ui.label("环境光颜色:");
-                    let ambient_color_vec = parse_vec3(&self.args.ambient_color)
+                    let ambient_color_vec = parse_vec3(&self.settings.ambient_color)
                         .unwrap_or_else(|_| nalgebra::Vector3::new(0.1, 0.1, 0.1));
                     let mut ambient_color_rgb = [ambient_color_vec.x, ambient_color_vec.y, ambient_color_vec.z];
                     let resp = ui.color_edit_button_rgb(&mut ambient_color_rgb);
                     if resp.changed() {
-                        self.args.ambient_color = format!("{},{},{}", 
+                        self.settings.ambient_color = format!("{},{},{}", 
                             ambient_color_rgb[0], ambient_color_rgb[1], ambient_color_rgb[2]);
                     }
                     Self::add_tooltip(resp, ctx, "环境光的颜色\n如果光照关闭，此颜色将作为基础色");
@@ -379,7 +379,7 @@ impl WidgetMethods for RasterizerApp {
 
                 ui.horizontal(|ui| {
                     ui.label("环境光强度:");
-                    let resp = ui.add(egui::Slider::new(&mut self.args.ambient, 0.0..=1.0));
+                    let resp = ui.add(egui::Slider::new(&mut self.settings.ambient, 0.0..=1.0));
                     Self::add_tooltip(resp, ctx, "环境光的整体强度");
                 });
 
@@ -387,30 +387,30 @@ impl WidgetMethods for RasterizerApp {
                 ui.horizontal(|ui| {
                     ui.label("光照预设:");
                     egui::ComboBox::from_id_salt("lighting_preset_combo")
-                        .selected_text(match self.args.lighting_preset {
+                        .selected_text(match self.settings.lighting_preset {
                             LightingPreset::SingleDirectional => "单一方向光",
                             LightingPreset::ThreeDirectional => "三面方向光",
                             LightingPreset::MixedComplete => "混合光源",
                             LightingPreset::None => "无光源",
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.args.lighting_preset, LightingPreset::SingleDirectional, "单一方向光");
-                            ui.selectable_value(&mut self.args.lighting_preset, LightingPreset::ThreeDirectional, "三面方向光");
-                            ui.selectable_value(&mut self.args.lighting_preset, LightingPreset::MixedComplete, "混合光源");
-                            ui.selectable_value(&mut self.args.lighting_preset, LightingPreset::None, "无光源");
+                            ui.selectable_value(&mut self.settings.lighting_preset, LightingPreset::SingleDirectional, "单一方向光");
+                            ui.selectable_value(&mut self.settings.lighting_preset, LightingPreset::ThreeDirectional, "三面方向光");
+                            ui.selectable_value(&mut self.settings.lighting_preset, LightingPreset::MixedComplete, "混合光源");
+                            ui.selectable_value(&mut self.settings.lighting_preset, LightingPreset::None, "无光源");
                         });
 
                     if ui.button("应用预设").clicked() {
-                        self.args.setup_light_sources();
+                        self.settings.setup_light_sources();
                     }
                 });
 
-                if self.args.use_lighting {
+                if self.settings.use_lighting {
                     ui.separator();
 
                     // 方向光源设置
                     ui.collapsing("方向光源", |ui| {
-                        for (i, light) in self.args.directional_lights.iter_mut().enumerate() {
+                        for (i, light) in self.settings.directional_lights.iter_mut().enumerate() {
                             ui.group(|ui| {
                                 ui.horizontal(|ui| {
                                     ui.checkbox(&mut light.enabled, format!("方向光 #{}", i + 1));
@@ -447,7 +447,7 @@ impl WidgetMethods for RasterizerApp {
 
                     // 点光源设置
                     ui.collapsing("点光源", |ui| {
-                        for (i, light) in self.args.point_lights.iter_mut().enumerate() {
+                        for (i, light) in self.settings.point_lights.iter_mut().enumerate() {
                             ui.group(|ui| {
                                 ui.horizontal(|ui| {
                                     ui.checkbox(&mut light.enabled, format!("点光源 #{}", i + 1));
@@ -510,35 +510,35 @@ impl WidgetMethods for RasterizerApp {
             });
 
             // PBR材质设置部分
-            if self.args.use_pbr {
+            if self.settings.use_pbr {
                 ui.collapsing("PBR材质设置 (Physically Based Rendering)", |ui| {
                     ui.horizontal(|ui| {
                         ui.label("基础颜色 (Base Color):");
-                        let base_color_vec = parse_vec3(&self.args.base_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.8, 0.8, 0.8));
+                        let base_color_vec = parse_vec3(&self.settings.base_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.8, 0.8, 0.8));
                         let mut base_color_rgb = [base_color_vec.x, base_color_vec.y, base_color_vec.z];
                         let resp = ui.color_edit_button_rgb(&mut base_color_rgb);
                         if resp.changed() {
-                            self.args.base_color = format!("{},{},{}", base_color_rgb[0], base_color_rgb[1], base_color_rgb[2]);
+                            self.settings.base_color = format!("{},{},{}", base_color_rgb[0], base_color_rgb[1], base_color_rgb[2]);
                         }
                         Self::add_tooltip(resp, ctx, "材质的基础颜色 (Base Color)\n在PBR中代表材质的反射率或颜色");
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("金属度 (Metallic)：");
-                        let resp = ui.add(egui::Slider::new(&mut self.args.metallic, 0.0..=1.0));
+                        let resp = ui.add(egui::Slider::new(&mut self.settings.metallic, 0.0..=1.0));
                         Self::add_tooltip(resp, ctx, "材质的金属特性 (Metallic)，0为非金属，1为纯金属\n影响材质如何反射光线和能量守恒");
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("粗糙度 (Roughness)：");
-                        let resp = ui.add(egui::Slider::new(&mut self.args.roughness, 0.0..=1.0));
+                        let resp = ui.add(egui::Slider::new(&mut self.settings.roughness, 0.0..=1.0));
                         Self::add_tooltip(resp, ctx, "材质的粗糙程度 (Roughness)，0为完全光滑，1为完全粗糙\n影响高光的散射程度和微表面特性");
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("环境光遮蔽 (Ambient Occlusion)：");
                         let resp = ui.add(egui::Slider::new(
-                            &mut self.args.ambient_occlusion,
+                            &mut self.settings.ambient_occlusion,
                             0.0..=1.0,
                         ));
                         Self::add_tooltip(resp, ctx, "环境光遮蔽程度 (Ambient Occlusion)，0为完全遮蔽，1为无遮蔽\n模拟物体凹陷处接收较少环境光的效果");
@@ -546,11 +546,11 @@ impl WidgetMethods for RasterizerApp {
 
                     ui.horizontal(|ui| {
                         ui.label("自发光颜色 (Emissive):");
-                        let emissive_color_vec = parse_vec3(&self.args.emissive).unwrap_or_else(|_| nalgebra::Vector3::new(0.0, 0.0, 0.0));
+                        let emissive_color_vec = parse_vec3(&self.settings.emissive).unwrap_or_else(|_| nalgebra::Vector3::new(0.0, 0.0, 0.0));
                         let mut emissive_color_rgb = [emissive_color_vec.x, emissive_color_vec.y, emissive_color_vec.z];
                         let resp = ui.color_edit_button_rgb(&mut emissive_color_rgb);
                         if resp.changed() {
-                            self.args.emissive = format!("{},{},{}", emissive_color_rgb[0], emissive_color_rgb[1], emissive_color_rgb[2]);
+                            self.settings.emissive = format!("{},{},{}", emissive_color_rgb[0], emissive_color_rgb[1], emissive_color_rgb[2]);
                         }
                         Self::add_tooltip(resp, ctx, "材质的自发光颜色 (Emissive)\n表示材质本身发出的光，不受光照影响");
                     });
@@ -558,38 +558,38 @@ impl WidgetMethods for RasterizerApp {
             }
 
             // Phong材质设置部分
-            if self.args.use_phong {
+            if self.settings.use_phong {
                 ui.collapsing("Phong材质设置 (Blinn-Phong Shading)", |ui| {
                     ui.horizontal(|ui| {
                         ui.label("漫反射颜色 (Diffuse):");
-                        let diffuse_color_vec = parse_vec3(&self.args.diffuse_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.8, 0.8, 0.8)); // Using a typical diffuse default
+                        let diffuse_color_vec = parse_vec3(&self.settings.diffuse_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.8, 0.8, 0.8)); // Using a typical diffuse default
                         let mut diffuse_color_rgb = [diffuse_color_vec.x, diffuse_color_vec.y, diffuse_color_vec.z];
                         let resp = ui.color_edit_button_rgb(&mut diffuse_color_rgb);
                         if resp.changed() {
-                            self.args.diffuse_color = format!("{},{},{}", diffuse_color_rgb[0], diffuse_color_rgb[1], diffuse_color_rgb[2]);
+                            self.settings.diffuse_color = format!("{},{},{}", diffuse_color_rgb[0], diffuse_color_rgb[1], diffuse_color_rgb[2]);
                         }
                         Self::add_tooltip(resp, ctx, "材质的漫反射颜色 (Diffuse Color)\n决定物体表面向各个方向均匀散射的颜色");
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("镜面反射强度 (Specular)：");
-                        let resp = ui.add(egui::Slider::new(&mut self.args.specular, 0.0..=1.0));
+                        let resp = ui.add(egui::Slider::new(&mut self.settings.specular, 0.0..=1.0));
                         Self::add_tooltip(resp, ctx, "材质的镜面反射强度 (Specular Intensity)，0为无反射，1为最大反射\n控制高光的亮度");
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("光泽度 (Shininess)：");
-                        let resp = ui.add(egui::Slider::new(&mut self.args.shininess, 1.0..=100.0));
+                        let resp = ui.add(egui::Slider::new(&mut self.settings.shininess, 1.0..=100.0));
                         Self::add_tooltip(resp, ctx, "材质的光泽度 (Shininess)，数值越大高光越小越集中\n也称为Phong指数，控制高光的锐利程度");
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("自发光颜色 (Emissive):");
-                        let emissive_color_vec = parse_vec3(&self.args.emissive).unwrap_or_else(|_| nalgebra::Vector3::new(0.0, 0.0, 0.0));
+                        let emissive_color_vec = parse_vec3(&self.settings.emissive).unwrap_or_else(|_| nalgebra::Vector3::new(0.0, 0.0, 0.0));
                         let mut emissive_color_rgb = [emissive_color_vec.x, emissive_color_vec.y, emissive_color_vec.z];
                         let resp = ui.color_edit_button_rgb(&mut emissive_color_rgb);
                         if resp.changed() {
-                            self.args.emissive = format!("{},{},{}", emissive_color_rgb[0], emissive_color_rgb[1], emissive_color_rgb[2]);
+                            self.settings.emissive = format!("{},{},{}", emissive_color_rgb[0], emissive_color_rgb[1], emissive_color_rgb[2]);
                         }
                         Self::add_tooltip(resp, ctx, "材质的自发光颜色 (Emissive)\n表示材质本身发出的光，不受光照影响");
                     });
@@ -600,7 +600,7 @@ impl WidgetMethods for RasterizerApp {
             ui.collapsing("动画设置", |ui| {
                 ui.horizontal(|ui| {
                     ui.label("旋转圈数:");
-                    let resp = ui.add(egui::DragValue::new(&mut self.args.rotation_cycles)
+                    let resp = ui.add(egui::DragValue::new(&mut self.settings.rotation_cycles)
                         .speed(0.1)
                         .range(0.1..=10.0));
                     Self::add_tooltip(resp, ctx, "动画完成的旋转圈数，影响生成的总帧数");
@@ -608,16 +608,16 @@ impl WidgetMethods for RasterizerApp {
 
                 ui.horizontal(|ui| {
                     ui.label("视频生成及预渲染帧率 (FPS):");
-                    let resp = ui.add(egui::DragValue::new(&mut self.args.fps)
+                    let resp = ui.add(egui::DragValue::new(&mut self.settings.fps)
                         .speed(1)
                         .range(1..=60));
                     Self::add_tooltip(resp, ctx, "生成视频的每秒帧数");
                 });
 
                 let (_, seconds_per_rotation, frames_per_rotation) =
-                crate::utils::render_utils::calculate_rotation_parameters(self.args.rotation_speed, self.args.fps);
-                let total_frames = (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
-                    let total_seconds = (seconds_per_rotation * self.args.rotation_cycles) as f32;
+                crate::utils::render_utils::calculate_rotation_parameters(self.settings.rotation_speed, self.settings.fps);
+                let total_frames = (frames_per_rotation as f32 * self.settings.rotation_cycles) as usize;
+                    let total_seconds = (seconds_per_rotation * self.settings.rotation_cycles) as f32;
 
                 ui.label(format!("估计总帧数: {} (视频长度: {:.1}秒)",
                                         total_frames, total_seconds));
@@ -625,7 +625,7 @@ impl WidgetMethods for RasterizerApp {
                 // 动画类型选择
                 ui.horizontal(|ui| {
                     ui.label("动画类型:");
-                    let current_animation_type = self.args.animation_type.clone();
+                    let current_animation_type = self.settings.animation_type.clone();
                     egui::ComboBox::from_id_salt("animation_type_combo")
                         .selected_text(match current_animation_type {
                             AnimationType::CameraOrbit => "相机轨道旋转",
@@ -633,17 +633,17 @@ impl WidgetMethods for RasterizerApp {
                             AnimationType::None => "无动画",
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.args.animation_type, AnimationType::CameraOrbit, "相机轨道旋转");
-                            ui.selectable_value(&mut self.args.animation_type, AnimationType::ObjectLocalRotation, "物体局部旋转");
-                            ui.selectable_value(&mut self.args.animation_type, AnimationType::None, "无动画");
+                            ui.selectable_value(&mut self.settings.animation_type, AnimationType::CameraOrbit, "相机轨道旋转");
+                            ui.selectable_value(&mut self.settings.animation_type, AnimationType::ObjectLocalRotation, "物体局部旋转");
+                            ui.selectable_value(&mut self.settings.animation_type, AnimationType::None, "无动画");
                         });
                 });
 
                 // 旋转轴选择 (仅当动画类型不是 None 时显示)
-                if self.args.animation_type != AnimationType::None {
+                if self.settings.animation_type != AnimationType::None {
                     ui.horizontal(|ui| {
                         ui.label("旋转轴:");
-                        let current_rotation_axis = self.args.rotation_axis.clone();
+                        let current_rotation_axis = self.settings.rotation_axis.clone();
                         egui::ComboBox::from_id_salt("rotation_axis_combo")
                             .selected_text(match current_rotation_axis {
                                 RotationAxis::X => "X 轴",
@@ -652,17 +652,17 @@ impl WidgetMethods for RasterizerApp {
                                 RotationAxis::Custom => "自定义轴",
                             })
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.args.rotation_axis, RotationAxis::X, "X 轴");
-                                ui.selectable_value(&mut self.args.rotation_axis, RotationAxis::Y, "Y 轴");
-                                ui.selectable_value(&mut self.args.rotation_axis, RotationAxis::Z, "Z 轴");
-                                ui.selectable_value(&mut self.args.rotation_axis, RotationAxis::Custom, "自定义轴");
+                                ui.selectable_value(&mut self.settings.rotation_axis, RotationAxis::X, "X 轴");
+                                ui.selectable_value(&mut self.settings.rotation_axis, RotationAxis::Y, "Y 轴");
+                                ui.selectable_value(&mut self.settings.rotation_axis, RotationAxis::Z, "Z 轴");
+                                ui.selectable_value(&mut self.settings.rotation_axis, RotationAxis::Custom, "自定义轴");
                             });
                     });
 
-                    if self.args.rotation_axis == RotationAxis::Custom {
+                    if self.settings.rotation_axis == RotationAxis::Custom {
                         ui.horizontal(|ui| {
                             ui.label("自定义轴 (x,y,z):");
-                            let resp = ui.text_edit_singleline(&mut self.args.custom_rotation_axis);
+                            let resp = ui.text_edit_singleline(&mut self.settings.custom_rotation_axis);
                             Self::add_tooltip(resp, ctx, "输入自定义旋转轴，例如 1,0,0 或 0.707,0.707,0");
                         });
                     }
@@ -686,7 +686,7 @@ impl WidgetMethods for RasterizerApp {
 
                 ui.horizontal(|ui| {
                     ui.label("旋转速度 (实时渲染):");
-                    let resp = ui.add(egui::Slider::new(&mut self.args.rotation_speed, 0.1..=5.0));
+                    let resp = ui.add(egui::Slider::new(&mut self.settings.rotation_speed, 0.1..=5.0));
                     Self::add_tooltip(resp, ctx, "实时渲染中的旋转速度倍率");
                 });
             });
@@ -801,10 +801,10 @@ impl WidgetMethods for RasterizerApp {
                     // 使用通用函数计算实际帧数
                     let (_, _, frames_per_rotation) =
                         crate::utils::render_utils::calculate_rotation_parameters(
-                            self.args.rotation_speed,
-                            self.args.fps
+                            self.settings.rotation_speed,
+                            self.settings.fps
                         );
-                    let total_frames = (frames_per_rotation as f32 * self.args.rotation_cycles) as usize;
+                    let total_frames = (frames_per_rotation as f32 * self.settings.rotation_cycles) as usize;
 
                     let percent = (progress as f32 / total_frames as f32 * 100.0).round();
                     format!("生成视频中... {}%", percent)
@@ -820,7 +820,7 @@ impl WidgetMethods for RasterizerApp {
                 let available_w_for_buttons = ui.available_width();
                 let spacing_x = ui.spacing().item_spacing.x;
 
-                // 为“生成视频”按钮分配大约 60% 的空间，为“清空缓冲区”按钮分配大约 40%
+                // 为"生成视频"按钮分配大约 60% 的空间，为"清空缓冲区"按钮分配大约 40%
                 let video_button_width = (available_w_for_buttons - spacing_x) * 0.6;
                 let clear_buffer_button_width = (available_w_for_buttons - spacing_x) * 0.4;
 

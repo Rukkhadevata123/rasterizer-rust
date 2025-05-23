@@ -13,10 +13,9 @@ mod ui;
 mod utils;
 
 // 导入语句
-use core::render_config::create_render_config;
 use core::renderer::Renderer;
-use io::args::Args;
 use io::loaders::load_obj_enhanced;
+use io::render_settings::RenderSettings; // 替换原来的Args导入
 use scene::scene_utils::Scene;
 use utils::model_utils::normalize_and_center_model;
 use utils::render_utils::render_single_frame;
@@ -24,15 +23,15 @@ use utils::render_utils::run_animation_loop;
 
 fn main() -> Result<(), String> {
     // 解析命令行参数
-    let mut args = Args::parse();
+    let mut settings = RenderSettings::parse();
 
     // 确保根据预设初始化光源配置
-    args.setup_light_sources();
+    settings.setup_light_sources();
 
     // 判断是否应该启动GUI模式
-    if args.should_start_gui() {
+    if settings.should_start_gui() {
         println!("启动GUI模式...");
-        if let Err(err) = ui::start_gui(args) {
+        if let Err(err) = ui::start_gui(settings) {
             return Err(format!("GUI启动失败: {}", err));
         }
         return Ok(());
@@ -42,7 +41,7 @@ fn main() -> Result<(), String> {
     let start_time = Instant::now();
 
     // 获取OBJ文件路径（此时我们确定obj是Some，所以可以安全unwrap）
-    let obj_path = args.obj.as_ref().unwrap();
+    let obj_path = settings.obj.as_ref().unwrap();
 
     // --- 验证输入和设置 ---
     if !Path::new(obj_path).exists() {
@@ -50,13 +49,13 @@ fn main() -> Result<(), String> {
     }
 
     // 确保输出目录存在
-    fs::create_dir_all(&args.output_dir)
-        .map_err(|e| format!("创建输出目录 '{}' 失败：{}", args.output_dir, e))?;
+    fs::create_dir_all(&settings.output_dir)
+        .map_err(|e| format!("创建输出目录 '{}' 失败：{}", settings.output_dir, e))?;
 
     // --- 加载模型 ---
     println!("加载模型：{}", obj_path);
     let load_start = Instant::now();
-    let mut model_data = load_obj_enhanced(obj_path, &args)?;
+    let mut model_data = load_obj_enhanced(obj_path, &settings)?;
     println!("模型加载耗时 {:?}", load_start.elapsed());
 
     // --- 归一化模型 ---
@@ -72,7 +71,7 @@ fn main() -> Result<(), String> {
 
     // --- 创建并设置场景 ---
     println!("创建场景...");
-    let mut scene = Scene::create_from_model_and_args(model_data, &args)?;
+    let mut scene = Scene::create_from_model_and_settings(model_data, &settings)?;
     println!(
         "创建了包含 {} 个对象、{} 个光源的场景",
         scene.object_count(),
@@ -80,17 +79,30 @@ fn main() -> Result<(), String> {
     );
 
     // --- 创建渲染器 ---
-    let renderer = Renderer::new(args.width, args.height);
+    let renderer = Renderer::new(settings.width, settings.height);
 
     // --- 渲染动画或单帧 ---
-    if args.animate {
-        run_animation_loop(&args, &mut scene, &renderer)?;
+    if settings.animate {
+        run_animation_loop(&settings, &mut scene, &renderer)?;
     } else {
         println!("--- 准备单帧渲染 ---");
-        // 使用从utils模块导入的create_render_config函数
-        let config = create_render_config(&scene, &args);
-        println!("使用{}渲染", config.get_lighting_description());
-        render_single_frame(&args, &scene, &renderer, &config, &args.output)?;
+        // 创建配置副本并从场景更新它
+        let mut render_settings = settings.clone();
+        render_settings.update_from_scene(&scene);
+
+        // 打印配置摘要
+        println!("--- 渲染配置摘要 ---");
+        render_settings.print_summary();
+        println!("-------------------");
+
+        println!("使用{}渲染", render_settings.get_lighting_description());
+        render_single_frame(
+            &settings,
+            &scene,
+            &renderer,
+            &render_settings,
+            &settings.output,
+        )?;
     }
 
     println!("总执行时间：{:?}", start_time.elapsed());

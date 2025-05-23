@@ -1,4 +1,4 @@
-use crate::io::args::{Args, parse_vec3};
+use crate::io::render_settings::{RenderSettings, parse_vec3};
 use crate::material_system::texture::Texture; // 假设 texture.rs 仍然存在于 materials 模块下
 use nalgebra::{Point3, Vector2, Vector3};
 use std::fmt::Debug;
@@ -235,10 +235,10 @@ impl MaterialView<'_> {
 
 /// 材质参数应用相关函数
 pub mod material_applicator {
-    use super::{Args, ModelData, Vector3, parse_vec3}; // 使用 super 访问同级模块的类型
+    use super::{ModelData, RenderSettings, Vector3, parse_vec3}; // 使用 super 访问同级模块的类型
 
     /// 应用PBR材质参数
-    pub fn apply_pbr_parameters(model_data: &mut ModelData, args: &Args) {
+    pub fn apply_pbr_parameters(model_data: &mut ModelData, args: &RenderSettings) {
         for material in &mut model_data.materials {
             material.metallic = args.metallic.clamp(0.0, 1.0);
             material.roughness = args.roughness.clamp(0.0, 1.0);
@@ -277,7 +277,7 @@ pub mod material_applicator {
     }
 
     /// 应用Phong材质参数
-    pub fn apply_phong_parameters(model_data: &mut ModelData, args: &Args) {
+    pub fn apply_phong_parameters(model_data: &mut ModelData, args: &RenderSettings) {
         for material in &mut model_data.materials {
             material.specular = Vector3::new(args.specular, args.specular, args.specular);
             material.shininess = args.shininess.max(1.0);

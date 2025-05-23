@@ -10,12 +10,12 @@
 //!
 //! 光栅化器使用原子操作处理深度缓冲和颜色缓冲区以支持高效的并行渲染。
 
-use crate::core::render_config::RenderConfig; // 直接导入 RenderConfig
 use crate::geometry::culling::is_on_triangle_edge;
 use crate::geometry::interpolation::{
     barycentric_coordinates, interpolate_depth, interpolate_normal, interpolate_position,
     interpolate_texcoords, is_inside_triangle,
 };
+use crate::io::render_settings::RenderSettings; // 直接导入 RenderSettings
 use crate::material_system::color::{Color, linear_rgb_to_u8};
 use crate::material_system::light::Light;
 use crate::material_system::materials::MaterialView;
@@ -86,14 +86,14 @@ pub struct TriangleData<'a> {
 /// * `height` - 帧缓冲区高度（像素）
 /// * `depth_buffer` - 深度缓冲区（使用原子操作支持并行）
 /// * `color_buffer` - 颜色缓冲区（使用原子操作支持并行）
-/// * `config` - 光栅化器配置参数
+/// * `settings` - 渲染设置参数
 pub fn rasterize_triangle(
     triangle: &TriangleData,
     width: usize,
     height: usize,
     depth_buffer: &[AtomicF32],
     color_buffer: &[AtomicU8],
-    config: &RenderConfig,
+    settings: &RenderSettings,
 ) {
     // 1. 计算三角形包围盒 - 优化实现，减少重复计算
     let v0 = &triangle.vertices[0].pix;
@@ -115,7 +115,7 @@ pub fn rasterize_triangle(
     const EDGE_THRESHOLD: f32 = 1.0;
 
     // 预计算与光照相关的常量
-    let use_phong_or_pbr = (config.use_pbr || config.use_phong)
+    let use_phong_or_pbr = (settings.use_pbr || settings.use_phong)
         && triangle.vertices[0].normal_view.is_some()
         && triangle.vertices[0].position_view.is_some()
         && !triangle.lights.is_empty();
@@ -141,7 +141,7 @@ pub fn rasterize_triangle(
                 // 4. 检查像素是否在三角形内
                 if is_inside_triangle(bary) {
                     // 线框模式特殊处理
-                    if config.use_wireframe
+                    if settings.wireframe
                         && !is_on_triangle_edge(pixel_center, *v0, *v1, *v2, EDGE_THRESHOLD)
                     {
                         continue;
@@ -153,7 +153,7 @@ pub fn rasterize_triangle(
                         triangle.vertices[0].z_view,
                         triangle.vertices[1].z_view,
                         triangle.vertices[2].z_view,
-                        config.is_perspective() && triangle.is_perspective,
+                        settings.is_perspective() && triangle.is_perspective,
                     );
 
                     // 检查深度是否有效（不在相机后方且不太远）
@@ -162,12 +162,12 @@ pub fn rasterize_triangle(
                         let current_depth_atomic = &depth_buffer[pixel_index];
 
                         // 优化深度测试逻辑，减少原子操作
-                        if !config.use_zbuffer {
+                        if !settings.use_zbuffer {
                             // 不使用深度测试，直接更新颜色
                             let final_color = calculate_pixel_color(
                                 triangle,
                                 bary,
-                                config,
+                                settings,
                                 use_phong_or_pbr,
                                 use_texture,
                                 &ambient_contribution,
@@ -176,7 +176,7 @@ pub fn rasterize_triangle(
                                 pixel_index,
                                 &final_color,
                                 color_buffer,
-                                config.apply_gamma_correction,
+                                settings.use_gamma,
                             );
                         } else {
                             // 进行深度测试
@@ -192,7 +192,7 @@ pub fn rasterize_triangle(
                                     let final_color = calculate_pixel_color(
                                         triangle,
                                         bary,
-                                        config,
+                                        settings,
                                         use_phong_or_pbr,
                                         use_texture,
                                         &ambient_contribution,
@@ -201,7 +201,7 @@ pub fn rasterize_triangle(
                                         pixel_index,
                                         &final_color,
                                         color_buffer,
-                                        config.apply_gamma_correction,
+                                        settings.use_gamma,
                                     );
                                 }
                             }
@@ -242,7 +242,7 @@ fn write_pixel_color(
 /// # 参数
 /// * `triangle` - 三角形数据
 /// * `bary` - 像素的重心坐标
-/// * `config` - 光栅化器配置
+/// * `settings` - 渲染设置
 /// * `use_phong_or_pbr` - 是否使用Phong或PBR着色（预计算的标志）
 /// * `use_texture` - 是否使用纹理（预计算的标志）
 /// * `ambient_contribution` - 预计算的环境光贡献
@@ -252,7 +252,7 @@ fn write_pixel_color(
 fn calculate_pixel_color(
     triangle: &TriangleData,
     bary: Vector3<f32>,
-    config: &RenderConfig,
+    settings: &RenderSettings,
     use_phong_or_pbr: bool,
     use_texture: bool,
     ambient_contribution: &Color,
@@ -330,7 +330,7 @@ fn calculate_pixel_color(
         if use_texture {
             let texel_color = sample_texture(triangle, bary);
 
-            if config.use_lighting {
+            if settings.use_lighting {
                 // 结合直接光照和环境光
                 texel_color.component_mul(&(direct_light + *ambient_contribution))
             } else {
@@ -339,7 +339,7 @@ fn calculate_pixel_color(
             }
         } else {
             // 无纹理，使用基础颜色
-            if config.use_lighting {
+            if settings.use_lighting {
                 // 结合直接光照和环境光
                 base_color.component_mul(&(direct_light + *ambient_contribution))
             } else {
@@ -358,7 +358,7 @@ fn calculate_pixel_color(
         };
 
         // 应用环境光
-        if config.use_lighting {
+        if settings.use_lighting {
             // 使用环境光贡献
             // 注意：在非PBR/Phong模式下只应用环境光
             surface_color.component_mul(ambient_contribution)
@@ -375,7 +375,7 @@ fn calculate_pixel_color(
 ///
 /// # 参数
 /// * `triangle` - 三角形数据
-/// * `config` - 光栅化器配置
+/// * `settings` - 渲染设置
 ///
 /// # 返回值
 /// 环境光贡献（颜色）

@@ -1,6 +1,5 @@
-use crate::core::render_config::RenderConfig;
 use crate::core::renderer::Renderer;
-use crate::io::args::Args;
+use crate::io::render_settings::RenderSettings; // 替换原来的导入
 use crate::material_system::color::apply_colormap_jet;
 use image::ColorType;
 use std::path::Path;
@@ -106,7 +105,7 @@ pub fn normalize_depth(depth_buffer: &[f32], min_percentile: f32, max_percentile
 /// * `height` - 图像高度
 /// * `output_dir` - 输出目录路径
 /// * `output_name` - 输出文件名（不含扩展名和后缀）
-/// * `config` - 渲染配置
+/// * `settings` - 渲染设置
 /// * `save_depth` - 是否保存深度图
 ///
 /// # 返回值
@@ -119,7 +118,7 @@ pub fn save_render_result(
     height: usize,
     output_dir: &str,
     output_name: &str,
-    config: &RenderConfig,
+    settings: &RenderSettings, // 改为使用RenderSettings
     save_depth: bool,
 ) -> Result<(), String> {
     // 保存彩色图像
@@ -132,7 +131,7 @@ pub fn save_render_result(
     save_image(&color_path, color_data, width as u32, height as u32);
 
     // 保存深度图（如果启用）
-    if config.use_zbuffer && save_depth {
+    if settings.use_zbuffer && save_depth {
         if let Some(depth_data_raw) = depth_data {
             let depth_normalized = normalize_depth(depth_data_raw, 1.0, 99.0);
             let depth_colored = apply_colormap_jet(
@@ -142,7 +141,7 @@ pub fn save_render_result(
                     .collect::<Vec<_>>(),
                 width,
                 height,
-                config.apply_gamma_correction,
+                settings.use_gamma, // 使用settings.use_gamma
             );
 
             let depth_path = Path::new(output_dir)
@@ -164,20 +163,19 @@ pub fn save_render_result(
 ///
 /// # 参数
 /// * `renderer` - 渲染器引用，用于获取渲染数据
-/// * `args` - 命令行参数引用，包含输出路径信息
-/// * `config` - 渲染配置引用
-/// * `output_name` - 自定义输出名称（如果为None，则使用args.output）
+/// * `settings` - 渲染设置引用
+/// * `output_name` - 自定义输出名称（如果为None，则使用settings.output）
 ///
 /// # 返回值
 /// Result，成功为()，失败为包含错误信息的字符串
-pub fn save_render_with_args(
+pub fn save_render_with_settings(
+    // 重命名函数以避免歧义
     renderer: &Renderer,
-    args: &Args,
-    config: &RenderConfig,
+    settings: &RenderSettings, // 替换为RenderSettings
     output_name: Option<&str>,
 ) -> Result<(), String> {
     let color_data = renderer.frame_buffer.get_color_buffer_bytes();
-    let depth_data = if args.save_depth {
+    let depth_data = if settings.save_depth {
         Some(renderer.frame_buffer.get_depth_buffer_f32())
     } else {
         None
@@ -185,16 +183,16 @@ pub fn save_render_with_args(
 
     let width = renderer.frame_buffer.width;
     let height = renderer.frame_buffer.height;
-    let output_name = output_name.unwrap_or(&args.output);
+    let output_name = output_name.unwrap_or(&settings.output);
 
     save_render_result(
         &color_data,
         depth_data.as_deref(),
         width,
         height,
-        &args.output_dir,
+        &settings.output_dir,
         output_name,
-        config,
-        args.save_depth,
+        settings,
+        settings.save_depth,
     )
 }
