@@ -1,6 +1,6 @@
 // scene_utils.rs
 use crate::geometry::camera::Camera;
-use crate::io::args::{Args, parse_attenuation, parse_point3, parse_vec3};
+use crate::io::args::{Args, parse_point3, parse_vec3};
 use crate::material_system::light::Light;
 use crate::material_system::materials::ModelData;
 use crate::material_system::materials::material_applicator::{
@@ -121,13 +121,7 @@ impl Scene {
         }
 
         // 设置场景光照
-        scene.setup_lighting(
-            Some(args),
-            &args.light_type,
-            args.diffuse,
-            args.ambient,
-            None,
-        )?;
+        scene.setup_lighting_from_args(args)?;
 
         Ok(scene)
     }
@@ -203,29 +197,6 @@ impl Scene {
         self.active_camera = camera;
     }
 
-    /// 在场景中创建一个定向光
-    pub fn add_directional_light(
-        &mut self,
-        direction: Vector3<f32>,
-        intensity: Vector3<f32>,
-    ) -> usize {
-        self.add_light(Light::directional(direction, intensity))
-    }
-
-    /// 在场景中创建一个点光源
-    pub fn add_point_light(
-        &mut self,
-        position: Point3<f32>,
-        intensity: Vector3<f32>,
-        attenuation: Option<(f32, f32, f32)>,
-    ) -> usize {
-        self.add_light(Light::point(
-            position,
-            intensity,
-            attenuation.or(Some((1.0, 0.09, 0.032))),
-        ))
-    }
-
     /// 在场景中以圆形阵列创建多个对象实例
     pub fn create_object_ring(
         &mut self,
@@ -279,39 +250,6 @@ impl Scene {
         self.ambient_color = color;
     }
 
-    /// 设置场景光照系统 - 统一方法，支持命令行参数
-    ///
-    /// 此函数提供统一的光照设置接口，可用于基本设置或从命令行参数设置
-    ///
-    /// # 参数
-    /// * `args` - 可选的命令行参数引用，如果提供则使用其中的光照设置
-    /// * `light_type` - 光源类型 ("point"或"directional")
-    /// * `diffuse_intensity` - 漫反射光强度 [0.0, 1.0]
-    /// * `ambient_intensity` - 环境光强度 [0.0, 1.0]
-    /// * `ambient_color` - 可选的环境光颜色，默认为白色
-    pub fn setup_lighting(
-        &mut self,
-        args: Option<&Args>,
-        light_type: &str,
-        diffuse_intensity: f32,
-        ambient_intensity: f32,
-        ambient_color: Option<Vector3<f32>>,
-    ) -> Result<(), String> {
-        // 清除现有灯光
-        self.clear_lights();
-
-        if let Some(args) = args {
-            self.setup_lighting_from_args(args)
-        } else {
-            self.setup_lighting_default(
-                light_type,
-                diffuse_intensity,
-                ambient_intensity,
-                ambient_color,
-            )
-        }
-    }
-
     /// 从命令行参数设置灯光
     fn setup_lighting_from_args(&mut self, args: &Args) -> Result<(), String> {
         // 设置环境光
@@ -324,97 +262,55 @@ impl Scene {
         self.set_ambient_light(args.ambient, color);
 
         // 如果不使用光照，直接返回
-        if !args.use_lighting || args.diffuse <= 0.0 {
+        if !args.use_lighting {
             return Ok(());
         }
 
-        // 添加灯光
-        let light_intensity = Vector3::new(1.0, 1.0, 1.0) * args.diffuse;
+        // 清除现有灯光
+        self.clear_lights();
 
-        if args.light_type == "point" {
-            self.add_point_light_from_args(args, light_intensity)
-        } else {
-            self.add_directional_light_from_args(args, light_intensity)
-        }
-    }
-
-    /// 添加点光源（从参数）
-    fn add_point_light_from_args(
-        &mut self,
-        args: &Args,
-        intensity: Vector3<f32>,
-    ) -> Result<(), String> {
-        if let Ok(light_pos) = parse_point3(&args.light_pos) {
-            // 解析衰减参数
-            let attenuation = if !args.light_atten.is_empty() {
-                parse_attenuation(&args.light_atten).ok()
-            } else {
-                None
-            };
-
-            self.add_point_light(light_pos, intensity, attenuation);
-
-            println!(
-                "使用点光源，位置: {}, 强度系数: {:.2}",
-                args.light_pos, args.diffuse
+        // 从预设创建光源
+        if args.directional_lights.is_empty() && args.point_lights.is_empty() {
+            // 如果没有明确配置，从预设创建
+            let preset_lights = crate::material_system::light::create_lights_from_preset(
+                args.lighting_preset.clone(),
+                args.main_light_intensity,
             );
-            Ok(())
-        } else {
-            Err(format!("无效的点光源位置格式: {}", args.light_pos))
-        }
-    }
 
-    /// 添加方向光（从参数）
-    fn add_directional_light_from_args(
-        &mut self,
-        args: &Args,
-        intensity: Vector3<f32>,
-    ) -> Result<(), String> {
-        if let Ok(light_dir) = parse_vec3(&args.light_dir) {
-            let light_dir = light_dir.normalize();
-            self.add_directional_light(light_dir, intensity);
-
-            println!(
-                "使用定向光，方向: {}, 强度系数: {:.2}",
-                args.light_dir, args.diffuse
-            );
-            Ok(())
-        } else {
-            Err(format!("无效的方向光方向格式: {}", args.light_dir))
-        }
-    }
-
-    /// 使用默认参数设置灯光
-    fn setup_lighting_default(
-        &mut self,
-        light_type: &str,
-        diffuse_intensity: f32,
-        ambient_intensity: f32,
-        ambient_color: Option<Vector3<f32>>,
-    ) -> Result<(), String> {
-        // 设置环境光
-        self.ambient_intensity = ambient_intensity;
-        self.ambient_color = ambient_color.unwrap_or_else(|| Vector3::new(1.0, 1.0, 1.0));
-
-        // 如果不使用光照，就到此为止
-        if diffuse_intensity <= 0.0 {
-            return Ok(());
-        }
-
-        // 设置主光源
-        let light_intensity = Vector3::new(1.0, 1.0, 1.0) * diffuse_intensity;
-
-        match light_type.to_lowercase().as_str() {
-            "point" => {
-                self.add_point_light(Point3::new(0.0, 5.0, 0.0), light_intensity, None);
+            for light in preset_lights {
+                self.lights.push(light);
             }
-            _ => {
-                // 默认为定向光
-                let light_dir = Vector3::new(-1.0, -1.0, -1.0).normalize();
-                self.add_directional_light(light_dir, light_intensity);
+        } else {
+            // 否则使用配置的光源
+            // 添加方向光源
+            for (i, light) in args.directional_lights.iter().enumerate() {
+                if light.enabled {
+                    match light.to_light() {
+                        Ok(l) => self.lights.push(l),
+                        Err(e) => eprintln!("方向光 #{} 配置错误: {}", i + 1, e),
+                    }
+                }
+            }
+
+            // 添加点光源
+            for (i, light) in args.point_lights.iter().enumerate() {
+                if light.enabled {
+                    match light.to_light() {
+                        Ok(l) => self.lights.push(l),
+                        Err(e) => eprintln!("点光源 #{} 配置错误: {}", i + 1, e),
+                    }
+                }
             }
         }
 
+        // 如果没有光源，添加一个默认的方向光源
+        if self.lights.is_empty() {
+            let default_direction = Vector3::new(0.0, -1.0, -1.0).normalize();
+            let default_color = Vector3::new(1.0, 1.0, 1.0);
+            self.add_light(Light::directional(default_direction, default_color, 0.8));
+        }
+
+        println!("已设置 {} 个光源", self.lights.len());
         Ok(())
     }
 }

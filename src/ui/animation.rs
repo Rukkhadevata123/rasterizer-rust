@@ -124,7 +124,15 @@ impl AnimationMethods for RasterizerApp {
         {
             // 检查模型是否已加载
             if self.scene.is_none() {
-                let obj_path = self.args.obj.clone();
+                let obj_path = match &self.args.obj {
+                    Some(path) => path.clone(),
+                    None => {
+                        self.set_error("错误: 未指定OBJ文件路径".to_string());
+                        self.is_realtime_rendering = false;
+                        self.pre_render_mode = false;
+                        return;
+                    }
+                };
                 match self.load_model(&obj_path) {
                     Ok(_) => {
                         self.start_pre_rendering(ctx);
@@ -155,7 +163,14 @@ impl AnimationMethods for RasterizerApp {
 
         // --- 常规实时渲染 ---
         if self.scene.is_none() {
-            let obj_path = self.args.obj.clone();
+            let obj_path = match &self.args.obj {
+                Some(path) => path.clone(),
+                None => {
+                    self.set_error("错误: 未指定OBJ文件路径".to_string());
+                    self.is_realtime_rendering = false;
+                    return;
+                }
+            };
             match self.load_model(&obj_path) {
                 Ok(_) => {
                     self.status_message = "模型加载成功，开始实时渲染...".to_string();
@@ -267,7 +282,15 @@ impl AnimationMethods for RasterizerApp {
 
                 // 如果场景未加载，尝试加载
                 if self.scene.is_none() {
-                    let obj_path = self.args.obj.clone();
+                    let obj_path = match &self.args.obj {
+                        Some(path) => path.clone(),
+                        None => {
+                            self.set_error("错误: 未指定OBJ文件路径".to_string());
+                            self.is_realtime_rendering = false;
+                            self.pre_render_mode = false;
+                            return;
+                        }
+                    };
                     match self.load_model(&obj_path) {
                         Ok(_) => self.status_message = "模型加载成功，开始生成视频...".to_string(),
                         Err(e) => {
@@ -466,7 +489,15 @@ impl AnimationMethods for RasterizerApp {
         match self.validate_parameters() {
             Ok(_) => {
                 if self.scene.is_none() {
-                    let obj_path = self.args.obj.clone();
+                    let obj_path = match &self.args.obj {
+                        Some(path) => path.clone(),
+                        None => {
+                            self.set_error("错误: 未指定OBJ文件路径".to_string());
+                            self.is_realtime_rendering = false;
+                            self.pre_render_mode = false;
+                            return;
+                        }
+                    };
                     match self.load_model(&obj_path) {
                         Ok(_) => self.status_message = "模型加载成功，开始预渲染...".to_string(),
                         Err(e) => {

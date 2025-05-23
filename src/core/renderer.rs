@@ -395,6 +395,11 @@ impl Renderer {
         material_override: Option<&'a Material>,
         config: &'a RenderConfig,
     ) -> Vec<TriangleData<'a>> {
+        // 准备环境光和光源数据
+        let ambient_intensity = config.ambient_intensity;
+        let ambient_color = config.ambient_color;
+        let lights = &config.lights; // 使用光源管理器中的所有光源
+
         // 创建要渲染的三角形列表
         model_data
             .meshes
@@ -520,20 +525,15 @@ impl Renderer {
                             ),
                         ];
 
-                        // --- 准备光照引用 ---
-                        let light_ref = if config.use_lighting {
-                            Some(&config.light)
-                        } else {
-                            None
-                        };
-
                         // --- 创建TriangleData ---
                         Some(TriangleData {
                             vertices: vertex_data,
                             base_color,
                             texture_source,
                             material_view,
-                            light: light_ref,
+                            lights, // 使用多光源引用
+                            ambient_intensity,
+                            ambient_color,
                             is_perspective: config.is_perspective(),
                         })
                     })

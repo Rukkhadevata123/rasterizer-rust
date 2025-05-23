@@ -46,8 +46,13 @@ impl RenderMethods for RasterizerApp {
         }
 
         // 检查OBJ文件是否存在
-        if !Path::new(&self.args.obj).exists() {
-            return Err(format!("错误: 找不到OBJ文件 '{}'", self.args.obj));
+        let obj_path = match &self.args.obj {
+            Some(path) => path,
+            None => return Err("错误: 未指定OBJ文件路径".to_string()),
+        };
+
+        if !Path::new(obj_path).exists() {
+            return Err(format!("错误: 找不到OBJ文件 '{}'", obj_path));
         }
 
         // 检查输出目录和文件名
@@ -74,33 +79,46 @@ impl RenderMethods for RasterizerApp {
 
         // 验证光照参数
         if self.args.use_lighting {
-            if self.args.light_type == "directional" {
-                if parse_vec3(&self.args.light_dir).is_err() {
-                    return Err("错误: 光源方向格式不正确，应为 x,y,z 格式".to_string());
-                }
-            } else if self.args.light_type == "point" {
-                if parse_vec3(&self.args.light_pos).is_err() {
-                    return Err("错误: 光源位置格式不正确，应为 x,y,z 格式".to_string());
-                }
+            // 验证环境光颜色
+            if !self.args.ambient_color.is_empty() && parse_vec3(&self.args.ambient_color).is_err()
+            {
+                return Err("错误: 环境光颜色格式不正确，应为 r,g,b 格式".to_string());
+            }
 
-                // 验证点光源衰减
-                let atten_parts: Vec<&str> = self.args.light_atten.split(',').collect();
-                if atten_parts.len() != 3 {
-                    return Err(
-                        "错误: 光源衰减格式不正确，应为 常数项,线性项,二次项 格式".to_string()
-                    );
-                }
-                for part in atten_parts {
-                    if part.trim().parse::<f32>().is_err() {
-                        return Err("错误: 光源衰减参数必须是浮点数".to_string());
+            // 验证光源配置数组
+            for (i, light) in self.args.directional_lights.iter().enumerate() {
+                if light.enabled {
+                    if parse_vec3(&light.direction).is_err() {
+                        return Err(format!(
+                            "错误: 方向光 #{} 的方向格式不正确，应为 x,y,z 格式",
+                            i + 1
+                        ));
+                    }
+                    if parse_vec3(&light.color).is_err() {
+                        return Err(format!(
+                            "错误: 方向光 #{} 的颜色格式不正确，应为 r,g,b 格式",
+                            i + 1
+                        ));
                     }
                 }
             }
-        }
 
-        // 验证环境光颜色
-        if !self.args.ambient_color.is_empty() && parse_vec3(&self.args.ambient_color).is_err() {
-            return Err("错误: 环境光颜色格式不正确，应为 r,g,b 格式".to_string());
+            for (i, light) in self.args.point_lights.iter().enumerate() {
+                if light.enabled {
+                    if parse_vec3(&light.position).is_err() {
+                        return Err(format!(
+                            "错误: 点光源 #{} 的位置格式不正确，应为 x,y,z 格式",
+                            i + 1
+                        ));
+                    }
+                    if parse_vec3(&light.color).is_err() {
+                        return Err(format!(
+                            "错误: 点光源 #{} 的颜色格式不正确，应为 r,g,b 格式",
+                            i + 1
+                        ));
+                    }
+                }
+            }
         }
 
         // 验证PBR参数
@@ -123,13 +141,21 @@ impl RenderMethods for RasterizerApp {
     }
 
     /// 渲染当前场景
+    /// 渲染当前场景
     fn render(&mut self, ctx: &egui::Context) {
         // 验证参数
         match self.validate_parameters() {
             Ok(_) => {
                 // 参数验证通过，继续渲染流程
-                // 保存状态消息到临时变量，避免借用冲突
-                let obj_path = self.args.obj.clone();
+                // 获取OBJ路径
+                let obj_path = match &self.args.obj {
+                    Some(path) => path.clone(),
+                    None => {
+                        self.set_error("错误: 未指定OBJ文件路径".to_string());
+                        return;
+                    }
+                };
+
                 self.status_message = format!("正在加载 {}...", obj_path);
                 // 请求重绘
                 ctx.request_repaint(); // 立即更新状态消息
@@ -154,8 +180,6 @@ impl RenderMethods for RasterizerApp {
                             // 创建渲染配置
                             let config = create_render_config(scene, &self.args);
 
-                            // 在GUI模式下输出光源信息（用于调试）
-                            println!("GUI模式使用光源: {:?}", config.light);
                             println!(
                                 "环境光: 强度={}, 颜色={:?}",
                                 config.ambient_intensity, config.ambient_color
@@ -307,7 +331,7 @@ impl RenderMethods for RasterizerApp {
         match result {
             Ok(Some(path)) => {
                 if let Some(path_str) = path.to_str() {
-                    self.args.obj = path_str.to_string();
+                    self.args.obj = Some(path_str.to_string());
                     self.status_message = format!("已选择模型: {}", path_str);
                 }
             }

@@ -60,7 +60,11 @@ pub struct TriangleData<'a> {
     pub material_view: Option<MaterialView<'a>>, // 材质视图
 
     // 光照信息
-    pub light: Option<&'a Light>, // 光源信息引用
+    pub lights: &'a [Light], // 多光源数组引用
+
+    // 环境光信息
+    pub ambient_intensity: f32,
+    pub ambient_color: Vector3<f32>,
 
     // 渲染设置
     pub is_perspective: bool, // 是否使用透视投影
@@ -114,7 +118,7 @@ pub fn rasterize_triangle(
     let use_phong_or_pbr = (config.use_pbr || config.use_phong)
         && triangle.vertices[0].normal_view.is_some()
         && triangle.vertices[0].position_view.is_some()
-        && triangle.light.is_some();
+        && !triangle.lights.is_empty();
 
     // 预计算纹理使用决策
     let use_texture = matches!(
@@ -123,7 +127,7 @@ pub fn rasterize_triangle(
     );
 
     // 提前计算环境光贡献，避免每个像素重复计算
-    let ambient_contribution = calculate_ambient_contribution(triangle, config);
+    let ambient_contribution = calculate_ambient_contribution(triangle);
 
     // 2. 遍历包围盒中的每个像素
     for y in min_y..max_y {
@@ -260,9 +264,6 @@ fn calculate_pixel_color(
     if use_phong_or_pbr {
         // --- 使用材质视图进行PBR或Phong着色 ---
 
-        // 获取必要的数据
-        let light = triangle.light.unwrap(); // 安全，因为use_phong_or_pbr已经检查了light存在
-
         // 获取材质视图
         let material_view = if let Some(mat_view) = &triangle.material_view {
             mat_view
@@ -298,18 +299,31 @@ fn calculate_pixel_color(
         // 计算视线方向
         let view_dir = (-interp_position.coords).normalize();
 
-        // 计算直接光照贡献
-        let light_dir = light.get_direction(&interp_position);
-        let light_intensity = light.get_intensity(&interp_position);
+        // 累积所有光源的贡献
+        let mut total_direct_light = Vector3::zeros();
 
-        // 计算材质响应
-        let response = material_view.compute_response(&light_dir, &view_dir, &interp_normal);
+        // 遍历所有光源
+        for light in triangle.lights {
+            // 计算光线方向和强度
+            let light_dir = light.get_direction(&interp_position);
+            let light_intensity = light.get_intensity(&interp_position);
+
+            // 计算材质对该光源的响应
+            let response = material_view.compute_response(&light_dir, &view_dir, &interp_normal);
+
+            // 累加该光源的贡献
+            total_direct_light += Vector3::new(
+                response.x * light_intensity.x,
+                response.y * light_intensity.y,
+                response.z * light_intensity.z,
+            );
+        }
 
         // 转换为颜色
         let direct_light = Color::new(
-            response.x * light_intensity.x,
-            response.y * light_intensity.y,
-            response.z * light_intensity.z,
+            total_direct_light.x,
+            total_direct_light.y,
+            total_direct_light.z,
         );
 
         // 处理纹理和应用光照
@@ -346,11 +360,10 @@ fn calculate_pixel_color(
         // 应用环境光
         if config.use_lighting {
             // 使用环境光贡献
-            // 注意：我们已经移除了lit_color字段，因此在非PBR/Phong模式下
-            // 只应用环境光，如果需要更复杂的光照应该切换到Phong或PBR模式
+            // 注意：在非PBR/Phong模式下只应用环境光
             surface_color.component_mul(ambient_contribution)
         } else {
-            // 只使用环境光贡献
+            // 只使用表面颜色
             surface_color
         }
     }
@@ -366,10 +379,10 @@ fn calculate_pixel_color(
 ///
 /// # 返回值
 /// 环境光贡献（颜色）
-fn calculate_ambient_contribution(triangle: &TriangleData, config: &RenderConfig) -> Color {
+fn calculate_ambient_contribution(triangle: &TriangleData) -> Color {
     // 获取环境光颜色和强度
-    let ambient_color = config.ambient_color;
-    let ambient_intensity = config.ambient_intensity;
+    let ambient_color = triangle.ambient_color;
+    let ambient_intensity = triangle.ambient_intensity;
 
     // 结合环境光颜色和强度
     let ambient = Color::new(

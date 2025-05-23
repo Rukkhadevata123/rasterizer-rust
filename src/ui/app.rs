@@ -149,12 +149,15 @@ impl RasterizerApp {
     /// 重置所有参数为默认值
     pub fn reset_to_defaults(&mut self) {
         // 保留当前的文件路径和输出设置
-        let obj_path = self.args.obj.clone();
         let output_dir = self.args.output_dir.clone();
         let output_name = self.args.output.clone();
 
         // 创建新的默认Args实例
-        let mut new_args = Args::parse_from(["program_name", "--obj", &obj_path].iter());
+        let mut new_args = if let Some(obj_path) = &self.args.obj {
+            Args::parse_from(["program_name", "--obj", obj_path].iter())
+        } else {
+            Args::parse_from(["program_name"].iter())
+        };
 
         // 恢复保留的路径
         new_args.output_dir = output_dir;

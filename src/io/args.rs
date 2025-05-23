@@ -1,11 +1,13 @@
 use clap::Parser;
 use nalgebra::Vector3;
+// 导入LightingPreset和光源配置
+use crate::material_system::light::{DirectionalLightConfig, LightingPreset, PointLightConfig};
 
 #[derive(clap::ValueEnum, Debug, Clone, Default, PartialEq, Eq)]
 pub enum AnimationType {
     #[default]
-    CameraOrbit, // 重命名
-    ObjectLocalRotation, // 重命名
+    CameraOrbit,
+    ObjectLocalRotation,
     None,
 }
 
@@ -15,24 +17,16 @@ pub enum RotationAxis {
     #[default]
     Y,
     Z,
-    Custom, // 允许用户指定自定义轴
+    Custom,
 }
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     // ===== 基础设置 =====
-    /// 启用GUI界面模式
-    #[arg(long)]
-    pub gui: bool,
-
     /// 输入OBJ文件的路径
-    #[arg(
-        long,
-        required_unless_present = "gui",
-        default_value = "obj/simple/bunny.obj"
-    )]
-    pub obj: String,
+    #[arg(long)]
+    pub obj: Option<String>,
 
     /// 运行完整动画循环而非单帧渲染
     #[arg(long, default_value_t = false)]
@@ -154,33 +148,27 @@ pub struct Args {
     #[arg(long, default_value_t = true)]
     pub use_lighting: bool,
 
-    /// 光源类型："directional"（定向光）或"point"（点光源）
-    #[arg(long, default_value = "directional")]
-    pub light_type: String,
-
-    /// 光源方向（来自光源的方向，用于定向光），格式为"x,y,z"
-    #[arg(long, default_value = "0,-1,-1", allow_negative_numbers = true)]
-    pub light_dir: String,
-
-    /// 光源位置（用于点光源），格式为"x,y,z"
-    #[arg(long, default_value = "0,5,5", allow_negative_numbers = true)]
-    pub light_pos: String,
-
-    /// 点光源的衰减因子（常数项,线性项,二次项），格式为"c,l,q"
-    #[arg(long, default_value = "1.0,0.09,0.032", allow_negative_numbers = true)]
-    pub light_atten: String,
-
     /// 环境光强度因子
     #[arg(long, default_value_t = 0.1)]
     pub ambient: f32,
 
-    /// 环境光强度RGB值，格式为"r,g,b"，优先级高于ambient参数
+    /// 环境光强度RGB值，格式为"r,g,b"
     #[arg(long, default_value = "0.1,0.1,0.1")]
     pub ambient_color: String,
 
-    /// 漫反射光强度因子
+    /// 光照预设模式
+    #[arg(long, value_enum, default_value_t = LightingPreset::SingleDirectional)]
+    pub lighting_preset: LightingPreset,
+
+    /// 主光源强度 (0.0-1.0)
     #[arg(long, default_value_t = 0.8)]
-    pub diffuse: f32,
+    pub main_light_intensity: f32,
+
+    // 这些字段不是直接CLI参数，只在内部使用
+    #[arg(skip)]
+    pub directional_lights: Vec<DirectionalLightConfig>,
+    #[arg(skip)]
+    pub point_lights: Vec<PointLightConfig>,
 
     // ===== 着色模型选择 =====
     /// 使用Phong着色（逐像素光照）而非默认的Flat着色
@@ -251,8 +239,71 @@ pub struct Args {
     pub ground_plane_height: f32,
 }
 
+impl Default for Args {
+    fn default() -> Self {
+        let mut args = Self {
+            obj: None,
+            animate: false,
+            fps: 30,
+            rotation_speed: 1.0,
+            rotation_cycles: 1.0,
+            animation_type: AnimationType::CameraOrbit,
+            rotation_axis: RotationAxis::Y,
+            custom_rotation_axis: "0,1,0".to_string(),
+            output: "output".to_string(),
+            output_dir: "output_rust".to_string(),
+            width: 1024,
+            height: 1024,
+            save_depth: true,
+            projection: "perspective".to_string(),
+            use_zbuffer: true,
+            colorize: false,
+            use_texture: true,
+            texture: None,
+            use_gamma: true,
+            backface_culling: false,
+            wireframe: false,
+            use_multithreading: true,
+            cull_small_triangles: false,
+            min_triangle_area: 1e-3,
+            object_count: None,
+            camera_from: "0,0,3".to_string(),
+            camera_at: "0,0,0".to_string(),
+            camera_up: "0,1,0".to_string(),
+            camera_fov: 45.0,
+            use_lighting: true,
+            ambient: 0.1,
+            ambient_color: "0.1,0.1,0.1".to_string(),
+            lighting_preset: LightingPreset::SingleDirectional,
+            main_light_intensity: 0.8,
+            directional_lights: Vec::new(),
+            point_lights: Vec::new(),
+            use_phong: true,
+            use_pbr: false,
+            diffuse_color: "0.8,0.8,0.8".to_string(),
+            specular: 0.5,
+            shininess: 32.0,
+            base_color: "0.8,0.8,0.8".to_string(),
+            metallic: 0.0,
+            roughness: 0.5,
+            ambient_occlusion: 1.0,
+            emissive: "0.0,0.0,0.0".to_string(),
+            enable_gradient_background: false,
+            gradient_top_color: "0.5,0.7,1.0".to_string(),
+            gradient_bottom_color: "0.1,0.2,0.4".to_string(),
+            enable_ground_plane: false,
+            ground_plane_color: "0.3,0.5,0.2".to_string(),
+            ground_plane_height: -1.0,
+        };
+
+        // 根据预设初始化光源配置
+        args.setup_light_sources();
+
+        args
+    }
+}
+
 // 辅助函数用于解析逗号分隔的浮点数
-// 标准解析应该能处理负数，这里不需要特殊逻辑
 pub fn parse_vec3(s: &str) -> Result<nalgebra::Vector3<f32>, String> {
     let parts: Vec<&str> = s.split(',').collect();
     if parts.len() != 3 {
@@ -277,47 +328,135 @@ pub fn parse_point3(s: &str) -> Result<nalgebra::Point3<f32>, String> {
     parse_vec3(s).map(nalgebra::Point3::from)
 }
 
-/// 解析点光源衰减参数，格式为 "constant,linear,quadratic"
-pub fn parse_attenuation(s: &str) -> Result<(f32, f32, f32), String> {
-    let parts: Vec<&str> = s.split(',').collect();
-    if parts.len() != 3 {
-        return Err("衰减参数需要3个逗号分隔的值".to_string());
-    }
-
-    let constant = parts[0]
-        .trim()
-        .parse::<f32>()
-        .map_err(|e| format!("无效的衰减常数 '{}': {}", parts[0], e))?;
-
-    let linear = parts[1]
-        .trim()
-        .parse::<f32>()
-        .map_err(|e| format!("无效的衰减线性系数 '{}': {}", parts[1], e))?;
-
-    let quadratic = parts[2]
-        .trim()
-        .parse::<f32>()
-        .map_err(|e| format!("无效的衰减二次系数 '{}': {}", parts[2], e))?;
-
-    Ok((constant, linear, quadratic))
-}
-
 /// 将 Args 中的旋转轴配置转换为 Vector3<f32>
 pub fn get_animation_axis_vector(args: &Args) -> Vector3<f32> {
     match args.rotation_axis {
         RotationAxis::X => Vector3::x_axis().into_inner(),
         RotationAxis::Y => Vector3::y_axis().into_inner(),
         RotationAxis::Z => Vector3::z_axis().into_inner(),
-        RotationAxis::Custom => {
-            parse_vec3(&args.custom_rotation_axis)
-                .unwrap_or_else(|_| {
-                    eprintln!(
-                        "警告: 无效的自定义旋转轴 '{}', 使用默认Y轴。",
-                        args.custom_rotation_axis
-                    );
-                    Vector3::y_axis().into_inner()
-                })
-                .normalize() // 确保自定义轴是单位向量
+        RotationAxis::Custom => parse_vec3(&args.custom_rotation_axis)
+            .unwrap_or_else(|_| {
+                eprintln!(
+                    "警告: 无效的自定义旋转轴 '{}', 使用默认Y轴。",
+                    args.custom_rotation_axis
+                );
+                Vector3::y_axis().into_inner()
+            })
+            .normalize(),
+    }
+}
+
+impl Args {
+    /// 检查是否应该启动GUI模式
+    pub fn should_start_gui(&self) -> bool {
+        // 如果没有提供OBJ文件路径，则启动GUI
+        if self.obj.is_none() {
+            return true;
         }
+
+        // 检查是否通过双击EXE启动（通常Windows下命令行参数为空）
+        if std::env::args().count() <= 1 {
+            return true;
+        }
+
+        false
+    }
+
+    /// 确保光源配置数组有正确的长度
+    pub fn ensure_light_arrays(&mut self) {
+        const MAX_DIRECTIONAL_LIGHTS: usize = 4;
+        const MAX_POINT_LIGHTS: usize = 8;
+
+        // 确保方向光源数组长度
+        while self.directional_lights.len() < MAX_DIRECTIONAL_LIGHTS {
+            let mut light = DirectionalLightConfig::default();
+            light.enabled = false;
+            self.directional_lights.push(light);
+        }
+        self.directional_lights.truncate(MAX_DIRECTIONAL_LIGHTS);
+
+        // 确保点光源数组长度
+        while self.point_lights.len() < MAX_POINT_LIGHTS {
+            let mut light = PointLightConfig::default();
+            light.enabled = false;
+            self.point_lights.push(light);
+        }
+        self.point_lights.truncate(MAX_POINT_LIGHTS);
+    }
+
+    /// 初始化光源配置数组
+    pub fn setup_light_sources(&mut self) {
+        // 清除现有的光源配置
+        self.directional_lights.clear();
+        self.point_lights.clear();
+
+        // 根据预设创建光源
+        match self.lighting_preset {
+            LightingPreset::SingleDirectional => {
+                // 添加一个默认的方向光源
+                self.directional_lights.push(DirectionalLightConfig {
+                    enabled: true,
+                    direction: "0,-1,-1".to_string(),
+                    color: "1.0,1.0,1.0".to_string(),
+                    intensity: self.main_light_intensity,
+                });
+            }
+            LightingPreset::ThreeDirectional => {
+                // 添加三个方向光源，从不同角度照亮场景
+                self.directional_lights.push(DirectionalLightConfig {
+                    enabled: true,
+                    direction: "0,-1,-1".to_string(),
+                    color: "1.0,1.0,1.0".to_string(),
+                    intensity: self.main_light_intensity * 0.7,
+                });
+                self.directional_lights.push(DirectionalLightConfig {
+                    enabled: true,
+                    direction: "-1,-0.5,0.2".to_string(),
+                    color: "0.9,0.9,1.0".to_string(),
+                    intensity: self.main_light_intensity * 0.5,
+                });
+                self.directional_lights.push(DirectionalLightConfig {
+                    enabled: true,
+                    direction: "1,-0.5,0.2".to_string(),
+                    color: "1.0,0.9,0.8".to_string(),
+                    intensity: self.main_light_intensity * 0.3,
+                });
+            }
+            LightingPreset::MixedComplete => {
+                // 添加一个主方向光源
+                self.directional_lights.push(DirectionalLightConfig {
+                    enabled: true,
+                    direction: "0,-1,-1".to_string(),
+                    color: "1.0,1.0,1.0".to_string(),
+                    intensity: self.main_light_intensity * 0.6,
+                });
+
+                // 添加四个点光源
+                let point_configs = [
+                    ("2,3,2", "1.0,0.8,0.6"),   // 暖色调
+                    ("-2,3,2", "0.6,0.8,1.0"),  // 冷色调
+                    ("2,3,-2", "0.8,1.0,0.8"),  // 绿色调
+                    ("-2,3,-2", "1.0,0.8,1.0"), // 紫色调
+                ];
+
+                for (pos, color) in &point_configs {
+                    self.point_lights.push(PointLightConfig {
+                        enabled: true,
+                        position: pos.to_string(),
+                        color: color.to_string(),
+                        intensity: self.main_light_intensity * 0.5,
+                        constant_attenuation: 1.0,
+                        linear_attenuation: 0.09,
+                        quadratic_attenuation: 0.032,
+                    });
+                }
+            }
+            LightingPreset::None => {
+                // 不添加任何光源
+            }
+        }
+
+        // 确保光源数组长度正确
+        self.ensure_light_arrays();
     }
 }

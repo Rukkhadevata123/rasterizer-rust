@@ -1,3 +1,4 @@
+use crate::material_system::light::LightingPreset;
 use egui::{Color32, Context, RichText, Vec2};
 use native_dialog::FileDialogBuilder;
 use std::sync::atomic::Ordering;
@@ -72,7 +73,17 @@ impl WidgetMethods for RasterizerApp {
             ui.collapsing("文件与输出设置", |ui| {
                 ui.horizontal(|ui| {
                     ui.label("OBJ文件：");
-                    let response = ui.text_edit_singleline(&mut self.args.obj);
+                    // 使用临时变量来处理Option<String>
+                    let mut obj_text = self.args.obj.clone().unwrap_or_default();
+                    let response = ui.text_edit_singleline(&mut obj_text);
+                    // 如果文本更改，更新args.obj
+                    if response.changed() {
+                        if obj_text.is_empty() {
+                            self.args.obj = None;
+                        } else {
+                            self.args.obj = Some(obj_text);
+                        }
+                    }
                     Self::add_tooltip(response, ctx, "选择要渲染的3D模型文件（.obj格式）");
                     if ui.button("浏览").clicked() {
                         self.select_obj_file();
@@ -343,60 +354,159 @@ impl WidgetMethods for RasterizerApp {
 
             // 光照设置部分
             ui.collapsing("光照设置", |ui| {
-                let _resp = ui.checkbox(&mut self.args.use_lighting, "启用光照")
-                .on_hover_text("总光照开关，关闭则仅使用下方设置的环境光颜色/强度");
+                let resp = ui.checkbox(&mut self.args.use_lighting, "启用光照")
+                    .on_hover_text("总光照开关，关闭则仅使用环境光");
+                Self::add_tooltip(resp, ctx, "启用或禁用方向光源");
+
+                // 确保光源数组已初始化
+                self.args.ensure_light_arrays();
 
                 ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label("光源类型：");
-                    let resp1 = ui.radio_value(&mut self.args.light_type, "directional".to_string(), "定向光");
-                    Self::add_tooltip(resp1, ctx, "定向光：来自无限远处的平行光（如太阳光）");
 
-                    let resp2 = ui.radio_value(&mut self.args.light_type, "point".to_string(), "点光源");
-                    Self::add_tooltip(resp2, ctx, "点光源：从一个点向四周发射的光（如灯泡）");
-                });
-
-                if self.args.light_type == "directional" {
-                    ui.horizontal(|ui| {
-                        ui.label("光源方向 (x,y,z)：");
-                        let resp = ui.text_edit_singleline(&mut self.args.light_dir);
-                        Self::add_tooltip(resp, ctx, "光线照射的方向，格式为x,y,z");
-                    });
-                } else if self.args.light_type == "point" {
-                    ui.horizontal(|ui| {
-                        ui.label("光源位置 (x,y,z)：");
-                        let resp = ui.text_edit_singleline(&mut self.args.light_pos);
-                        Self::add_tooltip(resp, ctx, "点光源的位置坐标，格式为x,y,z");
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("衰减 (c,l,q)：");
-                        let resp = ui.text_edit_singleline(&mut self.args.light_atten);
-                        Self::add_tooltip(resp, ctx, "点光源的衰减参数，格式为常数项,线性项,二次项");
-                    });
-                }
-                ui.separator();
+                // 环境光设置
                 ui.horizontal(|ui| {
                     ui.label("环境光颜色:");
-                    let ambient_color_vec = parse_vec3(&self.args.ambient_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.1, 0.1, 0.1));
+                    let ambient_color_vec = parse_vec3(&self.args.ambient_color)
+                        .unwrap_or_else(|_| nalgebra::Vector3::new(0.1, 0.1, 0.1));
                     let mut ambient_color_rgb = [ambient_color_vec.x, ambient_color_vec.y, ambient_color_vec.z];
                     let resp = ui.color_edit_button_rgb(&mut ambient_color_rgb);
                     if resp.changed() {
-                        self.args.ambient_color = format!("{},{},{}", ambient_color_rgb[0], ambient_color_rgb[1], ambient_color_rgb[2]);
+                        self.args.ambient_color = format!("{},{},{}", 
+                            ambient_color_rgb[0], ambient_color_rgb[1], ambient_color_rgb[2]);
                     }
-                    Self::add_tooltip(resp, ctx, "环境光的颜色\n如果光照关闭，或场景中没有其他光源，此颜色将作为基础色");
+                    Self::add_tooltip(resp, ctx, "环境光的颜色\n如果光照关闭，此颜色将作为基础色");
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label("环境光强度 (全局)：");
+                    ui.label("环境光强度:");
                     let resp = ui.add(egui::Slider::new(&mut self.args.ambient, 0.0..=1.0));
-                    Self::add_tooltip(resp, ctx, "作为环境光颜色的倍增因子");
+                    Self::add_tooltip(resp, ctx, "环境光的整体强度");
                 });
 
+                // 在此处添加光照预设选择器
                 ui.horizontal(|ui| {
-                    ui.label("漫反射强度：");
-                    let resp = ui.add(egui::Slider::new(&mut self.args.diffuse, 0.0..=2.0));
-                    Self::add_tooltip(resp, ctx, "物体表面漫反射的强度，影响光照明暗程度");
+                    ui.label("光照预设:");
+                    egui::ComboBox::from_id_salt("lighting_preset_combo")
+                        .selected_text(match self.args.lighting_preset {
+                            LightingPreset::SingleDirectional => "单一方向光",
+                            LightingPreset::ThreeDirectional => "三面方向光",
+                            LightingPreset::MixedComplete => "混合光源",
+                            LightingPreset::None => "无光源",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.args.lighting_preset, LightingPreset::SingleDirectional, "单一方向光");
+                            ui.selectable_value(&mut self.args.lighting_preset, LightingPreset::ThreeDirectional, "三面方向光");
+                            ui.selectable_value(&mut self.args.lighting_preset, LightingPreset::MixedComplete, "混合光源");
+                            ui.selectable_value(&mut self.args.lighting_preset, LightingPreset::None, "无光源");
+                        });
+
+                    if ui.button("应用预设").clicked() {
+                        self.args.setup_light_sources();
+                    }
                 });
+
+                if self.args.use_lighting {
+                    ui.separator();
+
+                    // 方向光源设置
+                    ui.collapsing("方向光源", |ui| {
+                        for (i, light) in self.args.directional_lights.iter_mut().enumerate() {
+                            ui.group(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut light.enabled, format!("方向光 #{}", i + 1));
+
+                                    if light.enabled {
+                                        let resp = ui.add(egui::Slider::new(&mut light.intensity, 0.0..=2.0)
+                                            .text("强度"));
+                                        Self::add_tooltip(resp, ctx, "光源强度倍增因子");
+                                    }
+                                });
+
+                                if light.enabled {
+                                    ui.horizontal(|ui| {
+                                        ui.label("方向 (x,y,z):");
+                                        let resp = ui.text_edit_singleline(&mut light.direction);
+                                        Self::add_tooltip(resp, ctx, "光线照射的方向，格式为x,y,z");
+                                    });
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("颜色:");
+                                        let color_vec = parse_vec3(&light.color)
+                                            .unwrap_or_else(|_| nalgebra::Vector3::new(1.0, 1.0, 1.0));
+                                        let mut color_rgb = [color_vec.x, color_vec.y, color_vec.z];
+                                        let resp = ui.color_edit_button_rgb(&mut color_rgb);
+                                        if resp.changed() {
+                                            light.color = format!("{},{},{}", 
+                                                color_rgb[0], color_rgb[1], color_rgb[2]);
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    });
+
+                    // 点光源设置
+                    ui.collapsing("点光源", |ui| {
+                        for (i, light) in self.args.point_lights.iter_mut().enumerate() {
+                            ui.group(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut light.enabled, format!("点光源 #{}", i + 1));
+
+                                    if light.enabled {
+                                        let resp = ui.add(egui::Slider::new(&mut light.intensity, 0.0..=5.0)
+                                            .text("强度"));
+                                        Self::add_tooltip(resp, ctx, "光源强度倍增因子");
+                                    }
+                                });
+
+                                if light.enabled {
+                                    ui.horizontal(|ui| {
+                                        ui.label("位置 (x,y,z):");
+                                        let resp = ui.text_edit_singleline(&mut light.position);
+                                        Self::add_tooltip(resp, ctx, "光源位置，格式为x,y,z");
+                                    });
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("颜色:");
+                                        let color_vec = parse_vec3(&light.color)
+                                            .unwrap_or_else(|_| nalgebra::Vector3::new(1.0, 1.0, 1.0));
+                                        let mut color_rgb = [color_vec.x, color_vec.y, color_vec.z];
+                                        let resp = ui.color_edit_button_rgb(&mut color_rgb);
+                                        if resp.changed() {
+                                            light.color = format!("{},{},{}", 
+                                                color_rgb[0], color_rgb[1], color_rgb[2]);
+                                        }
+                                    });
+
+                                    // 衰减设置
+                                    ui.group(|ui| {
+                                        ui.label("光照衰减参数:");
+                                        ui.horizontal(|ui| {
+                                            ui.label("常数项:");
+                                            ui.add(egui::DragValue::new(&mut light.constant_attenuation)
+                                                .speed(0.05)
+                                                .range(0.0..=10.0));
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("线性项:");
+                                            ui.add(egui::DragValue::new(&mut light.linear_attenuation)
+                                                .speed(0.01)
+                                                .range(0.0..=1.0));
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("二次项:");
+                                            ui.add(egui::DragValue::new(&mut light.quadratic_attenuation)
+                                                .speed(0.001)
+                                                .range(0.0..=0.5));
+                                        });
+                                        ui.label("提示: 1.0, 0.09, 0.032 为现实世界的典型值")
+                                            .on_hover_text("常数项影响基础亮度\n线性项控制中距离衰减\n二次项控制远距离衰减");
+                                    });
+                                }
+                            });
+                        }
+                    });
+                }
             });
 
             // PBR材质设置部分

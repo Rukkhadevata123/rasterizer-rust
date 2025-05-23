@@ -1,5 +1,5 @@
 use crate::io::args::{Args, parse_vec3};
-use crate::material_system::light::Light;
+use crate::material_system::light::{Light, create_lights_from_configs, create_lights_from_preset};
 use crate::scene::scene_utils::Scene;
 use nalgebra::Vector3;
 
@@ -31,14 +31,14 @@ pub struct RenderConfig {
     pub apply_gamma_correction: bool,
 
     // 光照信息
-    /// 默认光源配置
-    pub light: Light,
+    /// 场景中的光源
+    pub lights: Vec<Light>,
 
     // 环境光信息（作为场景的基础属性）
     /// 环境光强度 - 控制场景整体亮度 [0.0, 1.0]
     pub ambient_intensity: f32,
     /// 环境光颜色 - 控制场景基础色调 (RGB)
-    pub ambient_color: nalgebra::Vector3<f32>,
+    pub ambient_color: Vector3<f32>,
 
     // 几何处理
     /// 是否启用背面剔除
@@ -81,12 +81,9 @@ impl Default for RenderConfig {
             use_pbr: false,
             use_texture: true,
             apply_gamma_correction: true,
-            light: Light::directional(
-                nalgebra::Vector3::new(0.0, -1.0, -1.0).normalize(),
-                nalgebra::Vector3::new(1.0, 1.0, 1.0),
-            ),
-            ambient_intensity: 0.1, // 默认环境光强度
-            ambient_color: nalgebra::Vector3::new(1.0, 1.0, 1.0), // 默认环境光颜色（白色）
+            lights: Vec::new(),
+            ambient_intensity: 0.1,
+            ambient_color: Vector3::new(1.0, 1.0, 1.0),
             use_backface_culling: false,
             use_wireframe: false,
             use_multithreading: true,
@@ -155,8 +152,8 @@ impl RenderConfig {
         self
     }
 
-    pub fn with_light(mut self, light: Light) -> Self {
-        self.light = light;
+    pub fn with_lights(mut self, lights: Vec<Light>) -> Self {
+        self.lights = lights;
         self
     }
 
@@ -165,7 +162,7 @@ impl RenderConfig {
         self
     }
 
-    pub fn with_ambient_color(mut self, color: nalgebra::Vector3<f32>) -> Self {
+    pub fn with_ambient_color(mut self, color: Vector3<f32>) -> Self {
         self.ambient_color = color;
         self
     }
@@ -216,6 +213,17 @@ impl RenderConfig {
     }
 }
 
+/// 从Args创建光源列表
+fn setup_lights_from_args(args: &Args) -> Vec<Light> {
+    // 优先使用预设创建光源
+    if args.directional_lights.is_empty() && args.point_lights.is_empty() {
+        create_lights_from_preset(args.lighting_preset.clone(), args.main_light_intensity)
+    } else {
+        // 如果有明确的配置，使用配置创建
+        create_lights_from_configs(&args.directional_lights, &args.point_lights)
+    }
+}
+
 /// 创建渲染配置
 ///
 /// 基于场景和命令行参数创建渲染配置
@@ -228,29 +236,22 @@ impl RenderConfig {
 /// 配置好的RenderConfig对象
 pub fn create_render_config(scene: &Scene, args: &Args) -> RenderConfig {
     // --- 光源处理 ---
-    // 优先使用场景中的光源
-    let main_light = if !scene.lights.is_empty() {
-        scene.lights[0] // 使用场景中的第一个光源作为主光源
-    } else {
-        // 如果场景中没有光源，创建一个临时场景并设置光照
-        let mut temp_scene = Scene::new(scene.active_camera.clone());
-        // 使用统一的光照设置方法
-        let _ = temp_scene.setup_lighting(
-            Some(args),
-            &args.light_type,
-            args.diffuse,
-            args.ambient,
-            None,
-        );
+    let mut lights = Vec::new();
 
-        // 获取创建的光源(如果有)，否则使用默认光源
-        temp_scene.lights.first().cloned().unwrap_or_else(|| {
-            Light::directional(
-                Vector3::new(-1.0, -1.0, -1.0).normalize(),
-                Vector3::new(1.0, 1.0, 1.0),
-            )
-        })
-    };
+    // 首先尝试从场景中获取光源
+    if !scene.lights.is_empty() {
+        lights.extend_from_slice(&scene.lights);
+    } else {
+        // 如果场景中没有光源，则从参数创建
+        lights = setup_lights_from_args(args);
+    }
+
+    // 确保至少有一个默认光源
+    if lights.is_empty() {
+        let default_direction = Vector3::new(0.0, -1.0, -1.0).normalize();
+        let default_color = Vector3::new(1.0, 1.0, 1.0);
+        lights.push(Light::directional(default_direction, default_color, 0.8));
+    }
 
     // --- 环境光处理 ---
     // 直接使用场景中的环境光设置
@@ -269,7 +270,7 @@ pub fn create_render_config(scene: &Scene, args: &Args) -> RenderConfig {
         .with_pbr(args.use_pbr)
         // --- 光照设置 ---
         .with_lighting(args.use_lighting)
-        .with_light(main_light)
+        .with_lights(lights)
         .with_ambient_intensity(ambient_intensity)
         .with_ambient_color(ambient_color)
         // --- 后处理设置 ---
@@ -319,8 +320,7 @@ pub fn print_render_config_summary(config: &RenderConfig, args: &Args) {
         }
     );
     if args.use_lighting {
-        println!("光源类型: {}", args.light_type);
-        println!("主光源: {:?}", config.light);
+        println!("光源数量: {}", config.lights.len());
         println!(
             "环境光: 强度={:.2}, 颜色={:?}",
             config.ambient_intensity, config.ambient_color

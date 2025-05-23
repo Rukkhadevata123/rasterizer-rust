@@ -23,10 +23,14 @@ use utils::render_utils::render_single_frame;
 use utils::render_utils::run_animation_loop;
 
 fn main() -> Result<(), String> {
-    let args = Args::parse();
+    // 解析命令行参数
+    let mut args = Args::parse();
 
-    // 如果指定了GUI模式，则启动GUI界面
-    if args.gui {
+    // 确保根据预设初始化光源配置
+    args.setup_light_sources();
+
+    // 判断是否应该启动GUI模式
+    if args.should_start_gui() {
         println!("启动GUI模式...");
         if let Err(err) = ui::start_gui(args) {
             return Err(format!("GUI启动失败: {}", err));
@@ -34,11 +38,15 @@ fn main() -> Result<(), String> {
         return Ok(());
     }
 
+    // 如果代码执行到这里，说明有OBJ文件路径，进入命令行渲染模式
     let start_time = Instant::now();
 
+    // 获取OBJ文件路径（此时我们确定obj是Some，所以可以安全unwrap）
+    let obj_path = args.obj.as_ref().unwrap();
+
     // --- 验证输入和设置 ---
-    if !Path::new(&args.obj).exists() {
-        return Err(format!("错误：输入的 OBJ 文件未找到：{}", args.obj));
+    if !Path::new(obj_path).exists() {
+        return Err(format!("错误：输入的 OBJ 文件未找到：{}", obj_path));
     }
 
     // 确保输出目录存在
@@ -46,9 +54,9 @@ fn main() -> Result<(), String> {
         .map_err(|e| format!("创建输出目录 '{}' 失败：{}", args.output_dir, e))?;
 
     // --- 加载模型 ---
-    println!("加载模型：{}", args.obj);
+    println!("加载模型：{}", obj_path);
     let load_start = Instant::now();
-    let mut model_data = load_obj_enhanced(&args.obj, &args)?;
+    let mut model_data = load_obj_enhanced(obj_path, &args)?;
     println!("模型加载耗时 {:?}", load_start.elapsed());
 
     // --- 归一化模型 ---
