@@ -1,4 +1,4 @@
-use crate::scene::scene_utils::Scene;
+use crate::ResourceLoader;
 use crate::utils::save_utils::save_render_with_settings;
 use egui::{Color32, Context};
 use native_dialog::FileDialogBuilder;
@@ -27,6 +27,9 @@ pub trait RenderMethods {
 
     /// 选择OBJ文件
     fn select_obj_file(&mut self);
+
+    /// 选择背景图片
+    fn select_background_image(&mut self);
 
     /// 选择输出目录
     fn select_output_dir(&mut self);
@@ -122,23 +125,62 @@ impl RenderMethods for RasterizerApp {
 
     /// 加载模型并设置场景
     fn load_model(&mut self, obj_path: &str) -> Result<(), String> {
-        use crate::io::loaders::load_obj_enhanced;
-        use crate::utils::model_utils::normalize_and_center_model;
+        // 使用ResourceLoader加载模型和创建场景
+        let (scene, model_data) =
+            ResourceLoader::load_model_and_create_scene(obj_path, &self.settings)?;
 
-        // 加载模型数据
-        let mut model_data = load_obj_enhanced(obj_path, &self.settings)?;
-
-        // 归一化模型
-        let (_center, _scale) = normalize_and_center_model(&mut model_data);
-
-        // 使用统一的场景创建方法
-        self.scene = Some(Scene::create_from_model_and_settings(
-            model_data.clone(),
-            &self.settings,
-        )?);
+        // 保存场景和模型数据
+        self.scene = Some(scene);
         self.model_data = Some(model_data);
 
+        // 使用ResourceLoader加载背景图片
+        if self.settings.use_background_image {
+            if let Err(e) = ResourceLoader::load_background_image_if_enabled(&mut self.settings) {
+                println!("背景图片加载问题: {}", e);
+                // 继续执行，不中断加载过程
+            }
+        }
+
         Ok(())
+    }
+
+    /// 选择背景图片
+    fn select_background_image(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("选择背景图片")
+            .add_filter("图片文件", &["png", "jpg", "jpeg", "bmp"])
+            .open_single_file()
+            .show();
+
+        match result {
+            Ok(Some(path)) => {
+                if let Some(path_str) = path.to_str() {
+                    // 设置背景图片路径
+                    self.settings.background_image_path = Some(path_str.to_string());
+                    self.status_message = format!("已选择背景图片: {}", path_str);
+
+                    // 使用ResourceLoader加载背景图片
+                    match ResourceLoader::load_background_image_from_path(path_str) {
+                        Ok(texture) => {
+                            self.settings.background_image = Some(texture);
+                            self.settings.use_background_image = true;
+                            self.status_message = format!("背景图片加载成功: {}", path_str);
+                        }
+                        Err(e) => {
+                            self.set_error(format!("背景图片加载失败: {}", e));
+                            self.settings.background_image_path = None;
+                            self.settings.background_image = None;
+                        }
+                    }
+                }
+            }
+            Ok(None) => {
+                self.status_message = "图片选择被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("文件选择器错误: {}", e));
+            }
+        }
     }
 
     /// 在UI中显示渲染结果

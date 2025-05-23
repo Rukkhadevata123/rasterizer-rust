@@ -1,6 +1,5 @@
 use clap::Parser;
 use std::fs;
-use std::path::Path;
 use std::time::Instant;
 
 // 声明模块
@@ -14,12 +13,9 @@ mod utils;
 
 // 导入语句
 use core::renderer::Renderer;
-use io::loaders::load_obj_enhanced;
-use io::render_settings::RenderSettings; // 替换原来的Args导入
-use scene::scene_utils::Scene;
-use utils::model_utils::normalize_and_center_model;
-use utils::render_utils::render_single_frame;
-use utils::render_utils::run_animation_loop;
+use io::render_settings::RenderSettings;
+use io::resource_loader::ResourceLoader; // 引入新的资源加载器
+use utils::render_utils::{render_single_frame, run_animation_loop};
 
 fn main() -> Result<(), String> {
     // 解析命令行参数
@@ -43,40 +39,19 @@ fn main() -> Result<(), String> {
     // 获取OBJ文件路径（此时我们确定obj是Some，所以可以安全unwrap）
     let obj_path = settings.obj.as_ref().unwrap();
 
-    // --- 验证输入和设置 ---
-    if !Path::new(obj_path).exists() {
-        return Err(format!("错误：输入的 OBJ 文件未找到：{}", obj_path));
-    }
-
     // 确保输出目录存在
     fs::create_dir_all(&settings.output_dir)
         .map_err(|e| format!("创建输出目录 '{}' 失败：{}", settings.output_dir, e))?;
 
-    // --- 加载模型 ---
-    println!("加载模型：{}", obj_path);
-    let load_start = Instant::now();
-    let mut model_data = load_obj_enhanced(obj_path, &settings)?;
-    println!("模型加载耗时 {:?}", load_start.elapsed());
+    // 使用ResourceLoader加载模型和创建场景
+    let (mut scene, _model_data) =
+        ResourceLoader::load_model_and_create_scene(obj_path, &settings)?;
 
-    // --- 归一化模型 ---
-    println!("归一化模型...");
-    let norm_start_time = Instant::now();
-    let (original_center, scale_factor) = normalize_and_center_model(&mut model_data);
-    println!(
-        "模型归一化耗时 {:?}。原始中心：{:.3?}，缩放系数：{:.3}",
-        norm_start_time.elapsed(),
-        original_center,
-        scale_factor
-    );
-
-    // --- 创建并设置场景 ---
-    println!("创建场景...");
-    let mut scene = Scene::create_from_model_and_settings(model_data, &settings)?;
-    println!(
-        "创建了包含 {} 个对象、{} 个光源的场景",
-        scene.object_count(),
-        scene.light_count()
-    );
+    // 使用ResourceLoader加载背景图片
+    if let Err(e) = ResourceLoader::load_background_image_if_enabled(&mut settings) {
+        println!("背景图片加载问题: {}", e);
+        // 继续执行，不中断渲染过程
+    }
 
     // --- 创建渲染器 ---
     let renderer = Renderer::new(settings.width, settings.height);

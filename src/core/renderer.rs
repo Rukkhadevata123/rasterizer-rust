@@ -41,6 +41,8 @@ impl FrameBuffer {
         }
     }
 
+    // 修改 FrameBuffer 的 clear 方法
+
     /// 清除所有缓冲区，并根据配置绘制背景和地面
     pub fn clear(&self, settings: &RenderSettings) {
         // 重置深度缓冲区，使用原子操作避免数据竞争
@@ -58,18 +60,40 @@ impl FrameBuffer {
                 let t_y = y as f32 / (self.height - 1) as f32;
                 let t_x = x as f32 / (self.width - 1) as f32;
 
-                // 1. 首先绘制渐变背景
-                let mut final_color = if settings.enable_gradient_background {
-                    // 渐变背景色计算
-                    settings.gradient_top_color_vec * (1.0 - t_y)
-                        + settings.gradient_bottom_color_vec * t_y
-                } else {
-                    // 默认黑色背景
-                    Vector3::new(0.0, 0.0, 0.0)
-                };
-                // 地面平面处理部分改进 - 结合屏幕空间渲染和射线追踪网格
+                // 1. 首先绘制背景图片（如果启用）- 最低层级
+                let mut final_color =
+                    if settings.use_background_image && settings.background_image.is_some() {
+                        // 使用背景图片
+                        let background = settings.background_image.as_ref().unwrap();
 
-                // 2. 如果启用地面平面，在下半部分应用地面效果
+                        // 计算纹理坐标 (纹理坐标中y轴方向与屏幕坐标相反)
+                        let tex_x = t_x;
+                        let tex_y = 1.0 - t_y; // 翻转Y轴以匹配图片坐标系
+
+                        // 获取对应的像素颜色，并转换为所需类型
+                        background.sample(tex_x, tex_y).into()
+                    } else if settings.enable_gradient_background {
+                        // 2. 无背景图片时绘制渐变背景 - 或者渐变背景覆盖图片
+                        settings.gradient_top_color_vec * (1.0 - t_y)
+                            + settings.gradient_bottom_color_vec * t_y
+                    } else {
+                        // 默认黑色背景
+                        Vector3::new(0.0, 0.0, 0.0)
+                    };
+
+                // 如果启用了渐变背景且已经有背景图片，则混合渐变
+                if settings.use_background_image
+                    && settings.background_image.is_some()
+                    && settings.enable_gradient_background
+                {
+                    // 渐变背景覆盖在图片上
+                    let gradient_color = settings.gradient_top_color_vec * (1.0 - t_y)
+                        + settings.gradient_bottom_color_vec * t_y;
+                    // 简单混合 - 渐变具有半透明效果
+                    final_color = final_color * 0.3 + gradient_color * 0.7;
+                }
+
+                // 3. 如果启用地面平面，在下半部分应用地面效果 - 最高层级
                 if settings.enable_ground_plane {
                     // 获取地面在世界空间中的Y坐标（高度）
                     let ground_y_world = settings.ground_plane_height;
@@ -132,7 +156,7 @@ impl FrameBuffer {
 
                             edge_factor * depth_enhanced * (1.0 - line_strength * 0.9)
                         } else {
-                            // 射线与地面相交，使用精确的世界空间计算
+                            // 保留原有的地面渲染逻辑...
                             let t = (Point3::new(0.0, ground_y_world, 0.0) - world_ray_origin)
                                 .dot(&ground_normal)
                                 / denominator;

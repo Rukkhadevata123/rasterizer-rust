@@ -246,6 +246,14 @@ pub struct RenderSettings {
     #[arg(long, default_value_t = -1.0, allow_negative_numbers = true)]
     pub ground_plane_height: f32,
 
+    /// 使用背景图片
+    #[arg(long, default_value_t = false)]
+    pub use_background_image: bool,
+
+    /// 背景图片路径
+    #[arg(long)]
+    pub background_image_path: Option<String>,
+
     // ===== 运行时字段（不是命令行参数） =====
     // 从RenderConfig导入的运行时字段
     #[arg(skip)]
@@ -262,6 +270,9 @@ pub struct RenderSettings {
 
     #[arg(skip)]
     pub ground_plane_color_vec: Vector3<f32>,
+
+    #[arg(skip)]
+    pub background_image: Option<crate::material_system::texture::Texture>,
 }
 
 /// 辅助函数用于解析逗号分隔的浮点数
@@ -362,12 +373,15 @@ impl Default for RenderSettings {
             enable_ground_plane: false,
             ground_plane_color: "0.3,0.5,0.2".to_string(),
             ground_plane_height: -1.0,
+            use_background_image: false,
+            background_image_path: None,
             // 运行时字段初始化
             lights: Vec::new(),
             ambient_color_vec: Vector3::new(0.1, 0.1, 0.1),
             gradient_top_color_vec: Vector3::new(0.5, 0.7, 1.0),
             gradient_bottom_color_vec: Vector3::new(0.1, 0.2, 0.4),
             ground_plane_color_vec: Vector3::new(0.3, 0.5, 0.2),
+            background_image: None,
         };
 
         // 初始化光源配置
@@ -726,6 +740,37 @@ impl RenderSettings {
             }
             if !self.emissive.is_empty() && parse_vec3(&self.emissive).is_err() {
                 return Err("错误: 自发光颜色格式不正确，应为 r,g,b 格式".to_string());
+            }
+        }
+
+        // 验证背景图片路径
+        if self.use_background_image {
+            if let Some(bg_path) = &self.background_image_path {
+                let path = std::path::Path::new(bg_path);
+                if !path.exists() {
+                    return Err(format!("错误: 找不到背景图片文件 '{}'", bg_path));
+                }
+                if !path.is_file() {
+                    return Err(format!(
+                        "错误: 背景图片路径不是一个有效的文件 '{}'",
+                        bg_path
+                    ));
+                }
+
+                // 可选: 检查文件扩展名是否是支持的图像格式
+                if let Some(ext) = path.extension() {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    if !["png", "jpg", "jpeg", "bmp", "tga"].contains(&ext_str.as_str()) {
+                        return Err(format!(
+                            "错误: 背景图片格式不受支持 '{}', 支持的格式: png, jpg, jpeg, bmp, tga",
+                            bg_path
+                        ));
+                    }
+                } else {
+                    return Err(format!("错误: 背景图片缺少文件扩展名 '{}'", bg_path));
+                }
+            } else {
+                return Err("错误: 已启用背景图片但未指定图片路径".to_string());
             }
         }
 

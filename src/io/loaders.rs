@@ -431,3 +431,22 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(
     println!("创建模型 '{}' 成功", model_data.name);
     Ok(model_data)
 }
+
+/// 加载背景图片
+pub fn load_background_image<P: AsRef<Path>>(
+    image_path: P,
+) -> Result<crate::material_system::texture::Texture, String> {
+    let path = image_path.as_ref();
+    println!("加载背景图片: {:?}", path);
+
+    // 直接使用 Texture::from_file 返回值
+    if let Some(texture) = Texture::from_file(path) {
+        println!("背景图片加载成功: {}x{}", texture.width, texture.height);
+        Ok(texture)
+    } else {
+        // 使用默认纯色作为加载失败时的后备方案
+        // let default_color = Vector3::new(0.0, 0.0, 0.0); // 默认黑色
+        // Ok(Texture::solid_color(default_color))
+        Err(format!("无法加载背景图片: {:?}", path))
+    }
+}

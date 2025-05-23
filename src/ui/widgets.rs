@@ -1,4 +1,4 @@
-use crate::material_system::light::LightingPreset;
+use crate::{io::resource_loader::ResourceLoader, material_system::light::LightingPreset};
 use egui::{Color32, Context, RichText, Vec2};
 use native_dialog::FileDialogBuilder;
 use std::sync::atomic::Ordering;
@@ -14,6 +14,9 @@ use super::render_ui::RenderMethods;
 pub trait WidgetMethods {
     /// 绘制UI的侧边栏
     fn draw_side_panel(&mut self, ctx: &Context, ui: &mut egui::Ui);
+
+    /// 绘制背景设置UI
+    fn ui_background_settings(app: &mut RasterizerApp, ui: &mut egui::Ui);
 
     /// 显示错误对话框
     fn show_error_dialog_ui(&mut self, ctx: &Context);
@@ -270,59 +273,9 @@ impl WidgetMethods for RasterizerApp {
                 });
             });
 
-            // 背景与环境设置
+            // 背景与环境设置 - 调用新函数
             ui.collapsing("背景与环境", |ui| {
-                // 渐变背景
-                let resp_grad_bg = ui.checkbox(&mut self.settings.enable_gradient_background, "启用渐变背景");
-                Self::add_tooltip(resp_grad_bg, ctx, "使用渐变色作为场景背景");
-                if self.settings.enable_gradient_background {
-                    ui.horizontal(|ui| {
-                        ui.label("顶部颜色:");
-                        let top_color_rgb_vec = parse_vec3(&self.settings.gradient_top_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.5, 0.7, 1.0));
-                        let mut top_color_rgb = [top_color_rgb_vec.x, top_color_rgb_vec.y, top_color_rgb_vec.z];
-                        if ui.color_edit_button_rgb(&mut top_color_rgb).changed() {
-                            self.settings.gradient_top_color = format!("{},{},{}", top_color_rgb[0], top_color_rgb[1], top_color_rgb[2]);
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("底部颜色:");
-                        let bottom_color_rgb_vec = parse_vec3(&self.settings.gradient_bottom_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.1, 0.2, 0.4));
-                        let mut bottom_color_rgb = [bottom_color_rgb_vec.x, bottom_color_rgb_vec.y, bottom_color_rgb_vec.z];
-                        if ui.color_edit_button_rgb(&mut bottom_color_rgb).changed() {
-                            self.settings.gradient_bottom_color = format!("{},{},{}", bottom_color_rgb[0], bottom_color_rgb[1], bottom_color_rgb[2]);
-                        }
-                    });
-                }
-                ui.separator();
-                // 地面平面
-                let resp_ground = ui.checkbox(&mut self.settings.enable_ground_plane, "启用地面平面");
-                Self::add_tooltip(resp_ground, ctx, "在场景中添加一个无限延伸的地面");
-                if self.settings.enable_ground_plane {
-                    ui.horizontal(|ui| {
-                        ui.label("地面颜色:");
-                        let ground_color_rgb_vec = parse_vec3(&self.settings.ground_plane_color).unwrap_or_else(|_| nalgebra::Vector3::new(0.3, 0.5, 0.2));
-                        let mut ground_color_rgb = [ground_color_rgb_vec.x, ground_color_rgb_vec.y, ground_color_rgb_vec.z];
-                        if ui.color_edit_button_rgb(&mut ground_color_rgb).changed() {
-                            self.settings.ground_plane_color = format!("{},{},{}", ground_color_rgb[0], ground_color_rgb[1], ground_color_rgb[2]);
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("地面高度 (Y):");
-                        let mut height_value = self.settings.ground_plane_height;
-                        let resp_height = ui.add(
-                            egui::DragValue::new(&mut height_value)
-                            .speed(0.1)
-                            .range(-100.0..=-0.1) // 设置范围限制，最大值为0
-                        );
-
-                        // 如果值发生了变化，确保是负值或零
-                        if resp_height.changed() {
-                            self.settings.ground_plane_height = height_value.min(0.0);
-                        }
-
-                        Self::add_tooltip(resp_height, ctx, "地面平面在Y轴上的高度（世界坐标系），必须小于等于0");
-                    });
-                }
+                Self::ui_background_settings(self, ui);
             });
 
             // 相机设置部分
@@ -864,5 +817,122 @@ impl WidgetMethods for RasterizerApp {
                 }
             }
         });
+    }
+
+    /// 绘制背景设置UI
+    fn ui_background_settings(app: &mut RasterizerApp, ui: &mut egui::Ui) {
+        ui.heading("背景设置");
+
+        // 背景图片选项
+        ui.checkbox(&mut app.settings.use_background_image, "使用背景图片");
+
+        if app.settings.use_background_image {
+            ui.horizontal(|ui| {
+                // 显示当前背景图片路径
+                let mut path_text = app
+                    .settings
+                    .background_image_path
+                    .clone()
+                    .unwrap_or_default();
+                ui.label("背景图片:");
+                let response = ui.text_edit_singleline(&mut path_text);
+
+                // 如果文本更改，更新background_image_path
+                if response.changed() {
+                    if path_text.is_empty() {
+                        app.settings.background_image_path = None;
+                    } else {
+                        app.settings.background_image_path = Some(path_text.clone());
+
+                        // 使用ResourceLoader加载背景图片
+                        match ResourceLoader::load_background_image_from_path(&path_text) {
+                            Ok(texture) => {
+                                app.settings.background_image = Some(texture);
+                                app.status_message = format!("背景图片加载成功: {}", path_text);
+                            }
+                            Err(e) => {
+                                println!("警告: 背景图片加载失败: {}", e);
+                                // 不中断操作，允许用户保留不存在的路径
+                            }
+                        }
+                    }
+                }
+
+                if ui.button("浏览...").clicked() {
+                    // 调用文件选择对话框
+                    app.select_background_image();
+                }
+            });
+
+            // 如果已经加载了背景图片，显示预览信息
+            if let Some(texture) = &app.settings.background_image {
+                ui.label(format!("图片大小: {}x{}", texture.width, texture.height));
+            }
+        }
+
+        // 渐变背景设置 - 即使使用背景图片，也允许启用
+        ui.checkbox(&mut app.settings.enable_gradient_background, "使用渐变背景");
+
+        if app.settings.enable_gradient_background {
+            // 如果使用背景图片，显示提示
+            if app.settings.use_background_image && app.settings.background_image.is_some() {
+                ui.label(RichText::new("注意：渐变背景将覆盖在背景图片上").color(Color32::YELLOW));
+            }
+
+            // 渐变顶部颜色
+            let mut top_color = app.settings.gradient_top_color_vec.into();
+            if ui.color_edit_button_rgb(&mut top_color).changed() {
+                app.settings.gradient_top_color_vec = top_color.into();
+                app.settings.gradient_top_color = format!(
+                    "{},{},{}",
+                    app.settings.gradient_top_color_vec.x,
+                    app.settings.gradient_top_color_vec.y,
+                    app.settings.gradient_top_color_vec.z
+                );
+            }
+            ui.label("渐变顶部颜色");
+
+            // 渐变底部颜色
+            let mut bottom_color = app.settings.gradient_bottom_color_vec.into();
+            if ui.color_edit_button_rgb(&mut bottom_color).changed() {
+                app.settings.gradient_bottom_color_vec = bottom_color.into();
+                app.settings.gradient_bottom_color = format!(
+                    "{},{},{}",
+                    app.settings.gradient_bottom_color_vec.x,
+                    app.settings.gradient_bottom_color_vec.y,
+                    app.settings.gradient_bottom_color_vec.z
+                );
+            }
+            ui.label("渐变底部颜色");
+        }
+
+        // 地面平面设置 - 即使使用背景图片，也允许启用
+        ui.checkbox(&mut app.settings.enable_ground_plane, "显示地面平面");
+
+        if app.settings.enable_ground_plane {
+            // 如果使用背景图片，显示提示
+            if app.settings.use_background_image && app.settings.background_image.is_some() {
+                ui.label(RichText::new("注意：地面平面将覆盖在背景图片上").color(Color32::YELLOW));
+            }
+
+            // 地面平面颜色
+            let mut ground_color = app.settings.ground_plane_color_vec.into();
+            if ui.color_edit_button_rgb(&mut ground_color).changed() {
+                app.settings.ground_plane_color_vec = ground_color.into();
+                app.settings.ground_plane_color = format!(
+                    "{},{},{}",
+                    app.settings.ground_plane_color_vec.x,
+                    app.settings.ground_plane_color_vec.y,
+                    app.settings.ground_plane_color_vec.z
+                );
+            }
+            ui.label("地面颜色");
+
+            // 地面高度
+            ui.add(
+                egui::Slider::new(&mut app.settings.ground_plane_height, -3.0..=0.0)
+                    .text("地面高度"),
+            );
+        }
     }
 }
