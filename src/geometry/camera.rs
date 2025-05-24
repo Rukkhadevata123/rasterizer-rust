@@ -1,6 +1,5 @@
 use crate::geometry::transform::TransformFactory;
 use nalgebra::{Matrix4, Point3, Vector3};
-use std::cell::Cell;
 
 /// 投影类型枚举，提供类型安全的投影方式选择
 #[derive(Debug, Clone, PartialEq)]
@@ -22,11 +21,6 @@ impl ProjectionType {
             ProjectionType::Perspective { aspect_ratio, .. } => *aspect_ratio,
             ProjectionType::Orthographic { width, height } => width / height,
         }
-    }
-
-    /// 判断是否为透视投影
-    pub fn is_perspective(&self) -> bool {
-        matches!(self, ProjectionType::Perspective { .. })
     }
 }
 
@@ -57,39 +51,25 @@ impl Default for CameraParams {
     }
 }
 
-/// 相机类，负责管理视角和投影变换
-/// 使用内部可变性解决矩阵懒更新问题
-#[derive(Debug)]
+/// 简化的相机类，移除内部可变性和未使用方法
+#[derive(Debug, Clone)]
 pub struct Camera {
-    // 基本参数
-    params: CameraParams,
+    pub params: CameraParams,
 
-    // 计算得出的基向量
-    right: Cell<Vector3<f32>>,
-    forward: Cell<Vector3<f32>>,
-
-    // 缓存的变换矩阵
-    view_matrix: Cell<Matrix4<f32>>,
-    projection_matrix: Cell<Matrix4<f32>>,
-    view_projection_matrix: Cell<Matrix4<f32>>,
-
-    // 矩阵是否需要更新的标志
-    matrices_dirty: Cell<bool>,
+    // 预计算的矩阵 - 每次创建时计算一次
+    view_matrix: Matrix4<f32>,
+    projection_matrix: Matrix4<f32>,
 }
 
 impl Camera {
     /// 使用参数结构体创建相机
     pub fn new(params: CameraParams) -> Self {
-        let camera = Camera {
+        let mut camera = Camera {
             params,
-            right: Cell::new(Vector3::x()),
-            forward: Cell::new(Vector3::z()),
-            view_matrix: Cell::new(Matrix4::identity()),
-            projection_matrix: Cell::new(Matrix4::identity()),
-            view_projection_matrix: Cell::new(Matrix4::identity()),
-            matrices_dirty: Cell::new(true),
+            view_matrix: Matrix4::identity(),
+            projection_matrix: Matrix4::identity(),
         };
-        camera.update_matrices_internal();
+        camera.update_matrices();
         camera
     }
 
@@ -138,38 +118,11 @@ impl Camera {
         Self::new(params)
     }
 
-    // ============ 参数访问和修改方法 ============
-
-    /// 获取相机参数的只读引用
-    pub fn params(&self) -> &CameraParams {
-        &self.params
-    }
+    // ============ 基本访问方法 ============
 
     /// 获取相机位置
     pub fn position(&self) -> Point3<f32> {
         self.params.position
-    }
-
-    /// 获取相机目标
-    pub fn target(&self) -> Point3<f32> {
-        self.params.target
-    }
-
-    /// 获取上方向
-    pub fn up(&self) -> Vector3<f32> {
-        self.params.up
-    }
-
-    /// 获取右方向
-    pub fn right(&self) -> Vector3<f32> {
-        self.ensure_matrices_updated();
-        self.right.get()
-    }
-
-    /// 获取前方向
-    pub fn forward(&self) -> Vector3<f32> {
-        self.ensure_matrices_updated();
-        self.forward.get()
     }
 
     /// 获取宽高比
@@ -177,164 +130,191 @@ impl Camera {
         self.params.projection.aspect_ratio()
     }
 
-    /// 获取近裁剪面
-    pub fn near(&self) -> f32 {
-        self.params.near
-    }
-
     /// 获取远裁剪面
     pub fn far(&self) -> f32 {
         self.params.far
     }
 
-    /// 设置相机位置
-    pub fn set_position(&mut self, position: Point3<f32>) {
-        self.params.position = position;
-        self.mark_dirty();
-    }
-
-    /// 设置相机目标
-    pub fn set_target(&mut self, target: Point3<f32>) {
-        self.params.target = target;
-        self.mark_dirty();
-    }
-
-    /// 设置上方向
-    pub fn set_up(&mut self, up: Vector3<f32>) {
-        self.params.up = up.normalize();
-        self.mark_dirty();
-    }
-
-    /// 设置投影类型
-    pub fn set_projection(&mut self, projection: ProjectionType) {
-        self.params.projection = projection;
-        self.mark_dirty();
-    }
-
-    /// 设置近远裁剪平面
-    pub fn set_clipping_planes(&mut self, near: f32, far: f32) {
-        self.params.near = near;
-        self.params.far = far;
-        self.mark_dirty();
-    }
-
-    /// 批量更新相机参数（减少重复计算）
-    pub fn update_params<F>(&mut self, updater: F)
-    where
-        F: FnOnce(&mut CameraParams),
-    {
-        updater(&mut self.params);
-        self.mark_dirty();
+    /// 获取近裁剪面  
+    pub fn near(&self) -> f32 {
+        self.params.near
     }
 
     // ============ 矩阵访问方法 ============
 
     /// 获取视图矩阵
     pub fn view_matrix(&self) -> Matrix4<f32> {
-        self.ensure_matrices_updated();
-        self.view_matrix.get()
+        self.view_matrix
     }
 
     /// 获取投影矩阵
     pub fn projection_matrix(&self) -> Matrix4<f32> {
-        self.ensure_matrices_updated();
-        self.projection_matrix.get()
+        self.projection_matrix
     }
 
-    /// 获取视图-投影矩阵
-    pub fn view_projection_matrix(&self) -> Matrix4<f32> {
-        self.ensure_matrices_updated();
-        self.view_projection_matrix.get()
-    }
+    // ============ 相机运动方法（用于动画）============
 
-    // ============ 相机运动方法 ============
-
-    /// 围绕目标点进行任意轴旋转
+    /// 围绕目标点进行任意轴旋转（用于轨道动画）
     pub fn orbit(&mut self, axis: &Vector3<f32>, angle_rad: f32) {
         let camera_to_target = self.params.position - self.params.target;
         let rotation_matrix = TransformFactory::rotation(axis, angle_rad);
         let rotated_vector = rotation_matrix.transform_vector(&camera_to_target);
         self.params.position = self.params.target + rotated_vector;
-        self.mark_dirty();
+        self.update_matrices();
     }
 
-    /// 在XZ平面上平移相机
-    pub fn pan(&mut self, right_amount: f32, forward_amount: f32) {
-        self.ensure_matrices_updated();
-
-        let forward_xz = Vector3::new(self.forward.get().x, 0.0, self.forward.get().z).normalize();
-        let right_xz = Vector3::new(self.right.get().x, 0.0, self.right.get().z).normalize();
-        let translation = right_xz * right_amount + forward_xz * forward_amount;
-
-        self.params.position += translation;
-        self.params.target += translation;
-        self.mark_dirty();
-    }
-
-    /// 相机沿视线方向移动
+    /// 相机沿视线方向移动（保留用于动画）
     pub fn dolly(&mut self, amount: f32) {
         let direction = (self.params.target - self.params.position).normalize();
         let translation = direction * amount;
         self.params.position += translation;
-        self.mark_dirty();
+        self.update_matrices();
     }
 
-    /// 移动相机（同时移动位置和目标点）
-    pub fn translate(&mut self, translation: &Vector3<f32>) {
+    // ============ GUI 交互方法 ============
+
+    /// 屏幕拖拽转换为世界坐标平移（GUI专用）
+    pub fn pan_from_screen_delta(
+        &mut self,
+        screen_delta: egui::Vec2,
+        screen_size: egui::Vec2,
+        sensitivity: f32,
+    ) {
+        // 计算世界坐标增量
+        let distance_to_target = (self.params.position - self.params.target).magnitude();
+
+        let world_scale = match &self.params.projection {
+            ProjectionType::Perspective { fov_y_degrees, .. } => {
+                let fov_rad = fov_y_degrees.to_radians();
+                distance_to_target * (fov_rad / 2.0).tan() * 2.0 / screen_size.y
+            }
+            ProjectionType::Orthographic { height, .. } => height / screen_size.y,
+        };
+
+        // 应用敏感度
+        let adjusted_scale = world_scale * sensitivity;
+        let world_delta_x = -screen_delta.x * adjusted_scale;
+        let world_delta_y = screen_delta.y * adjusted_scale;
+
+        // 计算相机的右向量和上向量
+        let forward = (self.params.target - self.params.position).normalize();
+        let right = forward.cross(&self.params.up).normalize();
+        let up = right.cross(&forward).normalize();
+
+        // 计算世界空间中的平移向量
+        let translation = right * world_delta_x + up * world_delta_y;
+
+        // 同时移动相机位置和目标点
         self.params.position += translation;
         self.params.target += translation;
-        self.mark_dirty();
+
+        self.update_matrices();
+    }
+
+    /// 滚轮缩放转换为相机推拉（GUI专用）
+    pub fn dolly_from_scroll(&mut self, scroll_delta: f32, sensitivity: f32) {
+        let distance_to_target = (self.params.position - self.params.target).magnitude();
+
+        // 基础敏感度：距离的 10%
+        let base_sensitivity = distance_to_target * 0.1;
+
+        // 应用用户敏感度设置
+        let dolly_amount = scroll_delta * base_sensitivity * sensitivity;
+
+        // 确保不会推得太近（最小距离 0.1）
+        let min_distance = 0.1;
+        if distance_to_target - dolly_amount > min_distance {
+            self.dolly(dolly_amount);
+        } else {
+            // 如果会太近，就移动到最小距离位置
+            let direction = (self.params.position - self.params.target).normalize();
+            self.params.position = self.params.target + direction * min_distance;
+            self.update_matrices();
+        }
+    }
+
+    /// 屏幕拖拽转换为轨道旋转（GUI专用）
+    pub fn orbit_from_screen_delta(&mut self, screen_delta: egui::Vec2, sensitivity: f32) {
+        // 基础旋转敏感度
+        let base_rotation_sensitivity = 0.01;
+        let adjusted_sensitivity = base_rotation_sensitivity * sensitivity;
+
+        let angle_x = -screen_delta.y * adjusted_sensitivity;
+        let angle_y = -screen_delta.x * adjusted_sensitivity;
+
+        // Y轴旋转（水平拖拽）
+        if angle_y.abs() > 1e-6 {
+            self.orbit(&Vector3::y(), angle_y);
+        }
+
+        // X轴旋转（垂直拖拽） - 围绕相机的右向量
+        if angle_x.abs() > 1e-6 {
+            let forward = (self.params.target - self.params.position).normalize();
+            let right = forward.cross(&self.params.up).normalize();
+
+            // 限制垂直旋转角度，避免翻转
+            let camera_to_target = self.params.position - self.params.target;
+            let current_elevation = camera_to_target
+                .y
+                .atan2((camera_to_target.x.powi(2) + camera_to_target.z.powi(2)).sqrt());
+
+            // 限制在 -85° 到 85° 之间
+            let max_elevation = 85.0_f32.to_radians();
+            let new_elevation = current_elevation + angle_x;
+
+            if new_elevation.abs() < max_elevation {
+                self.orbit(&right, angle_x);
+            }
+        }
+    }
+
+    /// 重置相机到默认视角（GUI专用）
+    pub fn reset_to_default_view(&mut self) {
+        self.params.position = Point3::new(0.0, 0.0, 3.0);
+        self.params.target = Point3::new(0.0, 0.0, 0.0);
+        self.params.up = Vector3::new(0.0, 1.0, 0.0);
+        self.update_matrices();
+    }
+
+    /// 聚焦到物体（自动调整距离）（GUI专用）
+    pub fn focus_on_object(&mut self, object_center: Point3<f32>, object_radius: f32) {
+        // 计算合适的距离（确保物体完全可见）
+        let optimal_distance = match &self.params.projection {
+            ProjectionType::Perspective { fov_y_degrees, .. } => {
+                let fov_rad = fov_y_degrees.to_radians();
+                object_radius / (fov_rad / 2.0).tan() * 1.5 // 1.5倍确保有边距
+            }
+            ProjectionType::Orthographic { .. } => {
+                object_radius * 3.0 // 正交投影下的合适距离
+            }
+        };
+
+        // 保持当前的观察方向，但调整距离
+        let current_direction = (self.params.position - self.params.target).normalize();
+
+        self.params.target = object_center;
+        self.params.position = object_center + current_direction * optimal_distance;
+
+        self.update_matrices();
     }
 
     // ============ 内部实现方法 ============
 
-    /// 标记矩阵需要更新
-    fn mark_dirty(&self) {
-        self.matrices_dirty.set(true);
-    }
-
-    /// 确保矩阵是最新的（支持内部可变性）
-    fn ensure_matrices_updated(&self) {
-        if self.matrices_dirty.get() {
-            self.update_matrices_internal();
-        }
-    }
-
-    /// 手动触发矩阵更新（公共接口）
+    /// 更新所有矩阵（创建时和修改后调用）
     pub fn update_matrices(&mut self) {
-        self.update_matrices_internal();
+        self.update_view_matrix();
+        self.update_projection_matrix();
     }
 
-    /// 内部矩阵更新实现
-    fn update_matrices_internal(&self) {
-        if self.matrices_dirty.get() {
-            self.update_basis_vectors();
-            self.update_view_matrix();
-            self.update_projection_matrix();
-            self.update_view_projection_matrix();
-            self.matrices_dirty.set(false);
-        }
-    }
-
-    /// 更新相机基向量
-    fn update_basis_vectors(&self) {
-        let forward = (self.params.target - self.params.position).normalize();
-        let right = forward.cross(&self.params.up).normalize();
-
-        self.forward.set(forward);
-        self.right.set(right);
-    }
-
-    /// 更新视图矩阵 - 使用 TransformFactory
-    fn update_view_matrix(&self) {
-        let view_matrix =
+    /// 更新视图矩阵
+    fn update_view_matrix(&mut self) {
+        self.view_matrix =
             TransformFactory::view(&self.params.position, &self.params.target, &self.params.up);
-        self.view_matrix.set(view_matrix);
     }
 
-    /// 更新投影矩阵 - 使用 TransformFactory
-    fn update_projection_matrix(&self) {
-        let projection_matrix = match &self.params.projection {
+    /// 更新投影矩阵
+    fn update_projection_matrix(&mut self) {
+        self.projection_matrix = match &self.params.projection {
             ProjectionType::Perspective {
                 fov_y_degrees,
                 aspect_ratio,
@@ -353,31 +333,6 @@ impl Camera {
                 self.params.far,
             ),
         };
-        self.projection_matrix.set(projection_matrix);
-    }
-
-    /// 更新视图-投影矩阵 - 使用 TransformFactory
-    fn update_view_projection_matrix(&self) {
-        let view_projection_matrix = TransformFactory::model_view_projection(
-            &Matrix4::identity(), // 单位矩阵作为模型矩阵
-            &self.view_matrix.get(),
-            &self.projection_matrix.get(),
-        );
-        self.view_projection_matrix.set(view_projection_matrix);
-    }
-}
-
-impl Clone for Camera {
-    fn clone(&self) -> Self {
-        Camera {
-            params: self.params.clone(),
-            right: Cell::new(self.right.get()),
-            forward: Cell::new(self.forward.get()),
-            view_matrix: Cell::new(self.view_matrix.get()),
-            projection_matrix: Cell::new(self.projection_matrix.get()),
-            view_projection_matrix: Cell::new(self.view_projection_matrix.get()),
-            matrices_dirty: Cell::new(self.matrices_dirty.get()),
-        }
     }
 }
 

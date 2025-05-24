@@ -32,17 +32,7 @@ impl TransformFactory {
         Matrix4::new_translation(translation)
     }
 
-    /// 创建平移矩阵（从点）
-    pub fn translation_from_point(position: &Point3<f32>) -> Matrix4<f32> {
-        Self::translation(&position.coords)
-    }
-
-    /// 创建均匀缩放矩阵
-    pub fn scaling(scale: f32) -> Matrix4<f32> {
-        Matrix4::new_scaling(scale)
-    }
-
-    /// 创建非均匀缩放矩阵
+    /// 创建非均匀缩放矩阵（也支持均匀缩放）
     pub fn scaling_nonuniform(scale: &Vector3<f32>) -> Matrix4<f32> {
         Matrix4::new_nonuniform_scaling(scale)
     }
@@ -81,28 +71,6 @@ impl TransformFactory {
     /// 创建模型-视图矩阵
     pub fn model_view(model: &Matrix4<f32>, view: &Matrix4<f32>) -> Matrix4<f32> {
         view * model
-    }
-
-    /// 从位置创建平移矩阵的便捷方法
-    pub fn position_matrix(position: Point3<f32>) -> Matrix4<f32> {
-        Self::translation(&position.coords)
-    }
-
-    /// 设置矩阵的平移部分
-    pub fn set_translation(matrix: &mut Matrix4<f32>, translation: &Vector3<f32>) {
-        matrix.m14 = translation.x;
-        matrix.m24 = translation.y;
-        matrix.m34 = translation.z;
-    }
-
-    /// 从矩阵提取平移部分
-    pub fn extract_translation(matrix: &Matrix4<f32>) -> Vector3<f32> {
-        Vector3::new(matrix.m14, matrix.m24, matrix.m34)
-    }
-
-    /// 从矩阵提取位置
-    pub fn extract_position(matrix: &Matrix4<f32>) -> Point3<f32> {
-        Point3::new(matrix.m14, matrix.m24, matrix.m34)
     }
 }
 
@@ -221,57 +189,15 @@ pub fn transform_normals(
         .collect()
 }
 
-/// 将世界坐标点转换为裁剪空间坐标（齐次坐标）
-pub fn world_to_clip(
-    world_points: &[Point3<f32>],
-    view_projection_matrix: &Matrix4<f32>,
-) -> Vec<Vector4<f32>> {
-    world_points
-        .iter()
-        .map(|point| point_to_clip(point, view_projection_matrix))
-        .collect()
-}
-
-/// 将裁剪空间坐标转换为NDC坐标
-pub fn clip_to_ndc(clip_coords: &[Vector4<f32>]) -> Vec<Point3<f32>> {
-    clip_coords.iter().map(apply_perspective_division).collect()
-}
-
-/// 将NDC坐标转换为屏幕像素坐标
-pub fn ndc_to_pixel(ndc_coords: &[Point3<f32>], width: f32, height: f32) -> Vec<Point2<f32>> {
-    ndc_coords
-        .iter()
-        .map(|ndc| ndc_point_to_screen(ndc, width, height))
-        .collect()
-}
-
-/// 将世界坐标直接转换为NDC坐标
-pub fn world_to_ndc(
-    world_points: &[Point3<f32>],
-    view_projection_matrix: &Matrix4<f32>,
-) -> Vec<Point3<f32>> {
-    let clip_coords = world_to_clip(world_points, view_projection_matrix);
-    clip_to_ndc(&clip_coords)
-}
-
-/// 将世界坐标点直接转换为屏幕坐标
-pub fn world_to_screen(
-    world_points: &[Point3<f32>],
-    view_projection_matrix: &Matrix4<f32>,
-    width: f32,
-    height: f32,
-) -> Vec<Point2<f32>> {
-    let ndc_coords = world_to_ndc(world_points, view_projection_matrix);
-    ndc_to_pixel(&ndc_coords, width, height)
-}
-
 //------------------------ 第5层：完整渲染管线变换 ------------------------//
 
-/// 执行完整的渲染管线变换（模型→视图→裁剪→NDC→屏幕）
-/// 智能选择版本：自动使用并行版本（如果可用）或串行版本
+/// 顶点管线变换结果类型别名，减少复杂度警告
+pub type VertexPipelineResult = (Vec<Point2<f32>>, Vec<Point3<f32>>, Vec<Vector3<f32>>);
 
-/// 串行版本：适用于小数据量或调试
-fn transform_pipeline_batch_serial(
+/// 执行完整的渲染管线变换（串行版本）
+///
+/// 适用于小数据量或调试，按顺序处理每个顶点
+pub fn vertex_pipeline_serial(
     vertices_model: &[Point3<f32>],
     normals_model: &[Vector3<f32>],
     model_matrix: &Matrix4<f32>,
@@ -279,7 +205,7 @@ fn transform_pipeline_batch_serial(
     projection_matrix: &Matrix4<f32>,
     screen_width: usize,
     screen_height: usize,
-) -> (Vec<Point2<f32>>, Vec<Point3<f32>>, Vec<Vector3<f32>>) {
+) -> VertexPipelineResult {
     // 预计算变换矩阵 - 使用工厂方法
     let model_view = TransformFactory::model_view(model_matrix, view_matrix);
     let mvp = TransformFactory::model_view_projection(model_matrix, view_matrix, projection_matrix);
@@ -302,7 +228,10 @@ fn transform_pipeline_batch_serial(
     (screen_coords, view_positions, view_normals)
 }
 
-pub fn transform_pipeline_batch_parallel(
+/// 执行完整的渲染管线变换（并行版本）
+///
+/// 适用于大数据量，使用多线程并行处理顶点
+pub fn vertex_pipeline_parallel(
     vertices_model: &[Point3<f32>],
     normals_model: &[Vector3<f32>],
     model_matrix: &Matrix4<f32>,
@@ -310,7 +239,7 @@ pub fn transform_pipeline_batch_parallel(
     projection_matrix: &Matrix4<f32>,
     screen_width: usize,
     screen_height: usize,
-) -> (Vec<Point2<f32>>, Vec<Point3<f32>>, Vec<Vector3<f32>>) {
+) -> VertexPipelineResult {
     use rayon::prelude::*;
 
     // 预计算变换矩阵
@@ -318,28 +247,13 @@ pub fn transform_pipeline_batch_parallel(
     let mvp = TransformFactory::model_view_projection(model_matrix, view_matrix, projection_matrix);
     let normal_matrix = compute_normal_matrix(&model_view);
 
-    // 并行变换 - 根据数据量智能选择并行策略
-    let vertex_count = vertices_model.len();
-
-    // 对于小数据量，并行开销可能大于收益，使用串行
-    if vertex_count < 1000 {
-        return transform_pipeline_batch_serial(
-            vertices_model,
-            normals_model,
-            model_matrix,
-            view_matrix,
-            projection_matrix,
-            screen_width,
-            screen_height,
-        );
-    }
-
-    // 大数据量使用并行处理
+    // 并行变换到视图空间
     let view_positions = vertices_model
         .par_iter()
         .map(|vertex| transform_point(vertex, &model_view))
         .collect();
 
+    // 并行变换到屏幕空间
     let screen_coords = vertices_model
         .par_iter()
         .map(|vertex| {
@@ -347,6 +261,7 @@ pub fn transform_pipeline_batch_parallel(
         })
         .collect();
 
+    // 并行变换法线
     let view_normals = normals_model
         .par_iter()
         .map(|normal| transform_normal(normal, &normal_matrix))

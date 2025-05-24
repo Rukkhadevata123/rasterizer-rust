@@ -44,11 +44,6 @@ impl ResourceLoader {
         // 创建场景
         println!("创建场景...");
         let scene = Scene::create_from_model_and_settings(model_data.clone(), settings)?;
-        println!(
-            "创建了包含 {} 个对象、{} 个光源的场景",
-            scene.object_count(),
-            scene.light_count()
-        );
 
         Ok((scene, model_data))
     }

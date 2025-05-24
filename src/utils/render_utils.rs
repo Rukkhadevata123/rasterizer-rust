@@ -1,55 +1,39 @@
 use crate::core::renderer::Renderer;
 use crate::io::render_settings::{
     AnimationType, RenderSettings, RotationAxis, get_animation_axis_vector,
-}; // 更新导入
-use crate::scene::scene_object::Transformable;
+};
 use crate::scene::scene_utils::Scene;
-use crate::utils::save_utils::save_render_with_settings; // 更新为新函数名
+use crate::utils::save_utils::save_render_with_settings;
 use nalgebra::Vector3;
 use std::time::Instant;
 
 const BASE_SPEED: f32 = 60.0; // 1s旋转60度
 
-/// 渲染单帧并保存结果
-///
-/// 完整处理单帧渲染过程：渲染场景、保存输出、打印信息
+/// 渲染单帧并保存结果（精简版本）
 ///
 /// # 参数
-/// * `settings` - 渲染设置引用（CLI参数）
 /// * `scene` - 场景引用
 /// * `renderer` - 渲染器引用
-/// * `render_settings` - 实际用于渲染的设置引用
+/// * `settings` - 渲染设置引用
 /// * `output_name` - 输出文件名
 ///
 /// # 返回值
 /// Result，成功为()，失败为包含错误信息的字符串
 pub fn render_single_frame(
-    settings: &RenderSettings, // 替换为RenderSettings
     scene: &mut Scene,
     renderer: &Renderer,
-    render_settings: &RenderSettings, // 用于渲染的配置
+    settings: &RenderSettings,
     output_name: &str,
 ) -> Result<(), String> {
     let frame_start_time = Instant::now();
     println!("渲染帧: {}", output_name);
 
-    // 渲染场景 - 克隆配置以避免可变引用问题
-    let mut settings_clone = render_settings.clone();
-    renderer.render_scene(scene, &mut settings_clone);
+    // 直接渲染场景，无需额外同步
+    renderer.render_scene(scene, settings);
 
     // 保存输出图像
     println!("保存 {} 的输出图像...", output_name);
     save_render_with_settings(renderer, settings, Some(output_name))?;
-
-    // 打印材质信息（调试用）
-    if let Some(model) = scene.models.first() {
-        for (i, material) in model.materials.iter().enumerate() {
-            if i == 0 {
-                println!("材质 #{}: {}", i, material.get_name());
-                println!("  漫反射颜色: {:?}", material.diffuse());
-            }
-        }
-    }
 
     println!(
         "帧 {} 渲染完成，耗时 {:?}",
@@ -59,7 +43,7 @@ pub fn render_single_frame(
     Ok(())
 }
 
-/// 执行单个步骤的场景动画
+/// 执行单个步骤的场景动画（精简版本）
 ///
 /// 根据指定的动画类型、旋转轴和角度增量更新场景
 ///
@@ -81,9 +65,7 @@ pub fn animate_scene_step(
             scene.set_camera(camera);
         }
         AnimationType::ObjectLocalRotation => {
-            for object in scene.objects.iter_mut() {
-                object.rotate(rotation_axis, rotation_delta_rad);
-            }
+            scene.object.rotate(rotation_axis, rotation_delta_rad);
         }
         AnimationType::None => { /* 无动画 */ }
     }
@@ -100,21 +82,7 @@ pub fn animate_scene_step(
 /// # 返回值
 /// 旋转角度增量（弧度）
 pub fn calculate_rotation_delta(rotation_speed: f32, dt: f32) -> f32 {
-    // 硬编码基础速度系数为50.0
     (rotation_speed * dt * BASE_SPEED).to_radians()
-}
-
-/// 计算每帧旋转增量（用于动画/视频生成）
-///
-/// # 参数
-/// * `total_frames` - 总帧数
-/// * `direction` - 旋转方向，正/负值
-///
-/// # 返回值
-/// 每帧的旋转角度（弧度）
-pub fn calculate_frame_rotation(total_frames: usize, direction: f32) -> f32 {
-    let rotation_per_frame_rad = (360.0 / total_frames.max(1) as f32).to_radians();
-    rotation_per_frame_rad * direction.signum()
 }
 
 /// 计算有效旋转速度及旋转周期
@@ -152,19 +120,19 @@ pub fn calculate_rotation_parameters(rotation_speed: f32, fps: usize) -> (f32, f
     )
 }
 
-/// 执行完整的动画渲染循环
+/// 执行完整的动画渲染循环（精简版本）
 ///
 /// # 参数
-/// * `settings` - 渲染设置引用
 /// * `scene` - 场景引用
 /// * `renderer` - 渲染器引用
+/// * `settings` - 渲染设置引用
 ///
 /// # 返回值
 /// Result，成功为()，失败为包含错误信息的字符串
 pub fn run_animation_loop(
-    settings: &RenderSettings, // 替换为RenderSettings
     scene: &mut Scene,
     renderer: &Renderer,
+    settings: &RenderSettings,
 ) -> Result<(), String> {
     // 使用通用函数计算旋转参数
     let (effective_rotation_speed_dps, _, frames_to_render) =
@@ -186,7 +154,6 @@ pub fn run_animation_loop(
     // 计算旋转方向
     let rotation_axis_vec = get_animation_axis_vector(settings);
     if settings.rotation_axis == RotationAxis::Custom {
-        // 使用新的导入
         println!("自定义旋转轴: {:?}", rotation_axis_vec);
     }
 
@@ -210,17 +177,8 @@ pub fn run_animation_loop(
         }
 
         // 渲染和保存当前帧
-        let mut render_settings = settings.clone();
-        render_settings.update_from_scene(scene); // 从场景更新配置
-
         let frame_output_name = format!("frame_{:03}", frame_num);
-        render_single_frame(
-            settings,
-            scene,
-            renderer,
-            &render_settings,
-            &frame_output_name,
-        )?;
+        render_single_frame(scene, renderer, settings, &frame_output_name)?;
 
         println!(
             "帧 {} 渲染完成，耗时 {:?}",

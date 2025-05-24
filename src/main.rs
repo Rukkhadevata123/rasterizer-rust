@@ -21,9 +21,6 @@ fn main() -> Result<(), String> {
     // 解析命令行参数
     let mut settings = RenderSettings::parse();
 
-    // 确保根据预设初始化光源配置
-    settings.setup_light_sources();
-
     // 判断是否应该启动GUI模式
     if settings.should_start_gui() {
         println!("启动GUI模式...");
@@ -58,26 +55,20 @@ fn main() -> Result<(), String> {
 
     // --- 渲染动画或单帧 ---
     if settings.animate {
-        run_animation_loop(&settings, &mut scene, &renderer)?;
+        run_animation_loop(&mut scene, &renderer, &settings)?;
     } else {
         println!("--- 准备单帧渲染 ---");
-        // 创建配置副本并从场景更新它
-        let mut render_settings = settings.clone();
-        render_settings.update_from_scene(&scene);
 
         // 打印配置摘要
         println!("--- 渲染配置摘要 ---");
-        render_settings.print_summary();
+        // 这里可以添加配置摘要打印，如果需要的话
+        println!("分辨率: {}x{}", settings.width, settings.height);
+        println!("投影类型: {}", settings.projection);
+        println!("使用光照: {}", settings.use_lighting);
         println!("-------------------");
 
-        println!("使用{}渲染", render_settings.get_lighting_description());
-        render_single_frame(
-            &settings,
-            &mut scene,
-            &renderer,
-            &render_settings,
-            &settings.output,
-        )?;
+        println!("使用{}", settings.get_lighting_description());
+        render_single_frame(&mut scene, &renderer, &settings, &settings.output)?;
     }
 
     println!("总执行时间：{:?}", start_time.elapsed());

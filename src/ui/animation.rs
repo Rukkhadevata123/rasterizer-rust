@@ -1,7 +1,6 @@
 use crate::core::renderer::Renderer;
 use crate::io::render_settings::{RenderSettings, get_animation_axis_vector};
 use crate::scene::scene_utils::Scene;
-use crate::ui::core::frame_to_png_data;
 use crate::utils::render_utils::{
     animate_scene_step, calculate_rotation_delta, calculate_rotation_parameters,
 };
@@ -15,7 +14,18 @@ use std::time::{Duration, Instant};
 
 use super::app::RasterizerApp;
 use super::core::CoreMethods;
-use super::render_ui::RenderMethods;
+
+/// 将ColorImage转换为PNG数据
+pub fn frame_to_png_data(image: &ColorImage) -> Vec<u8> {
+    // ColorImage是RGBA格式，我们需要转换为RGB格式
+    let mut rgb_data = Vec::with_capacity(image.width() * image.height() * 3);
+    for pixel in &image.pixels {
+        rgb_data.push(pixel.r());
+        rgb_data.push(pixel.g());
+        rgb_data.push(pixel.b());
+    }
+    rgb_data
+}
 
 /// 渲染一圈的动画帧
 ///
@@ -98,9 +108,6 @@ pub trait AnimationMethods {
     /// 在后台生成视频
     fn start_video_generation(&mut self, ctx: &Context);
 
-    /// 切换预渲染模式
-    fn toggle_pre_render_mode(&mut self);
-
     /// 启动预渲染过程
     fn start_pre_rendering(&mut self, ctx: &Context);
 
@@ -125,8 +132,7 @@ impl AnimationMethods for RasterizerApp {
                     Some(path) => path.clone(),
                     None => {
                         self.set_error("错误: 未指定OBJ文件路径".to_string());
-                        self.is_realtime_rendering = false;
-                        self.pre_render_mode = false;
+                        self.stop_animation_rendering();
                         return;
                     }
                 };
@@ -137,8 +143,7 @@ impl AnimationMethods for RasterizerApp {
                     }
                     Err(e) => {
                         self.set_error(format!("加载模型失败: {}", e));
-                        self.is_realtime_rendering = false;
-                        self.pre_render_mode = false; // 关闭预渲染模式以避免卡住
+                        self.stop_animation_rendering();
                         return;
                     }
                 }
@@ -164,7 +169,7 @@ impl AnimationMethods for RasterizerApp {
                 Some(path) => path.clone(),
                 None => {
                     self.set_error("错误: 未指定OBJ文件路径".to_string());
-                    self.is_realtime_rendering = false;
+                    self.stop_animation_rendering();
                     return;
                 }
             };
@@ -174,7 +179,7 @@ impl AnimationMethods for RasterizerApp {
                 }
                 Err(e) => {
                     self.set_error(format!("加载模型失败: {}", e));
-                    self.is_realtime_rendering = false;
+                    self.stop_animation_rendering();
                     return;
                 }
             }
@@ -199,7 +204,7 @@ impl AnimationMethods for RasterizerApp {
         };
         if let Some(last_time) = self.last_frame_time {
             let frame_time = now.duration_since(last_time);
-            CoreMethods::update_fps_stats(self, frame_time);
+            self.update_fps_stats(frame_time);
         }
         self.last_frame_time = Some(now);
 
@@ -250,7 +255,8 @@ impl AnimationMethods for RasterizerApp {
             return;
         }
 
-        match self.validate_parameters() {
+        // 🔥 **使用 CoreMethods 验证参数**
+        match self.settings.validate() {
             Ok(_) => {
                 let output_dir = self.settings.output_dir.clone();
                 if let Err(e) = fs::create_dir_all(&output_dir) {
@@ -280,8 +286,6 @@ impl AnimationMethods for RasterizerApp {
                         Some(path) => path.clone(),
                         None => {
                             self.set_error("错误: 未指定OBJ文件路径".to_string());
-                            self.is_realtime_rendering = false;
-                            self.pre_render_mode = false;
                             return;
                         }
                     };
@@ -424,7 +428,7 @@ impl AnimationMethods for RasterizerApp {
                                 // 保存为图片文件
                                 let frame_path =
                                     format!("{}/frame_{:04}.png", frames_dir_clone, frame_num);
-                                save_image(&frame_path, &source_data, width as u32, height as u32);
+                                save_image(&frame_path, source_data, width as u32, height as u32);
 
                                 if frame_num % (total_frames.max(1) / 20).max(1) == 0 {
                                     ctx_clone.request_repaint();
@@ -469,26 +473,20 @@ impl AnimationMethods for RasterizerApp {
         }
     }
 
-    /// 切换预渲染模式 (使用CoreMethods实现)
-    fn toggle_pre_render_mode(&mut self) {
-        // 直接调用CoreMethods中的实现
-        CoreMethods::toggle_pre_render_mode(self);
-    }
-
     fn start_pre_rendering(&mut self, ctx: &Context) {
         if self.is_pre_rendering {
             return;
         }
 
-        match self.validate_parameters() {
+        // 🔥 **使用 CoreMethods 验证参数**
+        match self.settings.validate() {
             Ok(_) => {
                 if self.scene.is_none() {
                     let obj_path = match &self.settings.obj {
                         Some(path) => path.clone(),
                         None => {
                             self.set_error("错误: 未指定OBJ文件路径".to_string());
-                            self.is_realtime_rendering = false;
-                            self.pre_render_mode = false;
+                            self.stop_animation_rendering();
                             return;
                         }
                     };
@@ -620,9 +618,9 @@ impl AnimationMethods for RasterizerApp {
                 ctx.request_repaint_after(time_to_wait);
                 return;
             }
-            CoreMethods::update_fps_stats(self, time_since_last_display);
+            self.update_fps_stats(time_since_last_display);
         } else {
-            CoreMethods::update_fps_stats(self, target_frame_duration);
+            self.update_fps_stats(target_frame_duration);
         }
         self.last_frame_time = Some(now);
 

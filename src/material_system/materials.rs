@@ -18,7 +18,6 @@ pub struct Vertex {
 #[derive(Debug, Clone)]
 pub struct Material {
     // --- 通用属性 ---
-    pub name: String,
     /// 统一的纹理接口，可以是图像纹理、单色纹理或面颜色纹理
     pub texture: Option<Texture>,
     /// 自发光颜色，对两种渲染模式都适用
@@ -49,7 +48,6 @@ impl Material {
     /// 创建默认材质
     pub fn default() -> Self {
         Material {
-            name: "Default".to_string(),
             albedo: Vector3::new(0.8, 0.8, 0.8),
             specular: Vector3::new(0.5, 0.5, 0.5),
             shininess: 32.0,
@@ -94,11 +92,6 @@ impl Material {
             _ => println!("未知的纹理类型: {}", texture_type),
         }
         self
-    }
-
-    /// 获取材质名称
-    pub fn get_name(&self) -> &str {
-        &self.name
     }
 
     /// 获取漫反射颜色 (Blinn-Phong模式)

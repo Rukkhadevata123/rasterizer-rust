@@ -1,8 +1,4 @@
-use crate::material_system::light::{
-    DirectionalLightConfig, Light, LightingPreset, PointLightConfig, create_lights_from_configs,
-    create_lights_from_preset,
-};
-use crate::scene::scene_utils::Scene;
+use crate::material_system::light::{Light, LightingPreset};
 use clap::{Parser, ValueEnum};
 use nalgebra::{Point3, Vector3};
 
@@ -65,7 +61,7 @@ pub struct RenderSettings {
     pub custom_rotation_axis: String,
 
     // ===== 输出设置 =====
-    /// 输出文件的基础名称（例如: "render" -> "render_color.png", "render_depth.png"）
+    /// 输出文件的基础名称
     #[arg(short, long, default_value = "output")]
     pub output: String,
 
@@ -86,7 +82,7 @@ pub struct RenderSettings {
     pub save_depth: bool,
 
     // ===== 渲染基础设置 =====
-    /// 投影类型："perspective"（透视投影）或"orthographic"（正交投影）
+    /// 投影类型："perspective"或"orthographic"
     #[arg(long, default_value = "perspective")]
     pub projection: String,
 
@@ -130,13 +126,22 @@ pub struct RenderSettings {
     #[arg(long, default_value_t = 1e-3)]
     pub min_triangle_area: f32,
 
-    /// 场景中要创建的对象实例数量
-    #[arg(long)]
-    pub object_count: Option<String>,
-
     /// 物体的全局均匀缩放因子
     #[arg(long, default_value_t = 1.0)]
     pub object_scale: f32,
+
+    // ===== 物体变换控制（字符串格式，用于CLI和序列化） =====
+    /// 物体位置 (x,y,z)
+    #[arg(long, default_value = "0,0,0")]
+    pub object_position: String,
+
+    /// 物体旋转 (欧拉角，度)
+    #[arg(long, default_value = "0,0,0")]
+    pub object_rotation: String,
+
+    /// 物体缩放 (x,y,z)
+    #[arg(long, default_value = "1,1,1")]
+    pub object_scale_xyz: String,
 
     // ===== 相机参数 =====
     /// 相机位置（视点），格式为"x,y,z"
@@ -176,54 +181,65 @@ pub struct RenderSettings {
     #[arg(long, default_value_t = 0.8)]
     pub main_light_intensity: f32,
 
-    // 这些字段不是直接CLI参数，只在内部使用
-    #[arg(skip)]
-    pub directional_lights: Vec<DirectionalLightConfig>,
-    #[arg(skip)]
-    pub point_lights: Vec<PointLightConfig>,
-
     // ===== 着色模型选择 =====
-    /// 使用Phong着色（逐像素光照）而非默认的Flat着色
-    #[arg(long, default_value_t = true)] // 默认开启Phong，保持GUI和CLI一致
+    /// 使用Phong着色（逐像素光照）
+    #[arg(long, default_value_t = true)]
     pub use_phong: bool,
 
-    /// 使用基于物理的渲染(PBR)而不是传统Blinn-Phong
+    /// 使用基于物理的渲染(PBR)
     #[arg(long, default_value_t = false)]
     pub use_pbr: bool,
 
     // ===== Phong着色模型参数 =====
-    /// 漫反射颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(仅在Phong模式下有效)
+    /// 漫反射颜色，格式为"r,g,b"
     #[arg(long, default_value = "0.8,0.8,0.8")]
     pub diffuse_color: String,
 
-    /// 镜面反射强度(0.0-1.0，仅在Phong模式下有效)
+    /// 镜面反射强度(0.0-1.0)
     #[arg(long, default_value_t = 0.5)]
     pub specular: f32,
 
-    /// 材质的光泽度(硬度)参数(仅在Phong模式下有效)
+    /// 材质的光泽度(硬度)参数
     #[arg(long, default_value_t = 32.0)]
     pub shininess: f32,
 
     // ===== PBR材质参数 =====
-    /// 材质的基础颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(仅在PBR模式下有效)
+    /// 材质的基础颜色，格式为"r,g,b"
     #[arg(long, default_value = "0.8,0.8,0.8")]
     pub base_color: String,
 
-    /// 材质的金属度(0.0-1.0，仅在PBR模式下有效)
+    /// 材质的金属度(0.0-1.0)
     #[arg(long, default_value_t = 0.0)]
     pub metallic: f32,
 
-    /// 材质的粗糙度(0.0-1.0，仅在PBR模式下有效)
+    /// 材质的粗糙度(0.0-1.0)
     #[arg(long, default_value_t = 0.5)]
     pub roughness: f32,
 
-    /// 环境光遮蔽系数(0.0-1.0，仅在PBR模式下有效)
+    /// 环境光遮蔽系数(0.0-1.0)
     #[arg(long, default_value_t = 1.0)]
     pub ambient_occlusion: f32,
 
-    /// 材质的自发光颜色，格式为"r,g,b"，每个分量在0.0-1.0范围内(在Phong和PBR中都有效)
+    /// 材质的自发光颜色，格式为"r,g,b"
     #[arg(long, default_value = "0.0,0.0,0.0")]
     pub emissive: String,
+
+    // ==== 阴影设置 ====
+    /// 启用增强环境光遮蔽
+    #[arg(long, default_value_t = true)]
+    pub enhanced_ao: bool,
+
+    /// 环境光遮蔽强度 (0.0-1.0)
+    #[arg(long, default_value_t = 0.5)]
+    pub ao_strength: f32,
+
+    /// 启用软阴影
+    #[arg(long, default_value_t = true)]
+    pub soft_shadows: bool,
+
+    /// 软阴影强度 (0.0-1.0)
+    #[arg(long, default_value_t = 0.7)]
+    pub shadow_strength: f32,
 
     // ===== 背景与环境设置 =====
     /// 启用渐变背景
@@ -246,7 +262,7 @@ pub struct RenderSettings {
     #[arg(long, default_value = "0.3,0.5,0.2")]
     pub ground_plane_color: String,
 
-    /// 地面平面在Y轴上的高度 (世界坐标系)
+    /// 地面平面在Y轴上的高度
     #[arg(long, default_value_t = -1.0, allow_negative_numbers = true)]
     pub ground_plane_height: f32,
 
@@ -259,7 +275,6 @@ pub struct RenderSettings {
     pub background_image_path: Option<String>,
 
     // ===== 运行时字段（不是命令行参数） =====
-    // 从RenderConfig导入的运行时字段
     #[arg(skip)]
     pub lights: Vec<Light>,
 
@@ -324,75 +339,28 @@ pub fn get_animation_axis_vector(settings: &RenderSettings) -> Vector3<f32> {
 
 impl Default for RenderSettings {
     fn default() -> Self {
-        let mut settings = Self {
-            obj: None,
-            animate: false,
-            fps: 30,
-            rotation_speed: 1.0,
-            rotation_cycles: 1.0,
-            animation_type: AnimationType::CameraOrbit,
-            rotation_axis: RotationAxis::Y,
-            custom_rotation_axis: "0,1,0".to_string(),
-            output: "output".to_string(),
-            output_dir: "output_rust".to_string(),
-            width: 1024,
-            height: 1024,
-            save_depth: true,
-            projection: "perspective".to_string(),
-            use_zbuffer: true,
-            colorize: false,
-            use_texture: true,
-            texture: None,
-            use_gamma: true,
-            backface_culling: false,
-            wireframe: false,
-            use_multithreading: true,
-            cull_small_triangles: false,
-            min_triangle_area: 1e-3,
-            object_count: None,
-            object_scale: 1.0,
-            camera_from: "0,0,3".to_string(),
-            camera_at: "0,0,0".to_string(),
-            camera_up: "0,1,0".to_string(),
-            camera_fov: 45.0,
-            use_lighting: true,
-            ambient: 0.1,
-            ambient_color: "0.1,0.1,0.1".to_string(),
-            lighting_preset: LightingPreset::SingleDirectional,
-            main_light_intensity: 0.8,
-            directional_lights: Vec::new(),
-            point_lights: Vec::new(),
-            use_phong: true, // 默认启用Phong着色
-            use_pbr: false,
-            diffuse_color: "0.8,0.8,0.8".to_string(),
-            specular: 0.5,
-            shininess: 32.0,
-            base_color: "0.8,0.8,0.8".to_string(),
-            metallic: 0.0,
-            roughness: 0.5,
-            ambient_occlusion: 1.0,
-            emissive: "0.0,0.0,0.0".to_string(),
-            enable_gradient_background: false,
-            gradient_top_color: "0.5,0.7,1.0".to_string(),
-            gradient_bottom_color: "0.1,0.2,0.4".to_string(),
-            enable_ground_plane: false,
-            ground_plane_color: "0.3,0.5,0.2".to_string(),
-            ground_plane_height: -1.0,
-            use_background_image: false,
-            background_image_path: None,
-            // 运行时字段初始化
-            lights: Vec::new(),
-            ambient_color_vec: Vector3::new(0.1, 0.1, 0.1),
-            gradient_top_color_vec: Vector3::new(0.5, 0.7, 1.0),
-            gradient_bottom_color_vec: Vector3::new(0.1, 0.2, 0.4),
-            ground_plane_color_vec: Vector3::new(0.3, 0.5, 0.2),
-            background_image: None,
-        };
+        let mut settings = Self::parse_from(std::iter::empty::<String>());
 
-        // 初始化光源配置
-        settings.setup_light_sources();
+        // 🔥 **直接基于预设创建光源**
+        settings.lights = crate::material_system::light::LightManager::create_preset_lights(
+            &settings.lighting_preset,
+            settings.main_light_intensity,
+        );
 
-        // 解析字符串颜色为向量表示
+        // 🔥 **确保有光源**
+        crate::material_system::light::LightManager::ensure_lights_exist(
+            &mut settings.lights,
+            settings.use_lighting,
+            settings.main_light_intensity,
+        );
+
+        // 初始化其他运行时字段
+        settings.ambient_color_vec = Vector3::new(0.1, 0.1, 0.1);
+        settings.gradient_top_color_vec = Vector3::new(0.5, 0.7, 1.0);
+        settings.gradient_bottom_color_vec = Vector3::new(0.1, 0.2, 0.4);
+        settings.ground_plane_color_vec = Vector3::new(0.3, 0.5, 0.2);
+        settings.background_image = None;
+
         settings.update_color_vectors();
 
         settings
@@ -400,14 +368,34 @@ impl Default for RenderSettings {
 }
 
 impl RenderSettings {
+    /// 解析物体变换参数为向量（统一接口）
+    pub fn get_object_transform_components(&self) -> (Vector3<f32>, Vector3<f32>, Vector3<f32>) {
+        // 解析位置
+        let position =
+            parse_vec3(&self.object_position).unwrap_or_else(|_| Vector3::new(0.0, 0.0, 0.0));
+
+        // 解析旋转（度转弧度）
+        let rotation_deg =
+            parse_vec3(&self.object_rotation).unwrap_or_else(|_| Vector3::new(0.0, 0.0, 0.0));
+        let rotation_rad = Vector3::new(
+            rotation_deg.x.to_radians(),
+            rotation_deg.y.to_radians(),
+            rotation_deg.z.to_radians(),
+        );
+
+        // 解析缩放
+        let scale =
+            parse_vec3(&self.object_scale_xyz).unwrap_or_else(|_| Vector3::new(1.0, 1.0, 1.0));
+
+        (position, rotation_rad, scale)
+    }
+
     /// 检查是否应该启动GUI模式
     pub fn should_start_gui(&self) -> bool {
-        // 如果没有提供OBJ文件路径，则启动GUI
         if self.obj.is_none() {
             return true;
         }
 
-        // 检查是否通过双击EXE启动（通常Windows下命令行参数为空）
         if std::env::args().count() <= 1 {
             return true;
         }
@@ -415,162 +403,19 @@ impl RenderSettings {
         false
     }
 
-    /// 确保光源配置数组有正确的长度
-    pub fn ensure_light_arrays(&mut self) {
-        const MAX_DIRECTIONAL_LIGHTS: usize = 4;
-        const MAX_POINT_LIGHTS: usize = 8;
-
-        // 确保方向光源数组长度
-        while self.directional_lights.len() < MAX_DIRECTIONAL_LIGHTS {
-            let mut light = DirectionalLightConfig::default();
-            light.enabled = false;
-            self.directional_lights.push(light);
-        }
-        self.directional_lights.truncate(MAX_DIRECTIONAL_LIGHTS);
-
-        // 确保点光源数组长度
-        while self.point_lights.len() < MAX_POINT_LIGHTS {
-            let mut light = PointLightConfig::default();
-            light.enabled = false;
-            self.point_lights.push(light);
-        }
-        self.point_lights.truncate(MAX_POINT_LIGHTS);
-    }
-
-    /// 初始化光源配置数组
-    pub fn setup_light_sources(&mut self) {
-        // 清除现有的光源配置
-        self.directional_lights.clear();
-        self.point_lights.clear();
-
-        // 根据预设创建光源
-        match self.lighting_preset {
-            LightingPreset::SingleDirectional => {
-                // 添加一个默认的方向光源
-                self.directional_lights.push(DirectionalLightConfig {
-                    enabled: true,
-                    direction: "0,-1,-1".to_string(),
-                    color: "1.0,1.0,1.0".to_string(),
-                    intensity: self.main_light_intensity,
-                });
-            }
-            LightingPreset::ThreeDirectional => {
-                // 添加三个方向光源，从不同角度照亮场景
-                self.directional_lights.push(DirectionalLightConfig {
-                    enabled: true,
-                    direction: "0,-1,-1".to_string(),
-                    color: "1.0,1.0,1.0".to_string(),
-                    intensity: self.main_light_intensity * 0.7,
-                });
-                self.directional_lights.push(DirectionalLightConfig {
-                    enabled: true,
-                    direction: "-1,-0.5,0.2".to_string(),
-                    color: "0.9,0.9,1.0".to_string(),
-                    intensity: self.main_light_intensity * 0.5,
-                });
-                self.directional_lights.push(DirectionalLightConfig {
-                    enabled: true,
-                    direction: "1,-0.5,0.2".to_string(),
-                    color: "1.0,0.9,0.8".to_string(),
-                    intensity: self.main_light_intensity * 0.3,
-                });
-            }
-            LightingPreset::MixedComplete => {
-                // 添加一个主方向光源
-                self.directional_lights.push(DirectionalLightConfig {
-                    enabled: true,
-                    direction: "0,-1,-1".to_string(),
-                    color: "1.0,1.0,1.0".to_string(),
-                    intensity: self.main_light_intensity * 0.6,
-                });
-
-                // 添加四个点光源
-                let point_configs = [
-                    ("2,3,2", "1.0,0.8,0.6"),   // 暖色调
-                    ("-2,3,2", "0.6,0.8,1.0"),  // 冷色调
-                    ("2,3,-2", "0.8,1.0,0.8"),  // 绿色调
-                    ("-2,3,-2", "1.0,0.8,1.0"), // 紫色调
-                ];
-
-                for (pos, color) in &point_configs {
-                    self.point_lights.push(PointLightConfig {
-                        enabled: true,
-                        position: pos.to_string(),
-                        color: color.to_string(),
-                        intensity: self.main_light_intensity * 0.5,
-                        constant_attenuation: 1.0,
-                        linear_attenuation: 0.09,
-                        quadratic_attenuation: 0.032,
-                    });
-                }
-            }
-            LightingPreset::None => {
-                // 不添加任何光源
-            }
-        }
-
-        // 确保光源数组长度正确
-        self.ensure_light_arrays();
-
-        // 根据配置创建实际光源
-        self.update_lights();
-    }
-
     /// 更新所有颜色向量，将字符串表示解析为Vector3
     pub fn update_color_vectors(&mut self) {
-        // 解析环境光颜色
         self.ambient_color_vec =
             parse_vec3(&self.ambient_color).unwrap_or_else(|_| Vector3::new(0.1, 0.1, 0.1));
 
-        // 解析背景渐变颜色
         self.gradient_top_color_vec =
             parse_vec3(&self.gradient_top_color).unwrap_or_else(|_| Vector3::new(0.5, 0.7, 1.0));
 
         self.gradient_bottom_color_vec =
             parse_vec3(&self.gradient_bottom_color).unwrap_or_else(|_| Vector3::new(0.1, 0.2, 0.4));
 
-        // 解析地面颜色
         self.ground_plane_color_vec =
             parse_vec3(&self.ground_plane_color).unwrap_or_else(|_| Vector3::new(0.3, 0.5, 0.2));
-    }
-
-    /// 从场景更新配置
-    pub fn update_from_scene(&mut self, scene: &Scene) {
-        // 更新环境光设置
-        self.ambient = scene.ambient_intensity;
-        self.ambient_color = format!(
-            "{},{},{}",
-            scene.ambient_color.x, scene.ambient_color.y, scene.ambient_color.z
-        );
-        self.ambient_color_vec = scene.ambient_color;
-
-        // 如果场景有光源，使用场景光源
-        if !scene.lights.is_empty() {
-            self.lights = scene.lights.clone();
-        } else {
-            // 否则根据配置创建光源
-            self.update_lights();
-        }
-    }
-
-    /// 根据配置更新实际的光源列表
-    pub fn update_lights(&mut self) {
-        if self.directional_lights.is_empty() && self.point_lights.is_empty() {
-            // 使用预设创建光源
-            self.lights =
-                create_lights_from_preset(self.lighting_preset.clone(), self.main_light_intensity);
-        } else {
-            // 使用现有配置创建光源
-            self.lights = create_lights_from_configs(&self.directional_lights, &self.point_lights);
-        }
-
-        // 确保至少有一个默认光源
-        if self.lights.is_empty() && self.use_lighting {
-            let default_direction = Vector3::new(0.0, -1.0, -1.0).normalize();
-            let default_color = Vector3::new(1.0, 1.0, 1.0);
-            self.lights
-                .push(Light::directional(default_direction, default_color, 0.8));
-        }
     }
 
     /// 判断是否使用透视投影
@@ -589,76 +434,29 @@ impl RenderSettings {
         }
     }
 
-    /// 打印渲染配置摘要
-    pub fn print_summary(&self) {
-        // --- 着色模型 ---
-        println!("着色模型: {}", self.get_lighting_description());
+    pub fn change_lighting_preset(&mut self, new_preset: LightingPreset) {
+        self.lighting_preset = new_preset;
 
-        // --- 光照设置 ---
-        println!(
-            "光照: {}",
-            if self.use_lighting {
-                "启用"
-            } else {
-                "禁用"
-            }
-        );
-        if self.use_lighting {
-            println!("光源数量: {}", self.lights.len());
-            println!(
-                "环境光: 强度={:.2}, 颜色={:?}",
-                self.ambient, self.ambient_color_vec
-            );
-        }
-
-        // --- 材质设置 ---
-        println!(
-            "材质: 纹理={}, 面颜色={}, Gamma校正={}",
-            if self.use_texture { "启用" } else { "禁用" },
-            if self.colorize { "启用" } else { "禁用" },
-            if self.use_gamma { "启用" } else { "禁用" }
+        // 🔥 **直接重用LightManager的逻辑**
+        self.lights = crate::material_system::light::LightManager::create_preset_lights(
+            &self.lighting_preset,
+            self.main_light_intensity,
         );
 
-        // --- 几何处理 ---
-        println!(
-            "几何处理: 背面剔除={}, 线框模式={}",
-            if self.backface_culling {
-                "启用"
-            } else {
-                "禁用"
-            },
-            if self.wireframe { "启用" } else { "禁用" }
-        );
-
-        // --- 性能设置 ---
-        println!(
-            "性能设置: 多线程渲染={}, 小三角形剔除={}{}",
-            if self.use_multithreading {
-                "启用"
-            } else {
-                "禁用"
-            },
-            if self.cull_small_triangles {
-                "启用"
-            } else {
-                "禁用"
-            },
-            if self.cull_small_triangles {
-                format!(" (阈值: {:.5})", self.min_triangle_area)
-            } else {
-                String::new()
-            }
+        // 🔥 **确保有光源**
+        crate::material_system::light::LightManager::ensure_lights_exist(
+            &mut self.lights,
+            self.use_lighting,
+            self.main_light_intensity,
         );
     }
 
     /// 验证渲染参数
     pub fn validate(&self) -> Result<(), String> {
-        // 检查基本参数
         if self.width == 0 || self.height == 0 {
             return Err("错误: 图像宽度和高度必须大于0".to_string());
         }
 
-        // 检查OBJ文件是否存在
         if let Some(obj_path) = &self.obj {
             if !std::path::Path::new(obj_path).exists() {
                 return Err(format!("错误: 找不到OBJ文件 '{}'", obj_path));
@@ -667,7 +465,6 @@ impl RenderSettings {
             return Err("错误: 未指定OBJ文件路径".to_string());
         }
 
-        // 检查输出目录和文件名
         if self.output_dir.trim().is_empty() {
             return Err("错误: 输出目录不能为空".to_string());
         }
@@ -689,94 +486,17 @@ impl RenderSettings {
             return Err("错误: 相机上方向格式不正确，应为 x,y,z 格式".to_string());
         }
 
-        // 验证光照参数
-        if self.use_lighting {
-            // 验证环境光颜色
-            if !self.ambient_color.is_empty() && parse_vec3(&self.ambient_color).is_err() {
-                return Err("错误: 环境光颜色格式不正确，应为 r,g,b 格式".to_string());
-            }
-
-            // 验证光源配置数组
-            for (i, light) in self.directional_lights.iter().enumerate() {
-                if light.enabled {
-                    if parse_vec3(&light.direction).is_err() {
-                        return Err(format!(
-                            "错误: 方向光 #{} 的方向格式不正确，应为 x,y,z 格式",
-                            i + 1
-                        ));
-                    }
-                    if parse_vec3(&light.color).is_err() {
-                        return Err(format!(
-                            "错误: 方向光 #{} 的颜色格式不正确，应为 r,g,b 格式",
-                            i + 1
-                        ));
-                    }
-                }
-            }
-
-            for (i, light) in self.point_lights.iter().enumerate() {
-                if light.enabled {
-                    if parse_vec3(&light.position).is_err() {
-                        return Err(format!(
-                            "错误: 点光源 #{} 的位置格式不正确，应为 x,y,z 格式",
-                            i + 1
-                        ));
-                    }
-                    if parse_vec3(&light.color).is_err() {
-                        return Err(format!(
-                            "错误: 点光源 #{} 的颜色格式不正确，应为 r,g,b 格式",
-                            i + 1
-                        ));
-                    }
-                }
-            }
+        // 验证物体变换参数
+        if parse_vec3(&self.object_position).is_err() {
+            return Err("错误: 物体位置格式不正确，应为 x,y,z 格式".to_string());
         }
 
-        // 验证PBR参数
-        if self.use_pbr {
-            if self.metallic < 0.0 || self.metallic > 1.0 {
-                return Err("错误: 金属度必须在0.0到1.0之间".to_string());
-            }
-            if self.roughness < 0.0 || self.roughness > 1.0 {
-                return Err("错误: 粗糙度必须在0.0到1.0之间".to_string());
-            }
-            if !self.base_color.is_empty() && parse_vec3(&self.base_color).is_err() {
-                return Err("错误: 基础颜色格式不正确，应为 r,g,b 格式".to_string());
-            }
-            if !self.emissive.is_empty() && parse_vec3(&self.emissive).is_err() {
-                return Err("错误: 自发光颜色格式不正确，应为 r,g,b 格式".to_string());
-            }
+        if parse_vec3(&self.object_rotation).is_err() {
+            return Err("错误: 物体旋转格式不正确，应为 x,y,z 格式".to_string());
         }
 
-        // 验证背景图片路径
-        if self.use_background_image {
-            if let Some(bg_path) = &self.background_image_path {
-                let path = std::path::Path::new(bg_path);
-                if !path.exists() {
-                    return Err(format!("错误: 找不到背景图片文件 '{}'", bg_path));
-                }
-                if !path.is_file() {
-                    return Err(format!(
-                        "错误: 背景图片路径不是一个有效的文件 '{}'",
-                        bg_path
-                    ));
-                }
-
-                // 可选: 检查文件扩展名是否是支持的图像格式
-                if let Some(ext) = path.extension() {
-                    let ext_str = ext.to_string_lossy().to_lowercase();
-                    if !["png", "jpg", "jpeg", "bmp", "tga"].contains(&ext_str.as_str()) {
-                        return Err(format!(
-                            "错误: 背景图片格式不受支持 '{}', 支持的格式: png, jpg, jpeg, bmp, tga",
-                            bg_path
-                        ));
-                    }
-                } else {
-                    return Err(format!("错误: 背景图片缺少文件扩展名 '{}'", bg_path));
-                }
-            } else {
-                return Err("错误: 已启用背景图片但未指定图片路径".to_string());
-            }
+        if parse_vec3(&self.object_scale_xyz).is_err() {
+            return Err("错误: 物体缩放格式不正确，应为 x,y,z 格式".to_string());
         }
 
         Ok(())

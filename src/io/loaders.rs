@@ -151,7 +151,6 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(
                         };
 
                         Material {
-                            name: mat.name,
                             albedo: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8])),
                             specular: Vector3::from(mat.specular.unwrap_or([0.0, 0.0, 0.0])),
                             shininess: mat.shininess.unwrap_or(10.0),

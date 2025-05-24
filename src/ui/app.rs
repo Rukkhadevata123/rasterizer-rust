@@ -1,16 +1,15 @@
 use crate::core::renderer::Renderer;
-use crate::io::render_settings::RenderSettings; // 替换原有的Args导入
+use crate::io::render_settings::RenderSettings;
 use crate::material_system::materials::ModelData;
 use crate::scene::scene_utils::Scene;
-use clap::Parser;
 use egui::{Color32, ColorImage, RichText, Vec2};
+use nalgebra::Vector3;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 // 导入其他UI模块
 use super::animation::AnimationMethods;
 use super::core::CoreMethods;
-use super::render_ui::RenderMethods;
 use super::widgets::WidgetMethods;
 
 /// GUI应用状态
@@ -22,6 +21,11 @@ pub struct RasterizerApp {
 
     // 渲染设置（替换原有的args字段）
     pub settings: RenderSettings,
+
+    // 🔥 **GUI专用变换字段** - 从RenderSettings移动到这里
+    pub object_position_vec: Vector3<f32>,
+    pub object_rotation_vec: Vector3<f32>,
+    pub object_scale_vec: Vector3<f32>,
 
     // UI状态
     pub rendered_image: Option<egui::TextureHandle>,
@@ -53,17 +57,53 @@ pub struct RasterizerApp {
     pub video_generation_thread: Option<std::thread::JoinHandle<(bool, String)>>,
     pub video_progress: Arc<AtomicUsize>,
 
+    // 相机交互敏感度设置
+    pub camera_pan_sensitivity: f32,   // 平移敏感度
+    pub camera_orbit_sensitivity: f32, // 轨道旋转敏感度
+    pub camera_dolly_sensitivity: f32, // 推拉缩放敏感度
+
+    // 相机交互状态
+    pub interface_interaction: InterfaceInteraction,
+
     // ffmpeg 检查结果
     pub ffmpeg_available: bool,
 }
 
+/// 相机交互状态
+#[derive(Default)]
+pub struct InterfaceInteraction {
+    pub camera_is_dragging: bool,
+    pub camera_is_orbiting: bool,
+    pub last_mouse_pos: Option<egui::Pos2>,
+    pub anything_changed: bool, // 标记相机是否发生变化，需要重新渲染
+}
+
 impl RasterizerApp {
+    /// 🔥 **统一的设置后处理方法** - 只处理GUI特有逻辑
+    pub fn finalize_settings_for_gui(mut settings: RenderSettings) -> RenderSettings {
+        // 🔥 **关键修复：确保所有向量字段都被正确初始化**
+        settings.update_color_vectors();
+
+        // 确保Phong着色开启，PBR关闭 (GUI默认偏好)
+        settings.use_phong = true;
+        settings.use_pbr = false;
+
+        // 🔥 **关键修复：如果光源为空，使用预设创建**
+        if settings.lights.is_empty() && settings.use_lighting {
+            settings.lights = crate::material_system::light::LightManager::create_preset_lights(
+                &settings.lighting_preset,
+                settings.main_light_intensity,
+            );
+        }
+
+        settings
+    }
+
     /// 创建新的GUI应用实例
     pub fn new(settings: RenderSettings, cc: &eframe::CreationContext<'_>) -> Self {
         // 配置字体，添加中文支持
         let mut fonts = egui::FontDefinitions::default();
 
-        // 尝试添加一个支持中文的字体
         fonts.font_data.insert(
             "chinese_font".to_owned(),
             egui::FontData::from_static(include_bytes!(
@@ -72,18 +112,17 @@ impl RasterizerApp {
             .into(),
         );
 
-        // 将中文字体添加到所有文本样式中
         for (_text_style, font_ids) in fonts.families.iter_mut() {
             font_ids.push("chinese_font".to_owned());
         }
 
-        // 应用字体设置
         cc.egui_ctx.set_fonts(fonts);
 
-        // 确保settings中的Phong着色开启，PBR关闭（这是一个浅复制，不会改变原始settings）
-        let mut settings_copy = settings.clone();
-        settings_copy.use_phong = true;
-        settings_copy.use_pbr = false; // 确保PBR默认关闭
+        // 🔥 **关键修复：确保GUI设置正确初始化**
+        let settings_copy = Self::finalize_settings_for_gui(settings);
+
+        // 🔥 **从settings字符串解析GUI专用字段**
+        let (position, rotation_rad, scale) = settings_copy.get_object_transform_components();
 
         // 创建渲染器
         let renderer = Renderer::new(settings_copy.width, settings_copy.height);
@@ -91,12 +130,15 @@ impl RasterizerApp {
         // 检查ffmpeg是否可用
         let ffmpeg_available = Self::check_ffmpeg_available();
 
-        // 设置初始状态
         Self {
             renderer,
             scene: None,
             model_data: None,
             settings: settings_copy,
+
+            object_position_vec: position,
+            object_rotation_vec: rotation_rad,
+            object_scale_vec: scale,
 
             rendered_image: None,
             last_render_time: None,
@@ -104,15 +146,14 @@ impl RasterizerApp {
             show_error_dialog: false,
             error_message: String::new(),
 
-            current_fps: 0.0,        // 初始化当前帧率
-            fps_history: Vec::new(), // 初始化帧率历史记录
-            avg_fps: 0.0,            // 初始化平均帧率
+            current_fps: 0.0,
+            fps_history: Vec::new(),
+            avg_fps: 0.0,
 
             is_realtime_rendering: false,
             last_frame_time: None,
 
-            // 预渲染字段初始化
-            pre_render_mode: false, // 默认禁用
+            pre_render_mode: false,
             is_pre_rendering: false,
             pre_rendered_frames: Arc::new(Mutex::new(Vec::new())),
             current_frame_index: 0,
@@ -123,6 +164,12 @@ impl RasterizerApp {
             is_generating_video: false,
             video_generation_thread: None,
             video_progress: Arc::new(AtomicUsize::new(0)),
+
+            camera_pan_sensitivity: 1.0,
+            camera_orbit_sensitivity: 1.0,
+            camera_dolly_sensitivity: 1.0,
+
+            interface_interaction: InterfaceInteraction::default(),
 
             ffmpeg_available,
         }
@@ -138,51 +185,162 @@ impl RasterizerApp {
 
     /// 设置错误信息并显示错误对话框
     pub fn set_error(&mut self, message: String) {
-        // 使用CoreMethods中的实现
         CoreMethods::set_error(self, message.clone());
-        // 额外设置UI特有的错误对话框
         self.error_message = message;
         self.show_error_dialog = true;
     }
 
-    /// 重置所有参数为默认值
-    pub fn reset_to_defaults(&mut self) {
-        // 保留当前的文件路径和输出设置
-        let output_dir = self.settings.output_dir.clone();
-        let output_name = self.settings.output.clone();
+    /// 🔥 **从GUI字段更新RenderSettings字符串** - 单向同步
+    fn sync_transform_to_settings(&mut self) {
+        self.settings.object_position = format!(
+            "{},{},{}",
+            self.object_position_vec.x, self.object_position_vec.y, self.object_position_vec.z
+        );
 
-        // 创建新的默认RenderSettings实例
-        let mut new_settings = if let Some(obj_path) = &self.settings.obj {
-            RenderSettings::parse_from(["program_name", "--obj", obj_path].iter())
-        } else {
-            RenderSettings::parse_from(["program_name"].iter())
-        };
+        self.settings.object_rotation = format!(
+            "{},{},{}",
+            self.object_rotation_vec.x.to_degrees(),
+            self.object_rotation_vec.y.to_degrees(),
+            self.object_rotation_vec.z.to_degrees()
+        );
 
-        // 恢复保留的路径
-        new_settings.output_dir = output_dir;
-        new_settings.output = output_name;
-        new_settings.use_phong = true; // 确保Phong着色默认开启
-        new_settings.use_pbr = false; // 确保PBR渲染默认关闭
-
-        // 如果宽度或高度发生变化，需要重新创建渲染器
-        if self.renderer.frame_buffer.width != new_settings.width
-            || self.renderer.frame_buffer.height != new_settings.height
-        {
-            // 创建新的渲染器，使用新的宽高
-            self.renderer = Renderer::new(new_settings.width, new_settings.height);
-            // 清除已渲染的图像
-            self.rendered_image = None;
-        }
-
-        // 更新Settings对象
-        self.settings = new_settings;
-
-        // 使用CoreMethods中的实现重置应用状态
-        CoreMethods::reset_to_defaults(self);
+        self.settings.object_scale_xyz = format!(
+            "{},{},{}",
+            self.object_scale_vec.x, self.object_scale_vec.y, self.object_scale_vec.z
+        );
     }
 
-    // 注意：clear_pre_rendered_frames, update_fps_stats 和 get_fps_display
-    // 方法已删除，直接使用 CoreMethods trait 的实现
+    /// 🔥 **从RenderSettings字符串更新GUI字段** - 反向同步
+    pub fn sync_transform_from_settings(&mut self) {
+        let (position, rotation_rad, scale) = self.settings.get_object_transform_components();
+        self.object_position_vec = position;
+        self.object_rotation_vec = rotation_rad;
+        self.object_scale_vec = scale;
+    }
+
+    /// 应用物体变换到场景（统一入口）
+    pub fn apply_object_transform(&mut self) {
+        // 🔥 **首先同步GUI字段到settings**
+        self.sync_transform_to_settings();
+
+        // 🔥 **分离借用作用域 - 避免借用冲突**
+        if let Some(scene) = &mut self.scene {
+            // 直接更新场景对象变换
+            scene.update_object_transform(&self.settings);
+        }
+
+        // 🔥 **在独立作用域中标记相机状态已改变**
+        self.interface_interaction.anything_changed = true;
+    }
+
+    /// 🔥 **统一的相机参数更新方法**
+    fn update_camera_settings_from_scene(&mut self) {
+        if let Some(scene) = &self.scene {
+            let camera = &scene.active_camera;
+            let pos = camera.position();
+            let target = camera.params.target;
+            let up = camera.params.up;
+
+            self.settings.camera_from = format!("{},{},{}", pos.x, pos.y, pos.z);
+            self.settings.camera_at = format!("{},{},{}", target.x, target.y, target.z);
+            self.settings.camera_up = format!("{},{},{}", up.x, up.y, up.z);
+        }
+    }
+
+    /// 处理相机交互
+    fn handle_camera_interaction(&mut self, image_response: &egui::Response, ctx: &egui::Context) {
+        if let Some(scene) = &mut self.scene {
+            let mut camera_changed = false;
+
+            let screen_size = egui::Vec2::new(
+                self.renderer.frame_buffer.width as f32,
+                self.renderer.frame_buffer.height as f32,
+            );
+
+            // 处理鼠标拖拽
+            if image_response.dragged() {
+                if let Some(last_pos) = self.interface_interaction.last_mouse_pos {
+                    let current_pos = image_response.interact_pointer_pos().unwrap_or_default();
+                    let delta = current_pos - last_pos;
+
+                    let is_shift_pressed = ctx.input(|i| i.modifiers.shift);
+
+                    if is_shift_pressed && !self.interface_interaction.camera_is_orbiting {
+                        self.interface_interaction.camera_is_orbiting = true;
+                        self.interface_interaction.camera_is_dragging = false;
+                    } else if !is_shift_pressed && !self.interface_interaction.camera_is_dragging {
+                        self.interface_interaction.camera_is_dragging = true;
+                        self.interface_interaction.camera_is_orbiting = false;
+                    }
+
+                    if self.interface_interaction.camera_is_orbiting && is_shift_pressed {
+                        scene
+                            .active_camera
+                            .orbit_from_screen_delta(delta, self.camera_orbit_sensitivity);
+                        camera_changed = true;
+                    } else if self.interface_interaction.camera_is_dragging && !is_shift_pressed {
+                        scene.active_camera.pan_from_screen_delta(
+                            delta,
+                            screen_size,
+                            self.camera_pan_sensitivity,
+                        );
+                        camera_changed = true;
+                    }
+                }
+
+                self.interface_interaction.last_mouse_pos = image_response.interact_pointer_pos();
+            } else {
+                self.interface_interaction.camera_is_dragging = false;
+                self.interface_interaction.camera_is_orbiting = false;
+                self.interface_interaction.last_mouse_pos = None;
+            }
+
+            // 处理鼠标滚轮缩放
+            if image_response.hovered() {
+                let scroll_delta = ctx.input(|i| i.smooth_scroll_delta.y);
+                if scroll_delta.abs() > 0.1 {
+                    let zoom_delta = scroll_delta * 0.01;
+                    scene
+                        .active_camera
+                        .dolly_from_scroll(zoom_delta, self.camera_dolly_sensitivity);
+                    camera_changed = true;
+                }
+            }
+
+            // 处理快捷键
+            ctx.input(|i| {
+                if i.key_pressed(egui::Key::R) {
+                    scene.active_camera.reset_to_default_view();
+                    camera_changed = true;
+                }
+
+                if i.key_pressed(egui::Key::F) {
+                    let object_center = nalgebra::Point3::new(0.0, 0.0, 0.0);
+                    let object_radius = 2.0;
+                    scene
+                        .active_camera
+                        .focus_on_object(object_center, object_radius);
+                    camera_changed = true;
+                }
+            });
+
+            // 如果相机发生变化，统一更新
+            if camera_changed {
+                self.interface_interaction.anything_changed = true;
+                self.update_camera_settings_from_scene();
+
+                // 在非实时模式下立即重新渲染
+                if !self.is_realtime_rendering {
+                    CoreMethods::render_if_anything_changed(self, ctx);
+                }
+            }
+        }
+    }
+
+    /// 🔥 **统一的资源清理方法**
+    fn cleanup_resources(&mut self) {
+        CoreMethods::cleanup_resources(self);
+    }
 }
 
 impl eframe::App for RasterizerApp {
@@ -192,7 +350,7 @@ impl eframe::App for RasterizerApp {
 
         // 检查快捷键
         if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::R)) {
-            self.render(ctx);
+            CoreMethods::render(self, ctx);
         }
 
         // 执行实时渲染循环
@@ -202,32 +360,27 @@ impl eframe::App for RasterizerApp {
 
         // 检查视频生成进度
         if self.is_generating_video {
-            // 检查线程是否已完成
             if let Some(handle) = &self.video_generation_thread {
                 if handle.is_finished() {
-                    // 线程已完成，获取结果并更新状态
-                    let result = std::mem::replace(&mut self.video_generation_thread, None)
+                    let result = self
+                        .video_generation_thread
+                        .take()
                         .unwrap()
                         .join()
                         .unwrap_or_else(|_| (false, "线程崩溃".to_string()));
 
-                    // 更新应用状态
                     self.is_generating_video = false;
 
-                    // 根据结果更新状态消息，不再提及使用预渲染帧
                     if result.0 {
                         self.status_message = format!("视频生成成功: {}", result.1);
                     } else {
                         self.set_error(format!("视频生成失败: {}", result.1));
                     }
 
-                    // 重置进度
                     self.video_progress.store(0, Ordering::SeqCst);
                 } else {
-                    // 线程仍在运行，更新进度显示...
                     let progress = self.video_progress.load(Ordering::SeqCst);
 
-                    // 使用通用函数计算实际帧数
                     let (_, _, frames_per_rotation) =
                         crate::utils::render_utils::calculate_rotation_parameters(
                             self.settings.rotation_speed,
@@ -238,7 +391,6 @@ impl eframe::App for RasterizerApp {
 
                     let percent = (progress as f32 / total_frames as f32 * 100.0).round();
 
-                    // 简化状态消息，不再区分是否使用预渲染帧
                     self.status_message = format!(
                         "生成视频中... ({}/{}，{:.0}%)",
                         progress, total_frames, percent
@@ -249,13 +401,13 @@ impl eframe::App for RasterizerApp {
             }
         }
 
+        // UI布局
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("光栅化渲染器");
                 ui.separator();
                 ui.label(&self.status_message);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // 仅在实时渲染时显示帧率
                     if self.is_realtime_rendering {
                         let (fps_text, fps_color) = CoreMethods::get_fps_display(self);
                         ui.label(RichText::new(&fps_text).color(fps_color));
@@ -270,44 +422,80 @@ impl eframe::App for RasterizerApp {
             .min_width(350.0)
             .resizable(false)
             .show(ctx, |ui| {
-                // 使用带有滚动区域的侧边栏
                 self.draw_side_panel(ctx, ui);
             });
 
-        // 中央面板 - 显示渲染结果
+        // 中央面板 - 显示渲染结果和处理相机交互
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(texture) = &self.rendered_image {
-                // 计算图像尺寸，确保显示为正方形或接近正方形
                 let available_size = ui.available_size();
+                let square_size = available_size.x.min(available_size.y) * 0.95;
 
-                // 取可用空间中较小的一边作为正方形的边长
-                let square_size = available_size.x.min(available_size.y) * 0.95; // 留一点边距
-
-                // 根据图像的实际宽高比进行调整
                 let image_aspect = self.renderer.frame_buffer.width as f32
                     / self.renderer.frame_buffer.height as f32;
 
                 let (width, height) = if image_aspect > 1.0 {
-                    // 宽大于高
                     (square_size, square_size / image_aspect)
                 } else {
-                    // 高大于宽
                     (square_size * image_aspect, square_size)
                 };
 
-                // 居中显示图像
-                ui.horizontal(|ui| {
-                    ui.add(egui::Image::new(texture).fit_to_exact_size(Vec2::new(width, height)));
-                });
+                let image_response = ui
+                    .horizontal(|ui| {
+                        ui.add(
+                            egui::Image::new(texture)
+                                .fit_to_exact_size(Vec2::new(width, height))
+                                .sense(egui::Sense::click_and_drag()),
+                        )
+                    })
+                    .inner;
+
+                self.handle_camera_interaction(&image_response, ctx);
+
+                // 显示交互提示
+                let overlay_rect = egui::Rect::from_min_size(
+                    ui.max_rect().right_bottom() - egui::Vec2::new(220.0, 20.0),
+                    egui::Vec2::new(220.0, 20.0),
+                );
+
+                ui.allocate_new_ui(
+                    egui::UiBuilder::new()
+                        .max_rect(overlay_rect)
+                        .layout(egui::Layout::right_to_left(egui::Align::BOTTOM)),
+                    |ui| {
+                        ui.group(|ui| {
+                            ui.label(RichText::new("🖱️ 相机交互").size(14.0).strong());
+                            ui.separator();
+                            ui.small("• 拖拽 - 平移相机");
+                            ui.small("• Shift+拖拽 - 轨道旋转");
+                            ui.small("• 滚轮 - 推拉缩放");
+                            ui.small("• R键 - 重置视角");
+                            ui.small("• F键 - 聚焦物体");
+                            ui.separator();
+                            ui.small(format!("平移敏感度: {:.1}x", self.camera_pan_sensitivity));
+                            ui.small(format!("旋转敏感度: {:.1}x", self.camera_orbit_sensitivity));
+                            ui.small(format!("缩放敏感度: {:.1}x", self.camera_dolly_sensitivity));
+                            ui.separator();
+                            ui.small(RichText::new("✅ 交互已启用").color(Color32::GREEN));
+                        });
+                    },
+                );
             } else {
-                // 显示空白提示
                 ui.vertical_centered(|ui| {
                     ui.add_space(100.0);
                     ui.label(RichText::new("无渲染结果").size(24.0).color(Color32::GRAY));
                     ui.label(RichText::new("点击「开始渲染」按钮或按Ctrl+R").color(Color32::GRAY));
+                    ui.add_space(20.0);
+                    ui.label(
+                        RichText::new("💡 加载模型后可在此区域进行相机交互")
+                            .color(Color32::from_rgb(100, 150, 255)),
+                    );
                 });
             }
         });
+
+        // 处理相机变化引起的重新渲染
+        CoreMethods::render_if_anything_changed(self, ctx);
 
         // 在每帧更新结束时清理不需要的资源
         self.cleanup_resources();
@@ -319,7 +507,7 @@ pub fn start_gui(settings: RenderSettings) -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1350.0, 900.0])
-            .with_min_inner_size([1100.0, 700.0]), // 增加最小宽度
+            .with_min_inner_size([1100.0, 700.0]),
         ..Default::default()
     };
 

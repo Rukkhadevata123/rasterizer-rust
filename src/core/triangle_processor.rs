@@ -1,15 +1,18 @@
-use crate::core::rasterizer::{TextureSource, TriangleData, VertexRenderData};
+use crate::core::rasterizer::{TextureSource, VertexRenderData};
 use crate::geometry::culling::{is_backface, should_cull_small_triangle};
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::materials::{Material, MaterialView, ModelData, Vertex};
 use nalgebra::{Point2, Point3, Vector3};
 use rayon::prelude::*;
 
+// 重新导出 TriangleData，使其对外可见
+pub use crate::core::rasterizer::TriangleData;
+
 /// 三角形处理器，负责三角形数据准备和剔除
 pub struct TriangleProcessor;
 
 impl TriangleProcessor {
-    /// 准备所有要渲染的三角形
+    /// 🔥 **准备所有要渲染的三角形 - 直接接受场景光源数据**
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_triangles<'a>(
         model_data: &'a ModelData,
@@ -19,12 +22,10 @@ impl TriangleProcessor {
         mesh_vertex_offsets: &[usize],
         material_override: Option<&'a Material>,
         settings: &'a RenderSettings,
+        lights: &'a [crate::material_system::light::Light], // 🔥 **直接传入场景光源**
+        ambient_intensity: f32,                             // 🔥 **直接传入环境光强度**
+        ambient_color: Vector3<f32>,                        // 🔥 **直接传入环境光颜色**
     ) -> Vec<TriangleData<'a>> {
-        // 准备环境光和光源数据
-        let ambient_intensity = settings.ambient;
-        let ambient_color = settings.ambient_color_vec;
-        let lights = &settings.lights;
-
         model_data
             .meshes
             .par_iter()
@@ -54,9 +55,9 @@ impl TriangleProcessor {
                             all_view_normals,
                             material_opt,
                             settings,
-                            lights,
-                            ambient_intensity,
-                            ambient_color,
+                            lights,            // 🔥 **使用传入的场景光源**
+                            ambient_intensity, // 🔥 **使用传入的环境光强度**
+                            ambient_color,     // 🔥 **使用传入的环境光颜色**
                         )
                     })
                     .collect::<Vec<_>>()
