@@ -14,25 +14,27 @@ impl TransformFactory {
 
     /// 创建绕X轴旋转的变换矩阵
     pub fn rotation_x(angle_rad: f32) -> Matrix4<f32> {
-        // Matrix4::from_euler_angles(angle_rad, 0.0, 0.0)
         Self::rotation(&Vector3::x_axis(), angle_rad)
     }
 
     /// 创建绕Y轴旋转的变换矩阵
     pub fn rotation_y(angle_rad: f32) -> Matrix4<f32> {
-        // Matrix4::from_euler_angles(0.0, angle_rad, 0.0)
         Self::rotation(&Vector3::y_axis(), angle_rad)
     }
 
     /// 创建绕Z轴旋转的变换矩阵
     pub fn rotation_z(angle_rad: f32) -> Matrix4<f32> {
-        // Matrix4::from_euler_angles(0.0, 0.0, angle_rad)
         Self::rotation(&Vector3::z_axis(), angle_rad)
     }
 
     /// 创建平移矩阵
     pub fn translation(translation: &Vector3<f32>) -> Matrix4<f32> {
         Matrix4::new_translation(translation)
+    }
+
+    /// 创建平移矩阵（从点）
+    pub fn translation_from_point(position: &Point3<f32>) -> Matrix4<f32> {
+        Self::translation(&position.coords)
     }
 
     /// 创建均匀缩放矩阵
@@ -66,9 +68,45 @@ impl TransformFactory {
     ) -> Matrix4<f32> {
         Matrix4::new_orthographic(left, right, bottom, top, near, far)
     }
+
+    /// 创建完整的模型-视图-投影矩阵
+    pub fn model_view_projection(
+        model: &Matrix4<f32>,
+        view: &Matrix4<f32>,
+        projection: &Matrix4<f32>,
+    ) -> Matrix4<f32> {
+        projection * view * model
+    }
+
+    /// 创建模型-视图矩阵
+    pub fn model_view(model: &Matrix4<f32>, view: &Matrix4<f32>) -> Matrix4<f32> {
+        view * model
+    }
+
+    /// 从位置创建平移矩阵的便捷方法
+    pub fn position_matrix(position: Point3<f32>) -> Matrix4<f32> {
+        Self::translation(&position.coords)
+    }
+
+    /// 设置矩阵的平移部分
+    pub fn set_translation(matrix: &mut Matrix4<f32>, translation: &Vector3<f32>) {
+        matrix.m14 = translation.x;
+        matrix.m24 = translation.y;
+        matrix.m34 = translation.z;
+    }
+
+    /// 从矩阵提取平移部分
+    pub fn extract_translation(matrix: &Matrix4<f32>) -> Vector3<f32> {
+        Vector3::new(matrix.m14, matrix.m24, matrix.m34)
+    }
+
+    /// 从矩阵提取位置
+    pub fn extract_position(matrix: &Matrix4<f32>) -> Point3<f32> {
+        Point3::new(matrix.m14, matrix.m24, matrix.m34)
+    }
 }
 
-//------------------------ 第1层：基础变换函数 ------------------------//
+//------------------------ 第2层：基础变换函数 ------------------------//
 
 /// 计算法线变换矩阵（模型-视图矩阵的逆转置）
 #[inline]
@@ -85,16 +123,10 @@ pub fn compute_normal_matrix(model_view_matrix: &Matrix4<f32>) -> Matrix3<f32> {
 /// 将3D点从一个空间变换到另一个空间
 #[inline]
 pub fn transform_point(point: &Point3<f32>, matrix: &Matrix4<f32>) -> Point3<f32> {
-    let homogeneous_point = point.to_homogeneous(); // 转换为齐次坐标 (x, y, z, 1)
+    let homogeneous_point = point.to_homogeneous();
     let transformed_homogeneous = matrix * homogeneous_point;
 
-    // 对于仿射变换（如模型、视图变换），w分量应为1
-    // Point3::from_homogeneous 会处理 w 分量（如果它不是1，会进行透视除法）
-    // 如果 w 接近0，表示点在无穷远处，这里根据具体情况处理或返回原点/错误
     if transformed_homogeneous.w.abs() < 1e-9 {
-        // 避免除以零
-        // 对于模型/视图变换，w通常是1。如果w是0，则点在无穷远处。
-        // 返回非齐次部分可能是一个备选方案，或者根据上下文处理。
         Point3::new(
             transformed_homogeneous.x,
             transformed_homogeneous.y,
@@ -122,7 +154,7 @@ pub fn apply_perspective_division(clip: &Vector4<f32>) -> Point3<f32> {
     if w.abs() > 1e-6 {
         Point3::new(clip.x / w, clip.y / w, clip.z / w)
     } else {
-        Point3::origin() // 避免除以零
+        Point3::origin()
     }
 }
 
@@ -131,17 +163,51 @@ pub fn apply_perspective_division(clip: &Vector4<f32>) -> Point3<f32> {
 pub fn ndc_to_screen(ndc_x: f32, ndc_y: f32, width: f32, height: f32) -> Point2<f32> {
     Point2::new(
         (ndc_x * 0.5 + 0.5) * width,
-        (1.0 - (ndc_y * 0.5 + 0.5)) * height, // Y轴翻转，因为NDC的Y向上，屏幕Y向下
+        (1.0 - (ndc_y * 0.5 + 0.5)) * height,
     )
 }
 
-//------------------------ 第2层：组合变换函数 ------------------------//
+/// 将NDC点转换为屏幕坐标
+#[inline]
+pub fn ndc_point_to_screen(ndc: &Point3<f32>, width: f32, height: f32) -> Point2<f32> {
+    ndc_to_screen(ndc.x, ndc.y, width, height)
+}
+
+//------------------------ 第3层：组合变换函数 ------------------------//
 
 /// 将裁剪空间点转换为屏幕像素坐标
 #[inline]
 pub fn clip_to_screen(clip: &Vector4<f32>, width: f32, height: f32) -> Point2<f32> {
     let ndc = apply_perspective_division(clip);
-    ndc_to_screen(ndc.x, ndc.y, width, height)
+    ndc_point_to_screen(&ndc, width, height)
+}
+
+/// 将点转换为齐次裁剪坐标
+#[inline]
+pub fn point_to_clip(point: &Point3<f32>, matrix: &Matrix4<f32>) -> Vector4<f32> {
+    matrix * point.to_homogeneous()
+}
+
+/// 将点从模型空间直接变换到屏幕空间
+#[inline]
+pub fn transform_point_to_screen(
+    point: &Point3<f32>,
+    model_view_projection: &Matrix4<f32>,
+    width: f32,
+    height: f32,
+) -> Point2<f32> {
+    let clip = point_to_clip(point, model_view_projection);
+    clip_to_screen(&clip, width, height)
+}
+
+//------------------------ 第4层：批量变换函数 ------------------------//
+
+/// 对点集合应用变换矩阵
+pub fn transform_points(points: &[Point3<f32>], matrix: &Matrix4<f32>) -> Vec<Point3<f32>> {
+    points
+        .iter()
+        .map(|point| transform_point(point, matrix))
+        .collect()
 }
 
 /// 将法线向量批量从一个空间变换到另一个空间
@@ -155,28 +221,6 @@ pub fn transform_normals(
         .collect()
 }
 
-/// 将点从模型空间直接变换到屏幕空间
-#[inline]
-pub fn transform_point_to_screen(
-    point: &Point3<f32>,
-    model_view_projection: &Matrix4<f32>,
-    width: f32,
-    height: f32,
-) -> Point2<f32> {
-    let clip = model_view_projection * point.to_homogeneous();
-    clip_to_screen(&clip, width, height)
-}
-
-//------------------------ 第3层：批量变换函数 ------------------------//
-
-/// 对点集合应用变换矩阵
-pub fn transform_points(points: &[Point3<f32>], matrix: &Matrix4<f32>) -> Vec<Point3<f32>> {
-    points
-        .iter()
-        .map(|point| transform_point(point, matrix))
-        .collect()
-}
-
 /// 将世界坐标点转换为裁剪空间坐标（齐次坐标）
 pub fn world_to_clip(
     world_points: &[Point3<f32>],
@@ -184,7 +228,7 @@ pub fn world_to_clip(
 ) -> Vec<Vector4<f32>> {
     world_points
         .iter()
-        .map(|point| view_projection_matrix * point.to_homogeneous())
+        .map(|point| point_to_clip(point, view_projection_matrix))
         .collect()
 }
 
@@ -197,11 +241,9 @@ pub fn clip_to_ndc(clip_coords: &[Vector4<f32>]) -> Vec<Point3<f32>> {
 pub fn ndc_to_pixel(ndc_coords: &[Point3<f32>], width: f32, height: f32) -> Vec<Point2<f32>> {
     ndc_coords
         .iter()
-        .map(|ndc| ndc_to_screen(ndc.x, ndc.y, width, height))
+        .map(|ndc| ndc_point_to_screen(ndc, width, height))
         .collect()
 }
-
-//------------------------ 第4层：完整渲染管线变换 ------------------------//
 
 /// 将世界坐标直接转换为NDC坐标
 pub fn world_to_ndc(
@@ -219,14 +261,17 @@ pub fn world_to_screen(
     width: f32,
     height: f32,
 ) -> Vec<Point2<f32>> {
-    let clip_coords = world_to_clip(world_points, view_projection_matrix);
-    let ndc_coords = clip_to_ndc(&clip_coords);
+    let ndc_coords = world_to_ndc(world_points, view_projection_matrix);
     ndc_to_pixel(&ndc_coords, width, height)
 }
 
+//------------------------ 第5层：完整渲染管线变换 ------------------------//
+
 /// 执行完整的渲染管线变换（模型→视图→裁剪→NDC→屏幕）
-/// 此版本使用了优化的直接变换，适合于光栅化渲染器
-pub fn transform_pipeline_batch(
+/// 智能选择版本：自动使用并行版本（如果可用）或串行版本
+
+/// 串行版本：适用于小数据量或调试
+fn transform_pipeline_batch_serial(
     vertices_model: &[Point3<f32>],
     normals_model: &[Vector3<f32>],
     model_matrix: &Matrix4<f32>,
@@ -235,31 +280,77 @@ pub fn transform_pipeline_batch(
     screen_width: usize,
     screen_height: usize,
 ) -> (Vec<Point2<f32>>, Vec<Point3<f32>>, Vec<Vector3<f32>>) {
-    // 预计算变换矩阵
-    let model_view = view_matrix * model_matrix;
-    let mvp = projection_matrix * model_view;
+    // 预计算变换矩阵 - 使用工厂方法
+    let model_view = TransformFactory::model_view(model_matrix, view_matrix);
+    let mvp = TransformFactory::model_view_projection(model_matrix, view_matrix, projection_matrix);
     let normal_matrix = compute_normal_matrix(&model_view);
 
-    // 预分配结果向量
-    let mut screen_coords = Vec::with_capacity(vertices_model.len());
-    let mut view_coords = Vec::with_capacity(vertices_model.len());
+    // 批量变换到视图空间 - 复用第4层函数
+    let view_positions = transform_points(vertices_model, &model_view);
 
-    // 使用直接变换进行性能优化
-    for vertex in vertices_model {
-        // 变换到裁剪空间
-        let clip = mvp * vertex.to_homogeneous();
+    // 批量变换到屏幕空间 - 直接使用MVP矩阵，更高效
+    let screen_coords = vertices_model
+        .iter()
+        .map(|vertex| {
+            transform_point_to_screen(vertex, &mvp, screen_width as f32, screen_height as f32)
+        })
+        .collect::<Vec<Point2<f32>>>();
 
-        // 转换到屏幕空间 - 使用第3层函数
-        let pixel = clip_to_screen(&clip, screen_width as f32, screen_height as f32);
-        screen_coords.push(pixel);
-
-        // 计算视图空间坐标 - 使用第2层函数
-        let view_pos = transform_point(vertex, &model_view); // model_view 变换到视图空间
-        view_coords.push(view_pos);
-    }
-
-    // 变换法线 - 使用第3层函数
+    // 变换法线 - 复用第4层函数
     let view_normals = transform_normals(normals_model, &normal_matrix);
 
-    (screen_coords, view_coords, view_normals)
+    (screen_coords, view_positions, view_normals)
+}
+
+pub fn transform_pipeline_batch_parallel(
+    vertices_model: &[Point3<f32>],
+    normals_model: &[Vector3<f32>],
+    model_matrix: &Matrix4<f32>,
+    view_matrix: &Matrix4<f32>,
+    projection_matrix: &Matrix4<f32>,
+    screen_width: usize,
+    screen_height: usize,
+) -> (Vec<Point2<f32>>, Vec<Point3<f32>>, Vec<Vector3<f32>>) {
+    use rayon::prelude::*;
+
+    // 预计算变换矩阵
+    let model_view = TransformFactory::model_view(model_matrix, view_matrix);
+    let mvp = TransformFactory::model_view_projection(model_matrix, view_matrix, projection_matrix);
+    let normal_matrix = compute_normal_matrix(&model_view);
+
+    // 并行变换 - 根据数据量智能选择并行策略
+    let vertex_count = vertices_model.len();
+
+    // 对于小数据量，并行开销可能大于收益，使用串行
+    if vertex_count < 1000 {
+        return transform_pipeline_batch_serial(
+            vertices_model,
+            normals_model,
+            model_matrix,
+            view_matrix,
+            projection_matrix,
+            screen_width,
+            screen_height,
+        );
+    }
+
+    // 大数据量使用并行处理
+    let view_positions = vertices_model
+        .par_iter()
+        .map(|vertex| transform_point(vertex, &model_view))
+        .collect();
+
+    let screen_coords = vertices_model
+        .par_iter()
+        .map(|vertex| {
+            transform_point_to_screen(vertex, &mvp, screen_width as f32, screen_height as f32)
+        })
+        .collect();
+
+    let view_normals = normals_model
+        .par_iter()
+        .map(|normal| transform_normal(normal, &normal_matrix))
+        .collect();
+
+    (screen_coords, view_positions, view_normals)
 }

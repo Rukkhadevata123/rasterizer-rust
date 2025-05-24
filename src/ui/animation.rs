@@ -69,7 +69,7 @@ where
         }
 
         // 渲染当前帧
-        thread_renderer.render_scene(&scene_copy, settings);
+        thread_renderer.render_scene(&mut scene_copy, settings);
 
         // 获取颜色数据
         let color_data_rgb = thread_renderer.frame_buffer.get_color_buffer_bytes();

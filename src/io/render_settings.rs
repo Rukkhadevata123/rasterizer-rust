@@ -134,6 +134,10 @@ pub struct RenderSettings {
     #[arg(long)]
     pub object_count: Option<String>,
 
+    /// 物体的全局均匀缩放因子
+    #[arg(long, default_value_t = 1.0)]
+    pub object_scale: f32,
+
     // ===== 相机参数 =====
     /// 相机位置（视点），格式为"x,y,z"
     #[arg(long, default_value = "0,0,3", allow_negative_numbers = true)]
@@ -346,6 +350,7 @@ impl Default for RenderSettings {
             cull_small_triangles: false,
             min_triangle_area: 1e-3,
             object_count: None,
+            object_scale: 1.0,
             camera_from: "0,0,3".to_string(),
             camera_at: "0,0,0".to_string(),
             camera_up: "0,1,0".to_string(),

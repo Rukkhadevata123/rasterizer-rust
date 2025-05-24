@@ -77,7 +77,7 @@ impl RenderMethods for RasterizerApp {
                         // 渲染
                         let start_time = Instant::now();
 
-                        if let Some(scene) = &self.scene {
+                        if let Some(scene) = &mut self.scene {
                             // 更新渲染设置的颜色向量和光源
                             self.settings.update_color_vectors();
                             self.settings.update_from_scene(scene);

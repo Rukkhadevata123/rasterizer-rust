@@ -1,4 +1,7 @@
-use crate::{io::resource_loader::ResourceLoader, material_system::light::LightingPreset};
+use crate::{
+    io::resource_loader::ResourceLoader, material_system::light::LightingPreset,
+    scene::scene_utils::Scene,
+};
 use egui::{Color32, Context, RichText, Vec2};
 use native_dialog::FileDialogBuilder;
 use std::sync::atomic::Ordering;
@@ -267,6 +270,35 @@ impl WidgetMethods for RasterizerApp {
                             Ok(None) => {}
                             Err(e) => {
                                 self.set_error(format!("纹理选择错误: {}", e));
+                            }
+                        }
+                    }
+                });
+            });
+
+            ui.collapsing("物体变换设置", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("物体缩放：");
+                    let resp = ui.add(egui::Slider::new(&mut self.settings.object_scale, 0.1..=5.0)
+                        .logarithmic(true));
+                    Self::add_tooltip(resp, ctx, "调整物体的整体大小（均匀缩放）");
+
+                    // 添加应用按钮，点击时重新加载场景
+                    if ui.button("应用").clicked() && self.scene.is_some() {
+                        // 重新创建场景以应用新的缩放设置
+                        if let Some(model_data) = &self.model_data {
+                            match Scene::create_from_model_and_settings(model_data.clone(), &self.settings) {
+                                Ok(new_scene) => {
+                                    self.scene = Some(new_scene);
+                                    // 如果正在实时渲染，更新渲染
+                                    if self.is_realtime_rendering {
+                                        self.stop_animation_rendering();
+                                        if let Err(e) = self.start_animation_rendering() {
+                                            self.set_error(e);
+                                        }
+                                    }
+                                }
+                                Err(e) => self.set_error(format!("更新场景失败: {}", e)),
                             }
                         }
                     }

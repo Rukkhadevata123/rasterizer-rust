@@ -73,7 +73,7 @@ fn main() -> Result<(), String> {
         println!("使用{}渲染", render_settings.get_lighting_description());
         render_single_frame(
             &settings,
-            &scene,
+            &mut scene,
             &renderer,
             &render_settings,
             &settings.output,

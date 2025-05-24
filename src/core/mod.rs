@@ -1,4 +1,5 @@
-// core/mod.rs
-// 导出核心渲染系统模块
+pub mod frame_buffer;
+pub mod geometry_processor;
 pub mod rasterizer;
 pub mod renderer;
+pub mod triangle_processor;

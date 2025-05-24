@@ -1,5 +1,4 @@
-// scene_utils.rs
-use crate::geometry::camera::Camera;
+use crate::geometry::camera::{Camera, ProjectionType};
 use crate::io::render_settings::{RenderSettings, parse_point3, parse_vec3};
 use crate::material_system::light::Light;
 use crate::material_system::materials::ModelData;
@@ -66,15 +65,37 @@ impl Scene {
         let camera_up =
             parse_vec3(&settings.camera_up).map_err(|e| format!("无效的相机上方向格式: {}", e))?;
 
-        Ok(Camera::new(
-            camera_from,
-            camera_at,
-            camera_up,
-            settings.camera_fov,
-            aspect_ratio,
-            0.1,   // 近平面距离
-            100.0, // 远平面距离
-        ))
+        // 根据投影类型创建相机
+        let camera = match settings.projection.as_str() {
+            "perspective" => Camera::perspective(
+                camera_from,
+                camera_at,
+                camera_up,
+                settings.camera_fov,
+                aspect_ratio,
+                0.1,   // 近平面距离
+                100.0, // 远平面距离
+            ),
+            "orthographic" => {
+                // 对于正交投影，使用固定的高度并根据宽高比计算宽度
+                let height = 4.0; // 默认正交投影高度
+                let width = height * aspect_ratio;
+                Camera::orthographic(
+                    camera_from,
+                    camera_at,
+                    camera_up,
+                    width,
+                    height,
+                    0.1,   // 近平面距离
+                    100.0, // 远平面距离
+                )
+            }
+            _ => {
+                return Err(format!("不支持的投影类型: {}", settings.projection));
+            }
+        };
+
+        Ok(camera)
     }
 
     /// 从模型数据和渲染设置创建完整场景
@@ -110,15 +131,25 @@ impl Scene {
             .as_ref()
             .and_then(|count_str| count_str.parse::<usize>().ok());
 
-        // 添加主对象
-        let main_object = SceneObject::new(model_id).with_name("main");
+        // 创建主对象
+        let mut main_object = SceneObject::new(model_id).with_name("main");
+        // 应用全局缩放
+        if settings.object_scale != 1.0 {
+            main_object.scale(settings.object_scale);
+        }
         scene.add_object(main_object);
 
         // 添加额外对象（如果需要）
         if let Some(count) = object_count {
             if count > 1 {
                 let radius = 2.0;
-                scene.create_object_ring(model_id, count - 1, radius, Some("satellite"));
+                scene.create_object_ring(
+                    model_id,
+                    count - 1,
+                    radius,
+                    Some("satellite"),
+                    settings.object_scale,
+                );
                 println!("创建了环形排列的 {} 个附加对象", count - 1);
             }
         }
@@ -200,13 +231,31 @@ impl Scene {
         self.active_camera = camera;
     }
 
+    /// 更新相机投影参数（当渲染尺寸改变时）
+    pub fn update_camera_aspect_ratio(&mut self, new_aspect_ratio: f32) {
+        self.active_camera.update_params(|params| {
+            match &mut params.projection {
+                ProjectionType::Perspective { aspect_ratio, .. } => {
+                    *aspect_ratio = new_aspect_ratio;
+                }
+                ProjectionType::Orthographic { width, height } => {
+                    // 保持高度不变，调整宽度
+                    *width = *height * new_aspect_ratio;
+                }
+            }
+        });
+    }
+
     /// 在场景中以圆形阵列创建多个对象实例
+    // 更新 create_object_ring 函数签名和实现
+
     pub fn create_object_ring(
         &mut self,
         model_id: usize,
         count: usize,
         radius: f32,
         base_name: Option<&str>,
+        scale: f32,
     ) -> Vec<usize> {
         let mut object_ids = Vec::with_capacity(count);
 
@@ -224,6 +273,11 @@ impl Scene {
             // 添加到场景
             let mut object = object;
             object.rotate_y(angle + std::f32::consts::PI);
+
+            // 应用缩放
+            if scale != 1.0 {
+                object.scale(scale);
+            }
 
             // 如果提供了基础名称，为每个对象创建唯一名称
             if let Some(base) = base_name {

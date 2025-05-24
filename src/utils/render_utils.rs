@@ -25,7 +25,7 @@ const BASE_SPEED: f32 = 60.0; // 1s旋转60度
 /// Result，成功为()，失败为包含错误信息的字符串
 pub fn render_single_frame(
     settings: &RenderSettings, // 替换为RenderSettings
-    scene: &Scene,
+    scene: &mut Scene,
     renderer: &Renderer,
     render_settings: &RenderSettings, // 用于渲染的配置
     output_name: &str,
