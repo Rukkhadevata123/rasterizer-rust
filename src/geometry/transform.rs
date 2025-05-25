@@ -1,3 +1,4 @@
+use log::warn;
 use nalgebra::{Matrix3, Matrix4, Point2, Point3, Rotation3, Unit, Vector3, Vector4};
 
 //------------------------ 第1层：创建变换矩阵 ------------------------//
@@ -81,7 +82,7 @@ impl TransformFactory {
 pub fn compute_normal_matrix(model_view_matrix: &Matrix4<f32>) -> Matrix3<f32> {
     model_view_matrix.try_inverse().map_or_else(
         || {
-            eprintln!("警告：模型-视图矩阵不可逆，使用单位矩阵代替法线矩阵。");
+            warn!("模型-视图矩阵不可逆，使用单位矩阵代替法线矩阵");
             Matrix3::identity()
         },
         |inv| inv.transpose().fixed_view::<3, 3>(0, 0).into_owned(),

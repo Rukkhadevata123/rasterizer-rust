@@ -1,6 +1,7 @@
 use crate::io::config_loader::TomlConfigLoader;
 use crate::io::render_settings::RenderSettings;
 use clap::Parser;
+use log::info;
 
 /// 🔥 **极简CLI** - 专注配置文件和GUI控制
 #[derive(Parser, Debug)]
@@ -29,18 +30,13 @@ impl SimpleCli {
         if cli.use_example_config {
             let temp_config_path = "temp_example_config.toml";
 
-            // 创建临时示例配置文件
             TomlConfigLoader::create_example_config(temp_config_path)
                 .map_err(|e| format!("创建示例配置失败: {}", e))?;
 
-            println!("✅ 已创建临时示例配置: {}", temp_config_path);
+            info!("已创建临时示例配置: {}", temp_config_path);
 
-            // 加载示例配置
             let settings = TomlConfigLoader::load_from_file(temp_config_path)
                 .map_err(|e| format!("加载示例配置失败: {}", e))?;
-
-            // 不需要删除临时文件，用户可以当模板
-            // let _ = std::fs::remove_file(temp_config_path);
 
             let should_start_gui = !cli.headless;
             return Ok((settings, should_start_gui));
@@ -48,11 +44,11 @@ impl SimpleCli {
 
         // 加载配置文件或使用默认设置
         let settings = if let Some(config_path) = &cli.config {
-            println!("📁 加载配置文件: {}", config_path);
+            info!("加载配置文件: {}", config_path);
             TomlConfigLoader::load_from_file(config_path)
                 .map_err(|e| format!("配置文件加载失败: {}", e))?
         } else {
-            println!("💡 使用默认设置");
+            info!("使用默认设置");
             RenderSettings::default()
         };
 

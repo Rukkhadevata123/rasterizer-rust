@@ -2,6 +2,7 @@ use crate::geometry::camera::Camera;
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::{color, texture::Texture};
 use atomic_float::AtomicF32;
+use log::{debug, warn};
 use nalgebra::{Matrix4, Point3, Vector3};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -38,13 +39,13 @@ impl BackgroundRenderer {
         // 🔥 **直接加载，无中间层**
         match Texture::from_file(current_path) {
             Some(texture) => {
-                println!("背景图片加载成功: {}x{}", texture.width, texture.height);
+                debug!("背景图片加载成功: {}x{}", texture.width, texture.height);
                 self.cached_background = Some(texture);
                 self.cached_path = Some(current_path.clone());
                 self.cached_background.as_ref()
             }
             None => {
-                println!("警告: 无法加载背景图片 '{}'", current_path);
+                warn!("无法加载背景图片 '{}'", current_path);
                 None
             }
         }

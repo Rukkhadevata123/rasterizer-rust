@@ -5,6 +5,7 @@ use triangle_processor::{TriangleData, TriangleProcessor};
 use crate::core::rasterizer::rasterize_triangle;
 use crate::io::render_settings::RenderSettings;
 use crate::scene::scene_utils::Scene;
+use log::debug;
 use rayon::prelude::*;
 use std::time::Instant;
 
@@ -30,9 +31,9 @@ impl Renderer {
         // 清空帧缓冲区
         self.frame_buffer.clear(settings, &scene.active_camera);
 
-        // 🔥 **简化日志 - 只在debug模式下输出详细信息**
-        if cfg!(debug_assertions) {
-            println!("渲染场景对象: '{}'...", scene.object.model_data.name);
+        // 🔥 **优化日志 - 只在debug模式下输出详细信息**
+        debug!("渲染场景对象: '{}'...", scene.object.model_data.name);
+        if log::log_enabled!(log::Level::Debug) {
             self.log_lighting_info(scene, settings);
         }
 
@@ -49,7 +50,7 @@ impl Renderer {
         let transform_duration = transform_start.elapsed();
 
         // 调试信息
-        if cfg!(debug_assertions) {
+        if log::log_enabled!(log::Level::Debug) {
             self.log_geometry_info(&all_view_coords, settings);
         }
 
@@ -74,7 +75,7 @@ impl Renderer {
 
         // 性能统计
         let total_duration = start_time.elapsed();
-        if cfg!(debug_assertions) {
+        if log::log_enabled!(log::Level::Debug) {
             self.log_performance_stats(
                 &scene.object.model_data.name,
                 triangles_to_render.len(),
@@ -86,12 +87,12 @@ impl Renderer {
         }
     }
 
-    /// 🔥 **新增：记录光照信息** - 适配新的Light结构
+    /// 🔥 **记录光照信息** - 适配新的Light结构
     fn log_lighting_info(&self, scene: &Scene, settings: &RenderSettings) {
-        println!("🔦 场景光源数量: {}", scene.lights.len());
-        println!("🔦 Settings光源数量: {}", settings.lights.len());
-        println!(
-            "🌍 环境光: 强度={}, 颜色={:?}",
+        debug!("场景光源数量: {}", scene.lights.len());
+        debug!("Settings光源数量: {}", settings.lights.len());
+        debug!(
+            "环境光: 强度={}, 颜色={:?}",
             scene.ambient_intensity, scene.ambient_color
         );
 
@@ -108,12 +109,12 @@ impl Renderer {
                     ..
                 } => {
                     if *enabled {
-                        println!(
-                            "  方向光 #{}: 方向={:?}, 颜色={:?}, 强度={} [配置: 方向='{}', 颜色='{}']",
+                        debug!(
+                            "方向光 #{}: 方向={:?}, 颜色={:?}, 强度={} [配置: 方向='{}', 颜色='{}']",
                             i, direction, color, intensity, direction_str, color_str
                         );
                     } else {
-                        println!("  方向光 #{}: 已禁用", i);
+                        debug!("方向光 #{}: 已禁用", i);
                     }
                 }
                 crate::material_system::light::Light::Point {
@@ -129,8 +130,8 @@ impl Renderer {
                     ..
                 } => {
                     if *enabled {
-                        println!(
-                            "  点光源 #{}: 位置={:?}, 颜色={:?}, 强度={}, 衰减=({:.2},{:.3},{:.3}) [配置: 位置='{}', 颜色='{}']",
+                        debug!(
+                            "点光源 #{}: 位置={:?}, 颜色={:?}, 强度={}, 衰减=({:.2},{:.3},{:.3}) [配置: 位置='{}', 颜色='{}']",
                             i,
                             position,
                             color,
@@ -142,7 +143,7 @@ impl Renderer {
                             color_str
                         );
                     } else {
-                        println!("  点光源 #{}: 已禁用", i);
+                        debug!("点光源 #{}: 已禁用", i);
                     }
                 }
             }
@@ -188,14 +189,14 @@ impl Renderer {
                 .map(|p| p.z)
                 .fold(f32::NEG_INFINITY, f32::max);
 
-            println!("视图空间Z范围: [{:.3}, {:.3}]", z_min, z_max);
+            debug!("视图空间Z范围: [{:.3}, {:.3}]", z_min, z_max);
 
             let thread_mode = if settings.use_multithreading {
                 "并行"
             } else {
                 "串行"
             };
-            println!("几何变换模式: {}", thread_mode);
+            debug!("几何变换模式: {}", thread_mode);
         }
     }
 
@@ -215,11 +216,11 @@ impl Renderer {
             "串行"
         };
 
-        println!(
+        debug!(
             "对象 '{}' 渲染完成: {} 三角形 ({}模式)",
             object_name, triangle_count, thread_mode
         );
-        println!(
+        debug!(
             "性能统计 - 变换: {:?}, 光栅化: {:?}, 总时间: {:?}",
             transform_duration, raster_duration, total_duration
         );

@@ -1,6 +1,7 @@
 use crate::ui::app::RasterizerApp;
 use crate::utils::save_utils::save_render_with_settings;
 use egui::{Color32, Context};
+use log::{debug, error, warn};
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -108,8 +109,8 @@ impl CoreMethods for RasterizerApp {
         match crate::io::model_loader::ModelLoader::load_and_create_scene(&obj_path, &self.settings)
         {
             Ok((scene, model_data)) => {
-                println!(
-                    "🎯 场景创建完成: 光源数量={}, 使用光照={}, 环境光强度={}",
+                debug!(
+                    "场景创建完成: 光源数量={}, 使用光照={}, 环境光强度={}",
                     scene.lights.len(),
                     self.settings.use_lighting,
                     self.settings.ambient
@@ -146,7 +147,7 @@ impl CoreMethods for RasterizerApp {
 
             // 保存输出文件
             if let Err(e) = save_render_with_settings(&self.renderer, &self.settings, None) {
-                println!("警告：保存渲染结果时发生错误: {}", e);
+                warn!("保存渲染结果时发生错误: {}", e);
             }
 
             // 更新状态
@@ -304,7 +305,7 @@ impl CoreMethods for RasterizerApp {
 
     /// 设置错误信息
     fn set_error(&mut self, message: String) {
-        eprintln!("错误: {}", message);
+        error!("{}", message);
         self.status_message = format!("错误: {}", message);
     }
 
@@ -534,7 +535,7 @@ impl CoreMethods for RasterizerApp {
         if let Some(handle) = &self.video_generation_thread {
             if handle.is_finished() {
                 // 线程已完成，标记需要在主循环中处理
-                println!("检测到已完成的视频生成线程，等待主循环处理");
+                debug!("检测到已完成的视频生成线程，等待主循环处理");
             }
         }
 

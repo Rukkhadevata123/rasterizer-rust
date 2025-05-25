@@ -1,5 +1,6 @@
 use crate::io::render_settings::{RenderSettings, parse_vec3};
 use crate::material_system::texture::Texture; // 假设 texture.rs 仍然存在于 materials 模块下
+use log::warn;
 use nalgebra::{Point3, Vector2, Vector3};
 use std::fmt::Debug;
 use std::path::PathBuf; // 为 TextureOptions 添加
@@ -77,7 +78,7 @@ impl Material {
                         if let Some(texture) = Texture::from_file(path) {
                             self.texture = Some(texture);
                         } else {
-                            println!("无法加载纹理，保持当前纹理设置");
+                            warn!("无法加载纹理，保持当前纹理设置");
                         }
                     }
                 }
@@ -89,7 +90,7 @@ impl Material {
                     }
                 }
             }
-            _ => println!("未知的纹理类型: {}", texture_type),
+            _ => warn!("未知的纹理类型: {}", texture_type),
         }
         self
     }
@@ -228,7 +229,8 @@ impl MaterialView<'_> {
 
 /// 材质参数应用相关函数
 pub mod material_applicator {
-    use super::{ModelData, RenderSettings, Vector3, parse_vec3}; // 使用 super 访问同级模块的类型
+    use super::{ModelData, RenderSettings, Vector3, parse_vec3};
+    use log::{debug, warn};
 
     /// 应用PBR材质参数
     pub fn apply_pbr_parameters(model_data: &mut ModelData, args: &RenderSettings) {
@@ -247,7 +249,7 @@ pub mod material_applicator {
                     );
                 }
             } else {
-                println!("警告: 无法解析基础颜色, 使用默认值: {:?}", material.albedo);
+                warn!("无法解析基础颜色, 使用默认值: {:?}", material.albedo);
             }
 
             if let Ok(emissive) = parse_vec3(&args.emissive) {
@@ -258,7 +260,7 @@ pub mod material_applicator {
             material.ambient_factor =
                 Vector3::new(ambient_response, ambient_response, ambient_response);
 
-            println!(
+            debug!(
                 "应用PBR材质 - 基础色: {:?}, 金属度: {:.2}, 粗糙度: {:.2}, 环境光遮蔽: {:.2}, 自发光: {:?}",
                 material.base_color(),
                 material.metallic,
@@ -278,10 +280,7 @@ pub mod material_applicator {
             if let Ok(diffuse_color) = parse_vec3(&args.diffuse_color) {
                 material.albedo = diffuse_color;
             } else {
-                println!(
-                    "警告: 无法解析漫反射颜色, 使用默认值: {:?}",
-                    material.diffuse()
-                );
+                warn!("无法解析漫反射颜色, 使用默认值: {:?}", material.diffuse());
             }
 
             if let Ok(emissive) = parse_vec3(&args.emissive) {
@@ -289,7 +288,7 @@ pub mod material_applicator {
             }
             material.ambient_factor = material.albedo * 0.3;
 
-            println!(
+            debug!(
                 "应用Phong材质 - 漫反射: {:?}, 镜面: {:?}, 光泽度: {:.2}, 自发光: {:?}",
                 material.diffuse(),
                 material.specular,

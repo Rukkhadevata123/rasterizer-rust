@@ -1,6 +1,6 @@
 [package]
 name = "rasterizer"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2024"
 authors = ["Rukkhadevata123 <3083913301@qq.com>"]
 description = "🎨 TOML驱动的高性能软件光栅化渲染器 - 现代化GUI界面与专业级相机交互"
@@ -23,6 +23,8 @@ native-dialog = "0.9.0"
 chrono = "0.4"
 serde = "1.0"
 toml = "0.8"
+log = "0.4"
+env_logger = "0.11"
 
 [[bin]]
 name = "rasterizer"

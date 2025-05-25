@@ -6,6 +6,7 @@ use crate::utils::render_utils::{
 };
 use crate::utils::save_utils::save_image;
 use egui::{ColorImage, Context, TextureOptions};
+use log::debug;
 use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -201,7 +202,7 @@ impl AnimationMethods for RasterizerApp {
         {
             self.renderer = Renderer::new(self.settings.width, self.settings.height);
             self.rendered_image = None;
-            println!(
+            debug!(
                 "重新创建渲染器，尺寸: {}x{}",
                 self.settings.width, self.settings.height
             );
@@ -238,17 +239,16 @@ impl AnimationMethods for RasterizerApp {
                 rotation_delta_rad,
             );
 
-            if cfg!(debug_assertions) {
-                println!(
-                    "实时渲染中: FPS={:.1}, 动画类型={:?}, 轴={:?}, 旋转速度={}, 角度增量={:.3}rad, Phong={}",
-                    self.avg_fps,
-                    self.settings.animation_type,
-                    self.settings.rotation_axis,
-                    self.settings.rotation_speed,
-                    rotation_delta_rad,
-                    self.settings.use_phong
-                );
-            }
+            // 只在debug模式下输出详细信息
+            debug!(
+                "实时渲染中: FPS={:.1}, 动画类型={:?}, 轴={:?}, 旋转速度={}, 角度增量={:.3}rad, Phong={}",
+                self.avg_fps,
+                self.settings.animation_type,
+                self.settings.rotation_axis,
+                self.settings.rotation_speed,
+                rotation_delta_rad,
+                self.settings.use_phong
+            );
 
             self.renderer.render_scene(scene, &self.settings);
             self.display_render_result(ctx);

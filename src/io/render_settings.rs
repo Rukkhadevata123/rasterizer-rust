@@ -1,4 +1,5 @@
 use crate::material_system::light::Light;
+use log::warn;
 use nalgebra::{Point3, Vector3};
 
 /// 动画类型枚举
@@ -198,8 +199,8 @@ pub fn get_animation_axis_vector(settings: &RenderSettings) -> Vector3<f32> {
         RotationAxis::Z => Vector3::z_axis().into_inner(),
         RotationAxis::Custom => parse_vec3(&settings.custom_rotation_axis)
             .unwrap_or_else(|_| {
-                eprintln!(
-                    "警告: 无效的自定义旋转轴 '{}', 使用默认Y轴。",
+                warn!(
+                    "无效的自定义旋转轴 '{}', 使用默认Y轴",
                     settings.custom_rotation_axis
                 );
                 Vector3::y_axis().into_inner()

@@ -1,6 +1,7 @@
 use crate::io::config_loader::TomlConfigLoader;
 use crate::io::model_loader::ModelLoader;
 use crate::ui::app::RasterizerApp;
+use log::debug;
 use native_dialog::FileDialogBuilder;
 
 /// 渲染UI交互方法的特质
@@ -113,8 +114,8 @@ impl RenderUIMethods for RasterizerApp {
                             // 🔥 **清除已渲染的图像，强制重新渲染以应用新背景**
                             self.rendered_image = None;
 
-                            println!("背景图片路径已设置: {}", path_str);
-                            println!("背景图片将在下次渲染时由 FrameBuffer 自动加载");
+                            debug!("背景图片路径已设置: {}", path_str);
+                            debug!("背景图片将在下次渲染时由 FrameBuffer 自动加载");
                         }
                         Err(e) => {
                             // 🔥 **验证失败，重置背景设置**
@@ -268,6 +269,6 @@ impl RenderUIMethods for RasterizerApp {
         self.rendered_image = None;
         self.interface_interaction.anything_changed = true;
 
-        println!("配置已应用到GUI界面");
+        debug!("配置已应用到GUI界面");
     }
 }

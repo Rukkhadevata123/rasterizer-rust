@@ -2,6 +2,7 @@
 // 统一的纹理抽象，支持从文件加载的纹理和面颜色纹理
 
 use image::{DynamicImage, GenericImageView};
+use log::warn;
 use nalgebra::Vector3;
 use std::path::Path;
 use std::sync::Arc;
@@ -42,7 +43,7 @@ impl Texture {
                 })
             }
             Err(e) => {
-                eprintln!("无法加载纹理: {}", e);
+                warn!("无法加载纹理: {}", e);
                 None
             }
         }
@@ -132,7 +133,7 @@ pub fn load_texture<P: AsRef<Path>>(path: P, default_color: Vector3<f32>) -> Tex
     if let Some(texture) = Texture::from_file(path) {
         texture
     } else {
-        println!("无法加载纹理，使用默认颜色 {:?}", default_color);
+        warn!("无法加载纹理，使用默认颜色 {:?}", default_color);
         Texture::solid_color(default_color)
     }
 }

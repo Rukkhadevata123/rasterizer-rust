@@ -733,7 +733,6 @@ impl WidgetMethods for RasterizerApp {
 
                         // 🔥 **新架构：不再手动加载，由 FrameBuffer 自动处理**
                         app.status_message = format!("背景图片路径已设置: {}", path_text);
-                        println!("背景图片将在下次渲染时自动加载");
                     }
                     app.interface_interaction.anything_changed = true;
                 }

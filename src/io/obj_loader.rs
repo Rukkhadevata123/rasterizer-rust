@@ -1,6 +1,7 @@
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::materials::{Material, Mesh, ModelData, TextureOptions, Vertex};
 use crate::material_system::texture::{Texture, load_texture};
+use log::{debug, info, warn};
 use nalgebra::{Point3, Vector2, Vector3};
 use std::collections::HashMap;
 use std::path::Path;
@@ -30,7 +31,7 @@ fn generate_smooth_vertex_normals(
 
         // 边界检查
         if idx0 >= num_vertices || idx1 >= num_vertices || idx2 >= num_vertices {
-            println!("警告: 面 {} 包含越界的顶点索引，跳过", i);
+            warn!("面 {} 包含越界的顶点索引，跳过", i);
             continue;
         }
 
@@ -62,8 +63,8 @@ fn generate_smooth_vertex_normals(
     }
 
     if zero_norm_count > 0 {
-        println!(
-            "警告: {} 个顶点的法线为零，设置为默认值 [0, 1, 0]",
+        warn!(
+            "{} 个顶点的法线为零，设置为默认值 [0, 1, 0]",
             zero_norm_count
         );
     }
@@ -84,7 +85,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
     settings: &RenderSettings,
 ) -> Result<ModelData, String> {
     let obj_path_ref = obj_path.as_ref();
-    println!("加载 OBJ 文件: {:?}", obj_path_ref);
+    info!("加载 OBJ 文件: {:?}", obj_path_ref);
 
     // 提取 OBJ 文件的基本名称（不含扩展名）
     let obj_basename = get_basename_from_path(obj_path_ref);
@@ -95,7 +96,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
     // 检查命令行指定的纹理
     let cli_texture: Option<Texture> = if let Some(tex_path_str) = &settings.texture {
         let tex_path = Path::new(tex_path_str);
-        println!("使用命令行指定的纹理: {:?}", tex_path);
+        debug!("使用命令行指定的纹理: {:?}", tex_path);
         let default_color = Vector3::new(0.8, 0.8, 0.8);
         Some(load_texture(tex_path, default_color))
     } else {
@@ -117,14 +118,14 @@ pub fn load_obj_model<P: AsRef<Path>>(
     let mut loaded_materials: Vec<Material> = match materials_result {
         Ok(mats) => {
             if !mats.is_empty() {
-                println!("从 MTL 加载了 {} 个材质", mats.len());
+                info!("从 MTL 加载了 {} 个材质", mats.len());
                 mats.into_iter()
                     .map(|mat| {
                         // 优先使用命令行指定的纹理
                         let texture = if cli_texture.is_some() {
                             if mat.diffuse_texture.is_some() {
-                                println!(
-                                    "注意: 命令行指定的纹理覆盖了材质 '{}' 中的纹理 '{}'",
+                                debug!(
+                                    "命令行指定的纹理覆盖了材质 '{}' 中的纹理 '{}'",
                                     mat.name,
                                     mat.diffuse_texture.unwrap()
                                 );
@@ -138,8 +139,8 @@ pub fn load_obj_model<P: AsRef<Path>>(
                                 let texture = load_texture(&texture_path, default_color);
 
                                 // 获取并记录纹理信息
-                                println!(
-                                    "  - 纹理 '{}': 类型={}, 尺寸={}x{}",
+                                debug!(
+                                    "纹理 '{}': 类型={}, 尺寸={}x{}",
                                     tex_name,
                                     texture.get_type_description(),
                                     texture.width,
@@ -169,12 +170,12 @@ pub fn load_obj_model<P: AsRef<Path>>(
                     })
                     .collect()
             } else {
-                println!("MTL 文件中没有材质");
+                info!("MTL 文件中没有材质");
                 Vec::new()
             }
         }
         Err(e) => {
-            println!("警告: 加载材质失败: {}", e);
+            warn!("加载材质失败: {}", e);
             Vec::new()
         }
     };
@@ -182,13 +183,13 @@ pub fn load_obj_model<P: AsRef<Path>>(
     // 处理无材质的情况
     if loaded_materials.is_empty() {
         if let Some(texture) = cli_texture {
-            println!("未找到 MTL 材质，创建带命令行纹理的默认材质");
+            debug!("未找到 MTL 材质，创建带命令行纹理的默认材质");
 
             // 使用configure_texture方法配置默认材质
             let mut default_mat = Material::default();
 
             // 获取命令行纹理的信息
-            println!(
+            debug!(
                 "应用命令行纹理: 类型={}, 尺寸={}x{}",
                 texture.get_type_description(),
                 texture.width,
@@ -212,7 +213,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
 
             loaded_materials.push(default_mat);
         } else {
-            println!("无 MTL 材质且无指定纹理，使用纯色默认材质");
+            debug!("无 MTL 材质且无指定纹理，使用纯色默认材质");
 
             // 创建并配置纯色默认材质
             let mut default_mat = Material::default();
@@ -227,7 +228,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                 }),
             );
 
-            println!(
+            debug!(
                 "创建默认纯色纹理: RGB({:.2}, {:.2}, {:.2})",
                 default_color.x, default_color.y, default_color.z
             );
@@ -245,14 +246,13 @@ pub fn load_obj_model<P: AsRef<Path>>(
 
         // 使用模型名称或OBJ文件名
         let mesh_name = if model.name.is_empty() || model.name == "unnamed_object" {
-            // 如果模型没有有效的名称，使用OBJ文件名
             obj_basename.clone()
         } else {
             model.name.clone()
         };
 
         if mesh.indices.is_empty() {
-            println!("跳过没有索引的网格 '{}'", mesh_name);
+            debug!("跳过没有索引的网格 '{}'", mesh_name);
             continue;
         }
 
@@ -261,7 +261,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
 
         // 如果需要，生成平滑顶点法线
         let generated_normals: Option<Vec<Vector3<f32>>> = if !has_normals {
-            println!("警告: 网格 '{}' 缺少法线，计算平滑顶点法线", mesh_name);
+            warn!("网格 '{}' 缺少法线，计算平滑顶点法线", mesh_name);
 
             let positions: Vec<Point3<f32>> = mesh
                 .positions
@@ -272,7 +272,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
             match generate_smooth_vertex_normals(&positions, &mesh.indices) {
                 Ok(normals) => Some(normals),
                 Err(e) => {
-                    println!("生成平滑法线错误: {}，使用默认法线 [0,1,0]", e);
+                    warn!("生成平滑法线错误: {}，使用默认法线 [0,1,0]", e);
                     Some(vec![Vector3::y(); num_vertices_in_obj])
                 }
             }
@@ -281,10 +281,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
         };
 
         if !has_texcoords {
-            println!(
-                "警告: 网格 '{}' 缺少纹理坐标，纹理映射可能不正确",
-                mesh_name
-            );
+            debug!("网格 '{}' 缺少纹理坐标，纹理映射可能不正确", mesh_name);
         }
 
         // 顶点去重和索引处理
@@ -313,7 +310,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                         mesh.positions[p_start + 2],
                     )
                 } else {
-                    println!("警告: 遇到无效的 OBJ 位置索引 {}", pos_idx);
+                    warn!("遇到无效的 OBJ 位置索引 {}", pos_idx);
                     Point3::origin() // 回退值
                 };
 
@@ -325,7 +322,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                                 .get(pos_idx as usize)
                                 .copied()
                                 .unwrap_or_else(|| {
-                                    println!("警告: 生成的法线索引 {} 越界", pos_idx);
+                                    warn!("生成的法线索引 {} 越界", pos_idx);
                                     Vector3::y()
                                 })
                         } else {
@@ -339,7 +336,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                                 )
                                 .normalize()
                             } else {
-                                println!("警告: 遇到无效的 OBJ 法线索引 {}", normal_source_idx);
+                                warn!("遇到无效的 OBJ 法线索引 {}", normal_source_idx);
                                 Vector3::y() // 回退值
                             }
                         }
@@ -351,11 +348,11 @@ pub fn load_obj_model<P: AsRef<Path>>(
                                 .get(pos_idx as usize)
                                 .copied()
                                 .unwrap_or_else(|| {
-                                    println!("警告: 生成的法线索引 {} 越界（回退）", pos_idx);
+                                    warn!("生成的法线索引 {} 越界（回退）", pos_idx);
                                     Vector3::y()
                                 })
                         } else {
-                            println!("警告: 缺少顶点 {} 的法线索引和生成法线", pos_idx);
+                            warn!("缺少顶点 {} 的法线索引和生成法线", pos_idx);
                             Vector3::y()
                         }
                     }
@@ -366,7 +363,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                     if t_start + 1 < mesh.texcoords.len() {
                         Vector2::new(mesh.texcoords[t_start], mesh.texcoords[t_start + 1])
                     } else {
-                        println!("警告: 遇到无效的 OBJ 纹理坐标索引 {}", idx);
+                        warn!("遇到无效的 OBJ 纹理坐标索引 {}", idx);
                         Vector2::zeros() // 回退值
                     }
                 } else {
@@ -393,8 +390,8 @@ pub fn load_obj_model<P: AsRef<Path>>(
         if final_material_id.is_none() && !loaded_materials.is_empty() {
             final_material_id = Some(0);
             if material_id.is_some() {
-                println!(
-                    "警告: 网格 '{}' 有无效的材质 ID {}。分配默认材质 ID 0",
+                warn!(
+                    "网格 '{}' 有无效的材质 ID {}。分配默认材质 ID 0",
                     mesh_name,
                     material_id.unwrap()
                 );
@@ -405,10 +402,10 @@ pub fn load_obj_model<P: AsRef<Path>>(
             vertices,
             indices: final_indices,
             material_id: final_material_id,
-            name: mesh_name.clone(), // 添加网格名称字段
+            name: mesh_name.clone(),
         });
 
-        println!(
+        debug!(
             "处理网格 '{}': {} 个唯一顶点, {} 个三角形, 材质 ID: {:?}",
             loaded_meshes.last().unwrap().name,
             loaded_meshes.last().unwrap().vertices.len(),
@@ -425,9 +422,9 @@ pub fn load_obj_model<P: AsRef<Path>>(
     let model_data = ModelData {
         meshes: loaded_meshes,
         materials: loaded_materials,
-        name: obj_basename, // 添加模型名称字段
+        name: obj_basename,
     };
 
-    println!("创建模型 '{}' 成功", model_data.name);
+    info!("创建模型 '{}' 成功", model_data.name);
     Ok(model_data)
 }
