@@ -12,60 +12,90 @@ use super::animation::AnimationMethods;
 use super::core::CoreMethods;
 use super::widgets::WidgetMethods;
 
-/// GUI应用状态
+/// 🔥 **GUI应用状态** - 清晰分离TOML配置和GUI专用参数
 pub struct RasterizerApp {
-    // 渲染相关
-    pub renderer: Renderer,
-    pub scene: Option<Scene>,
-    pub model_data: Option<ModelData>,
-
-    // 渲染设置（替换原有的args字段）
+    // ===== 🔥 **TOML可配置参数 - 统一存储在settings中** =====
+    /// 🔥 **所有TOML可配置的渲染参数**
     pub settings: RenderSettings,
 
-    // 🔥 **GUI专用变换字段** - 从RenderSettings移动到这里
+    // ===== 🔥 **GUI专用向量字段 - 从settings字符串同步** =====
+    /// GUI中物体位置控制的向量表示（与settings.object_position同步）
     pub object_position_vec: Vector3<f32>,
+    /// GUI中物体旋转控制的向量表示（与settings.object_rotation同步，弧度制）
     pub object_rotation_vec: Vector3<f32>,
+    /// GUI中物体缩放控制的向量表示（与settings.object_scale_xyz同步）
     pub object_scale_vec: Vector3<f32>,
 
-    // UI状态
+    // ===== 🔥 **渲染运行时状态 - 不可配置** =====
+    /// 渲染器实例
+    pub renderer: Renderer,
+    /// 当前加载的场景
+    pub scene: Option<Scene>,
+    /// 当前加载的模型数据
+    pub model_data: Option<ModelData>,
+
+    // ===== 🔥 **GUI界面状态 - 不可配置** =====
+    /// 渲染结果纹理句柄
     pub rendered_image: Option<egui::TextureHandle>,
+    /// 上次渲染耗时
     pub last_render_time: Option<std::time::Duration>,
+    /// 状态消息显示
     pub status_message: String,
+    /// 是否显示错误对话框
     pub show_error_dialog: bool,
+    /// 错误消息内容
     pub error_message: String,
 
-    // 实时渲染性能统计
-    pub current_fps: f32,      // 当前实时帧率
-    pub fps_history: Vec<f32>, // 帧率历史记录，用于平滑显示
-    pub avg_fps: f32,          // 平均帧率
-
-    // 实时渲染状态
+    // ===== 🔥 **实时渲染状态 - 不可配置** =====
+    /// 当前实时帧率
+    pub current_fps: f32,
+    /// 帧率历史记录，用于平滑显示
+    pub fps_history: Vec<f32>,
+    /// 平均帧率
+    pub avg_fps: f32,
+    /// 是否正在实时渲染
     pub is_realtime_rendering: bool,
+    /// 上一帧的时间戳
     pub last_frame_time: Option<std::time::Instant>,
 
-    // 预渲染相关字段
-    pub pre_render_mode: bool,  // 是否启用预渲染模式
-    pub is_pre_rendering: bool, // 是否正在预渲染
-    pub pre_rendered_frames: Arc<Mutex<Vec<ColorImage>>>, // 预渲染的帧集合
-    pub current_frame_index: usize, // 当前显示的帧索引
-    pub pre_render_progress: Arc<AtomicUsize>, // 预渲染进度
-    pub animation_time: f32,    // 全局动画计时器，用于跟踪动画总时长
-    pub total_frames_for_pre_render_cycle: usize, // 预渲染一个完整周期所需的总帧数
+    // ===== 🔥 **预渲染状态 - 不可配置** =====
+    /// 是否启用预渲染模式
+    pub pre_render_mode: bool,
+    /// 是否正在预渲染
+    pub is_pre_rendering: bool,
+    /// 预渲染的帧集合
+    pub pre_rendered_frames: Arc<Mutex<Vec<ColorImage>>>,
+    /// 当前显示的帧索引
+    pub current_frame_index: usize,
+    /// 预渲染进度
+    pub pre_render_progress: Arc<AtomicUsize>,
+    /// 全局动画计时器，用于跟踪动画总时长
+    pub animation_time: f32,
+    /// 预渲染一个完整周期所需的总帧数
+    pub total_frames_for_pre_render_cycle: usize,
 
-    // 视频生成状态
+    // ===== 🔥 **视频生成状态 - 不可配置** =====
+    /// 是否正在生成视频
     pub is_generating_video: bool,
+    /// 视频生成线程句柄
     pub video_generation_thread: Option<std::thread::JoinHandle<(bool, String)>>,
+    /// 视频生成进度
     pub video_progress: Arc<AtomicUsize>,
 
-    // 相机交互敏感度设置
-    pub camera_pan_sensitivity: f32,   // 平移敏感度
-    pub camera_orbit_sensitivity: f32, // 轨道旋转敏感度
-    pub camera_dolly_sensitivity: f32, // 推拉缩放敏感度
+    // ===== 🔥 **相机交互设置 - 可考虑加入TOML配置** =====
+    /// 平移敏感度
+    pub camera_pan_sensitivity: f32,
+    /// 轨道旋转敏感度
+    pub camera_orbit_sensitivity: f32,
+    /// 推拉缩放敏感度
+    pub camera_dolly_sensitivity: f32,
 
-    // 相机交互状态
+    // ===== 🔥 **相机交互状态 - 不可配置** =====
+    /// 相机交互状态
     pub interface_interaction: InterfaceInteraction,
 
-    // ffmpeg 检查结果
+    // ===== 🔥 **系统状态 - 不可配置** =====
+    /// ffmpeg可用性检查结果
     pub ffmpeg_available: bool,
 }
 
@@ -98,7 +128,7 @@ impl RasterizerApp {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        // 🔥 **直接内联：从settings字符串初始化GUI专用字段**
+        // 🔥 **从settings字符串初始化GUI专用向量字段**
         let object_position_vec =
             if let Ok(pos) = crate::io::render_settings::parse_vec3(&settings.object_position) {
                 pos
@@ -127,28 +157,34 @@ impl RasterizerApp {
         let ffmpeg_available = Self::check_ffmpeg_available();
 
         Self {
-            renderer,
-            scene: None,
-            model_data: None,
+            // ===== TOML可配置参数 =====
             settings,
 
+            // ===== GUI专用向量字段 =====
             object_position_vec,
             object_rotation_vec,
             object_scale_vec,
 
+            // ===== 渲染运行时状态 =====
+            renderer,
+            scene: None,
+            model_data: None,
+
+            // ===== GUI界面状态 =====
             rendered_image: None,
             last_render_time: None,
             status_message: String::new(),
             show_error_dialog: false,
             error_message: String::new(),
 
+            // ===== 实时渲染状态 =====
             current_fps: 0.0,
             fps_history: Vec::new(),
             avg_fps: 0.0,
-
             is_realtime_rendering: false,
             last_frame_time: None,
 
+            // ===== 预渲染状态 =====
             pre_render_mode: false,
             is_pre_rendering: false,
             pre_rendered_frames: Arc::new(Mutex::new(Vec::new())),
@@ -157,16 +193,20 @@ impl RasterizerApp {
             animation_time: 0.0,
             total_frames_for_pre_render_cycle: 0,
 
+            // ===== 视频生成状态 =====
             is_generating_video: false,
             video_generation_thread: None,
             video_progress: Arc::new(AtomicUsize::new(0)),
 
+            // ===== 相机交互设置 =====
             camera_pan_sensitivity: 1.0,
             camera_orbit_sensitivity: 1.0,
             camera_dolly_sensitivity: 1.0,
 
+            // ===== 相机交互状态 =====
             interface_interaction: InterfaceInteraction::default(),
 
+            // ===== 系统状态 =====
             ffmpeg_available,
         }
     }
@@ -459,13 +499,13 @@ impl eframe::App for RasterizerApp {
 pub fn start_gui(settings: RenderSettings) -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1350.0, 900.0])
-            .with_min_inner_size([1100.0, 700.0]),
+            .with_inner_size([1400.0, 900.0])
+            .with_min_inner_size([800.0, 600.0]),
         ..Default::default()
     };
 
     eframe::run_native(
-        "光栅化渲染器",
+        "Rust 光栅化渲染器",
         options,
         Box::new(|cc| Ok(Box::new(RasterizerApp::new(settings, cc)))),
     )

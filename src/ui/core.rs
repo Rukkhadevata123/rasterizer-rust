@@ -105,7 +105,8 @@ impl CoreMethods for RasterizerApp {
         ctx.request_repaint(); // 立即更新状态消息
 
         // 加载模型
-        match crate::io::model_loader::ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
+        match crate::io::model_loader::ModelLoader::load_and_create_scene(&obj_path, &self.settings)
+        {
             Ok((scene, model_data)) => {
                 println!(
                     "🎯 场景创建完成: 光源数量={}, 使用光照={}, 环境光强度={}",
@@ -113,11 +114,11 @@ impl CoreMethods for RasterizerApp {
                     self.settings.use_lighting,
                     self.settings.ambient
                 );
-                
+
                 // 直接设置场景和模型数据
                 self.scene = Some(scene);
                 self.model_data = Some(model_data);
-                
+
                 self.status_message = "模型加载成功，开始渲染...".to_string();
             }
             Err(e) => {

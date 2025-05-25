@@ -1,0 +1,103 @@
+# 🔥 光栅化渲染器配置文件 - 复杂测试配置
+# test_complex_config.toml
+
+[files]
+obj = "obj/models/spot/spot_triangulated.obj"
+output = "complex_test_render"
+output_dir = "test_output"
+texture = "obj/models/spot/spot_texture.png"  # 可选：如果有纹理文件
+background_image = "obj/models/spot/hmap.jpg"  # 可选：如果有背景图片
+
+[render]
+width = 1920
+height = 1080
+projection = "perspective"
+use_zbuffer = true
+colorize = false
+use_texture = true
+use_gamma = true
+backface_culling = true
+wireframe = false
+use_multithreading = true
+cull_small_triangles = true
+min_triangle_area = 0.001
+save_depth = true
+
+[camera]
+from = "2.5,1.5,4.0"
+at = "0,0.5,0"
+up = "0,1,0"
+fov = 60.0
+
+[object]
+position = "0,0.2,0"
+rotation = "15,30,0"
+scale_xyz = "1.2,1.0,1.2"
+scale = 1.5
+
+[lighting]
+use_lighting = true
+ambient = 0.2
+ambient_color = "0.2,0.3,0.4"
+
+# 🔥 多光源配置 - 方向光 + 两个点光源
+[[light]]
+type = "directional"
+enabled = true
+direction = "0.3,-0.8,-0.5"
+color = "1.0,0.95,0.8"
+intensity = 0.8
+
+[[light]]
+type = "point"
+enabled = true
+position = "2.0,3.0,2.0"
+color = "1.0,0.8,0.6"
+intensity = 2.5
+constant_attenuation = 1.0
+linear_attenuation = 0.09
+quadratic_attenuation = 0.032
+
+[[light]]
+type = "point"
+enabled = true
+position = "-1.5,2.0,1.0"
+color = "0.6,0.8,1.0"
+intensity = 1.8
+constant_attenuation = 1.0
+linear_attenuation = 0.14
+quadratic_attenuation = 0.07
+
+[material]
+use_phong = true
+use_pbr = false
+diffuse_color = "0.7,0.5,0.3"
+specular = 0.8
+shininess = 64.0
+base_color = "0.8,0.6,0.4"
+metallic = 0.1
+roughness = 0.3
+ambient_occlusion = 0.9
+emissive = "0.0,0.0,0.0"
+enhanced_ao = true
+ao_strength = 0.6
+soft_shadows = true
+shadow_strength = 0.8
+
+[background]
+use_background_image = true
+enable_gradient_background = true
+gradient_top_color = "0.3,0.5,0.8"
+gradient_bottom_color = "0.8,0.6,0.4"
+enable_ground_plane = true
+ground_plane_color = "0.4,0.6,0.3"
+ground_plane_height = -0.5
+
+[animation]
+animate = false
+fps = 60
+rotation_speed = 0.8
+rotation_cycles = 2.0
+animation_type = "CameraOrbit"
+rotation_axis = "Custom"
+custom_rotation_axis = "0.2,1,0.3"

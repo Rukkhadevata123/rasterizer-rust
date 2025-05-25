@@ -3,23 +3,6 @@
 version = 4
 
 [[package]]
-name = "Rasterizer_rust"
-version = "1.3.0"
-dependencies = [
- "atomic_float",
- "chrono",
- "clap",
- "eframe",
- "egui",
- "image",
- "nalgebra",
- "native-dialog",
- "rand 0.9.1",
- "rayon",
- "tobj",
-]
-
-[[package]]
 name = "ab_glyph"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3086,6 +3069,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rasterizer"
+version = "2.0.0"
+dependencies = [
+ "atomic_float",
+ "chrono",
+ "clap",
+ "eframe",
+ "egui",
+ "image",
+ "nalgebra",
+ "native-dialog",
+ "rand 0.9.1",
+ "rayon",
+ "serde",
+ "tobj",
+ "toml",
+]
+
+[[package]]
 name = "rav1e"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3696,8 +3698,15 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
+ "toml_write",
  "winnow",
 ]
+
+[[package]]
+name = "toml_write"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfb942dfe1d8e29a7ee7fcbde5bd2b9a25fb89aa70caea2eba3bee836ff41076"
 
 [[package]]
 name = "tracing"

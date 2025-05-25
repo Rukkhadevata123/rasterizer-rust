@@ -1,649 +1,817 @@
-<!-- filepath: c:\Users\Yoimiya\Rasterizer_rust\README.md -->
-# Rust 高性能光栅化渲染器 (GUI版)
+# Rust 高性能光栅化渲染器 v2.0 🎨
 
-一个使用Rust语言从零开始实现的软件光栅化渲染器。它利用CPU进行所有渲染计算，支持3D模型加载、多种投影方式、复杂光照模型（包括Blinn-Phong和PBR）、纹理映射、**实时相机交互**、动画生成、**增强环境光遮蔽(AO)**、**软阴影效果**以及一个基于egui的交互式图形用户界面（GUI）。
+一个功能完备的软件光栅化渲染器，采用**TOML驱动配置**和**现代化GUI界面**。支持从基础几何渲染到高级PBR材质、多光源系统、实时相机交互、配置文件管理等专业级渲染功能。
+
+[![Rust Version](https://img.shields.io/badge/rust-1.81%2B-orange.svg)](https://www.rust-lang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/Rukkhadevata123/Rasterizer_rust)
+
+## 🔥 v2.0 核心特性
+
+### 📝 **TOML 配置驱动**
+
+- **完整的TOML配置支持** - 所有渲染参数均可通过配置文件设置
+- **配置文件管理** - 一键加载/保存配置，示例配置生成
+- **参数验证系统** - 智能检测并提示配置错误
+- **向后兼容** - CLI参数与TOML配置无缝集成
+
+### 🖥️ **现代化GUI界面**
+
+- **专业级相机交互** - 鼠标拖拽、Shift+轨道旋转、滚轮缩放
+- **实时参数调整** - 所见即所得的参数编辑体验
+- **多面板设计** - 文件管理、渲染设置、材质调整、动画控制
+- **中文界面支持** - 完整的本地化用户界面
+
+### ⚡ **高性能渲染引擎**
+
+- **多线程光栅化** - 充分利用现代多核CPU性能
+- **智能剔除系统** - 背面剔除、视锥剔除、小三角形剔除
+- **增强AO算法** - 基于法线、边缘、曲率的高级环境光遮蔽
+- **软阴影效果** - 多光源软阴影，可调强度控制
+
+### 🎬 **动画与视频系统**
+
+- **实时动画渲染** - 支持相机轨道和物体旋转动画
+- **预渲染模式** - 预计算帧序列，确保流畅播放
+- **视频生成** - 集成FFmpeg，一键生成MP4动画
+- **帧率统计** - 实时FPS监控和性能分析
 
 ## 目录
 
-- [Rust 高性能光栅化渲染器 (GUI版)](#rust-高性能光栅化渲染器-gui版)
-  - [目录](#目录)
-  - [核心功能](#核心功能)
-  - [图形用户界面 (GUI)](#图形用户界面-gui)
-    - [相机交互系统](#相机交互系统)
-    - [GUI功能区域](#gui功能区域)
-    - [实时渲染与动画](#实时渲染与动画)
-  - [渲染管线](#渲染管线)
-  - [安装与构建](#安装与构建)
-    - [环境要求](#环境要求)
-    - [构建步骤](#构建步骤)
-  - [使用指南](#使用指南)
-    - [GUI 模式](#gui-模式)
-    - [命令行模式 (CLI)](#命令行模式-cli)
-    - [命令行参数详解](#命令行参数详解)
-      - [基础设置](#基础设置)
-      - [文件与输出设置](#文件与输出设置)
-      - [渲染基础设置](#渲染基础设置)
-      - [物体变换控制](#物体变换控制)
-      - [相机参数](#相机参数)
-      - [光照基础参数](#光照基础参数)
-      - [着色模型设置](#着色模型设置)
-      - [🔥 增强渲染效果设置](#-增强渲染效果设置)
-      - [背景与环境设置](#背景与环境设置)
-      - [动画设置](#动画设置)
-    - [命令行示例](#命令行示例)
-      - [1. 基础渲染 (斯坦福兔子)](#1-基础渲染-斯坦福兔子)
-      - [2. 带纹理的模型渲染 (Spot)](#2-带纹理的模型渲染-spot)
-      - [3. PBR 渲染 (岩石模型)](#3-pbr-渲染-岩石模型)
-      - [4. 🔥 增强AO和软阴影渲染](#4--增强ao和软阴影渲染)
-      - [5. 生成动画序列 (相机轨道)](#5-生成动画序列-相机轨道)
-  - [项目架构](#项目架构)
-  - [未来展望](#未来展望)
-  - [许可证](#许可证)
+- [安装与构建](#安装与构建)
+- [快速开始](#快速开始)
+- [配置文件详解](#配置文件详解)
+- [GUI使用指南](#gui使用指南)
+- [命令行模式](#命令行模式)
+- [渲染管线](#渲染管线)
+- [项目架构](#项目架构)
+- [示例与教程](#示例与教程)
 
-## 核心功能
+## 安装与构建
 
-- **🖱️ 交互式GUI**：基于 `egui` 实现，支持实时参数调整和渲染预览。
-- **🎮 专业级相机交互**：
-  - 鼠标拖拽平移视角
-  - Shift+拖拽轨道旋转
-  - 滚轮推拉缩放
-  - 快捷键重置和聚焦
-  - 可调节的交互敏感度
-- **📦 3D模型加载**：支持 `.obj` 格式模型和MTL材质文件。
-- **🔭 投影方式**：支持透视投影和正交投影。
-- **💡 先进光照系统**：
-  - Blinn-Phong 光照模型
-  - 基于物理的渲染 (PBR) 工作流 (金属度/粗糙度)
-  - **多光源系统**：支持多个方向光源和点光源同时工作
-  - **光源预设**：内置单向光、三面光、混合光源等预设配置
-  - 支持环境光、方向光、点光源（带衰减）
-- **🎨 材质系统**：
-  - 支持漫反射颜色、镜面反射强度、光泽度 (Phong)
-  - 支持基础颜色、金属度、粗糙度、环境光遮蔽、自发光 (PBR)
-  - 统一处理图像纹理、随机面颜色、以及材质定义的颜色
-- **🌅 高级背景设置**：
-  - **背景图片支持**：可加载任意PNG/JPG图像作为背景
-  - **渐变背景**：可自定义顶部和底部颜色的平滑渐变
-  - **地面平面**：可调整颜色和高度的地面反射面
-- **⚡ 高级渲染特性**：
-  - Z-Buffer 深度测试
-  - Gamma 校正
-  - 背面剔除
-  - 线框模式
-  - 小三角形剔除
-  - 多线程渲染加速
-  - **🔥 增强环境光遮蔽(Enhanced AO)**：基于法线朝向、边缘检测、曲率分析的高级AO效果
-  - **🔥 软阴影(Soft Shadows)**：基于角度、深度、局部遮蔽的软阴影计算
-- **🎬 动画与视频**：
-  - 支持相机轨道旋转和物体局部旋转动画
-  - 可自定义旋转轴
-  - **预渲染模式**，用于流畅播放复杂动画
-  - **实时动画渲染**，支持实时交互和帧率显示
-  - 渲染帧序列并可使用 FFmpeg 合成为视频
-- **🔧 物体变换控制**：
-  - 实时位置、旋转、缩放调整
-  - 独立的XYZ轴控制
-  - 全局缩放和非均匀缩放
-- **💾 输出功能**：可保存渲染结果（颜色图）和深度图。
+### 环境要求
 
-## 图形用户界面 (GUI)
+- **Rust**: 1.81+ (推荐最新稳定版)
+- **依赖库**: 自动通过Cargo管理
+- **FFmpeg**: (可选) 用于视频生成功能
 
-通过GUI，你可以方便地调整所有渲染参数，实时查看效果，并执行渲染、截图、生成视频等操作。GUI采用现代化设计，支持中文字体和直观的参数控制。
+#### 安装FFmpeg
 
-### 相机交互系统
+**Windows**:
 
-GUI的核心亮点是**专业级3D相机交互系统**：
+```powershell
+# 使用Chocolatey
+choco install ffmpeg
 
-- **🖱️ 鼠标拖拽** - 平移相机视角，观察模型不同角度
-- **⌨️ Shift+拖拽** - 轨道旋转，围绕模型中心观察
-- **🔄 滚轮缩放** - 推拉距离调整，精确控制观察距离
-- **⌨️ 快捷键操作** - R键重置视角，F键聚焦物体
-- **🎛️ 敏感度调节** - 可独立调整平移、旋转、缩放的响应速度
-- **📊 实时反馈** - 右下角显示交互状态和当前敏感度设置
+# 使用Winget
+winget install Gyan.FFmpeg
 
-### GUI功能区域
+# 或从官网下载并添加到PATH
+# https://ffmpeg.org/download.html
+```
 
-**顶部面板**：
+**macOS**:
 
-- 应用标题和状态信息
-- 实时帧率显示（仅在实时渲染时）
-- 快捷键提示 (Ctrl+R: 快速渲染)
+```bash
+brew install ffmpeg
+```
 
-**左侧控制面板** (可滚动)：
+**Ubuntu/Debian**:
 
-- **文件与输出设置**：选择OBJ文件，设置输出目录、文件名、图像尺寸，控制深度图保存
-- **渲染基础设置**：投影类型，深度缓冲、光照、纹理、面颜色、着色模型、Gamma校正、背面剔除、线框模式、多线程等开关
-- **物体变换控制**：实时调整位置、旋转、缩放，带有拖拽控件和重置按钮
-- **背景与环境**：背景图片、渐变背景颜色、地面平面设置
-- **相机设置**：相机位置、目标点、上方向、视场角，以及交互敏感度调节
-- **光照设置**：多光源配置，方向光和点光源，光源预设，环境光设置
-- **PBR/Phong材质设置**：根据选择的着色模型显示相应的材质参数
-- **🔥 增强渲染效果**：增强AO和软阴影的开关与强度控制
-- **动画设置**：实时渲染控制，视频生成参数，预渲染模式
+```bash
+sudo apt-get update
+sudo apt-get install ffmpeg libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev pkg-config
+```
 
-**底部操作按钮**：
+### 构建步骤
 
-- **恢复默认值** - 重置所有参数，保留文件路径
-- **开始渲染** - 单帧渲染 (Ctrl+R)
-- **实时动画** - 开始/停止实时动画渲染
-- **截图** - 保存当前渲染结果
-- **生成视频** - 后台渲染并合成MP4视频
-- **清空缓冲区** - 清除预渲染帧，释放内存
+```bash
+# 1. 克隆项目
+git clone https://github.com/Rukkhadevata123/Rasterizer_rust
+cd Rasterizer_rust
 
-**中央显示区域**：
+# 2. 构建 (开发模式)
+cargo build
 
-- 渲染结果显示，支持相机交互
-- 自适应图像尺寸显示
-- 右下角悬浮交互提示面板
+# 3. 构建 (发布模式，推荐)
+cargo build --release
 
-### 实时渲染与动画
+# 4. 运行
+cargo run --release
+```
 
-GUI支持两种动画模式：
+## 快速开始
 
-1. **实时动画渲染**：
-   - 立即开始动画播放
-   - 显示实时帧率统计
-   - 支持相机交互调整观察角度
-   - 可调节旋转速度
+### 🚀 GUI模式 (推荐)
 
-2. **预渲染模式**：
-   - 预先计算所有动画帧
-   - 确保流畅播放复杂场景
-   - 适合高质量动画预览
-   - 支持进度显示
+```bash
+# 启动GUI (默认配置)
+cargo run --release
 
-![GUI 截图 1](./assets/screenshot.png)
+# 从配置文件启动GUI
+cargo run --release -- --config my_config.toml
 
-![GUI 截图 2](./assets/screenshot2.png)
+# 使用示例配置启动GUI
+cargo run --release -- --use-example-config
+```
+
+### ⚡ 命令行模式
+
+```bash
+# 生成示例配置文件
+cargo run --release -- --use-example-config --headless
+
+# 使用配置文件进行无头渲染
+cargo run --release -- --config example_config.toml --headless
+```
+
+## 配置文件详解
+
+### 基础配置结构
+
+```toml
+# config.toml - 完整配置示例
+
+[files]
+obj = "obj/models/spot/spot_triangulated.obj"
+output = "my_render"
+output_dir = "output"
+texture = "obj/models/spot/spot_texture.png"          # 可选
+background_image = "backgrounds/skybox.jpg"           # 可选
+
+[render]
+width = 1920
+height = 1080
+projection = "perspective"                             # "perspective" | "orthographic"
+use_zbuffer = true
+use_texture = true
+use_gamma = true
+backface_culling = true
+use_multithreading = true
+enhanced_ao = true                                     # 🔥 增强环境光遮蔽
+soft_shadows = true                                    # 🔥 软阴影效果
+
+[camera]
+from = "2.5,1.5,4.0"                                  # 相机位置
+at = "0,0.5,0"                                        # 观察目标
+up = "0,1,0"                                          # 上方向
+fov = 60.0                                            # 视场角(度)
+
+[object]
+position = "0,0.2,0"                                  # 物体位置
+rotation = "15,30,0"                                  # 旋转角度(度)
+scale_xyz = "1.2,1.0,1.2"                           # 非均匀缩放
+scale = 1.5                                           # 全局缩放
+
+[lighting]
+use_lighting = true
+ambient = 0.2                                         # 环境光强度
+ambient_color = "0.2,0.3,0.4"                       # 环境光颜色
+
+# 🔥 多光源配置 - 支持任意数量的光源
+[[light]]
+type = "directional"
+enabled = true
+direction = "0.3,-0.8,-0.5"
+color = "1.0,0.95,0.8"
+intensity = 0.8
+
+[[light]]
+type = "point"
+enabled = true
+position = "2.0,3.0,2.0"
+color = "1.0,0.8,0.6"
+intensity = 2.5
+constant_attenuation = 1.0
+linear_attenuation = 0.09
+quadratic_attenuation = 0.032
+
+[material]
+use_phong = true                                      # Phong着色
+use_pbr = false                                       # PBR着色
+# Phong参数
+diffuse_color = "0.7,0.5,0.3"
+specular = 0.8
+shininess = 64.0
+# PBR参数
+base_color = "0.8,0.6,0.4"
+metallic = 0.1
+roughness = 0.3
+# 增强效果参数
+enhanced_ao = true
+ao_strength = 0.6                                     # AO强度
+soft_shadows = true
+shadow_strength = 0.8                                 # 阴影强度
+
+[background]
+use_background_image = false
+enable_gradient_background = true                      # 渐变背景
+gradient_top_color = "0.3,0.5,0.8"
+gradient_bottom_color = "0.8,0.6,0.4"
+enable_ground_plane = true                            # 地面平面
+ground_plane_color = "0.4,0.6,0.3"
+ground_plane_height = -0.5
+
+[animation]
+animate = false                                       # CLI动画模式
+fps = 60                                             # 视频帧率
+rotation_speed = 0.8                                 # 实时渲染速度
+rotation_cycles = 2.0                                # 视频旋转圈数
+animation_type = "CameraOrbit"                       # "CameraOrbit" | "ObjectLocalRotation" | "None"
+rotation_axis = "Y"                                  # "X" | "Y" | "Z" | "Custom"
+custom_rotation_axis = "0.2,1,0.3"                  # 自定义轴(当rotation_axis="Custom")
+```
+
+### 快速配置模板
+
+```bash
+# 生成基础配置模板
+cargo run --release -- --use-example-config
+
+# 编辑配置文件
+# 根据需要修改 temp_example_config.toml
+
+# 使用配置文件启动
+cargo run --release -- --config temp_example_config.toml
+```
+
+## GUI使用指南
+
+### 界面布局
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 🏠 光栅化渲染器 | 状态信息 | FPS显示 | Ctrl+R: 快速渲染    │
+├──────────────┬──────────────────────────────────────────────┤
+│              │                                              │
+│ 🎛️ 控制面板    │           🖼️ 渲染结果显示区域                │
+│              │                                              │
+│ 📁 文件设置     │           🖱️ 相机交互区域                   │
+│ 🎨 渲染设置     │                                              │
+│ 🔧 物体变换     │           右下角: 交互提示面板               │
+│ 📷 相机设置     │                                              │
+│ 💡 光照设置     │                                              │
+│ 🎭 材质设置     │                                              │
+│ 🎬 动画设置     │                                              │
+│ 🔴 渲染按钮     │                                              │
+└──────────────┴──────────────────────────────────────────────┘
+```
+
+### 🔥 配置文件管理
+
+在"文件与输出设置"面板中：
+
+- **📁 加载配置** - 从.toml文件加载完整配置
+- **💾 保存配置** - 将当前设置保存为.toml文件
+- **📋 示例配置** - 快速应用内置示例配置
+
+```
+┌─────────────────────────────────────────┐
+│ 文件与输出设置                            │
+├─────────────────────────────────────────┤
+│ OBJ文件: [path/to/model.obj] [浏览...]   │
+│ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│ 配置文件: [📁加载配置] [💾保存配置] [📋示例] │
+│ 💡 提示：加载配置会覆盖当前所有设置       │
+└─────────────────────────────────────────┘
+```
+
+### 🖱️ 相机交互系统
+
+在中央渲染区域进行3D导航：
+
+| 操作 | 功能 |
+|------|------|
+| **鼠标拖拽** | 平移相机视角 |
+| **Shift + 拖拽** | 围绕目标轨道旋转 |
+| **鼠标滚轮** | 推拉缩放 |
+| **R键** | 重置到默认视角 |
+| **F键** | 聚焦到物体中心 |
+
+**敏感度调节**: 在"相机设置"面板中可独立调整平移、旋转、缩放的响应速度。
+
+### 🎬 动画渲染模式
+
+#### 实时动画渲染
+
+```
+[开始动画渲染] 按钮 → 立即开始旋转动画
+├── 显示实时FPS统计
+├── 支持相机交互调整观察角度  
+├── 可调节旋转速度
+└── [停止动画渲染] 停止播放
+```
+
+#### 预渲染模式
+
+```
+☑️ 启用预渲染模式 → [开始动画渲染]
+├── 首次: 预先计算所有帧 (显示进度)
+├── 完成后: 流畅播放预渲染帧
+├── 适合复杂场景和高质量预览
+└── 占用更多内存，但播放无卡顿
+```
+
+### 🎥 视频生成工作流
+
+1. **配置参数**: 在"动画设置"中调整fps、旋转圈数、动画类型
+2. **预览效果**: 使用实时动画渲染预览效果
+3. **生成视频**: 点击"生成视频"按钮，后台渲染并合成MP4
+4. **进度监控**: 状态栏显示渲染进度和预计时间
+
+## 命令行模式
+
+### CLI 参数总览
+
+```bash
+cargo run --release -- [OPTIONS]
+
+OPTIONS:
+    -c, --config <FILE>        📁 指定TOML配置文件路径
+        --headless             🚀 无头模式(不启动GUI)
+        --use-example-config   📋 使用示例配置
+    -h, --help                 显示帮助信息
+```
+
+### 使用场景
+
+#### 🔧 配置文件开发
+
+```bash
+# 1. 生成示例配置
+cargo run --release -- --use-example-config
+
+# 2. 编辑配置文件
+notepad temp_example_config.toml  # Windows
+# 或
+vim temp_example_config.toml      # Linux/macOS
+
+# 3. 测试配置 (GUI模式)
+cargo run --release -- --config temp_example_config.toml
+
+# 4. 无头批量渲染
+cargo run --release -- --config temp_example_config.toml --headless
+```
+
+#### 🤖 自动化渲染
+
+```bash
+# 批量处理多个配置
+for config in configs/*.toml; do
+    cargo run --release -- --config "$config" --headless
+done
+```
+
+#### 🐳 容器化部署
+
+```dockerfile
+# Dockerfile示例
+FROM rust:1.81
+COPY . /app
+WORKDIR /app
+RUN cargo build --release
+CMD ["./target/release/rasterizer", "--config", "production.toml", "--headless"]
+```
 
 ## 渲染管线
 
-以下是渲染器的完整管线流程，展示了从模型加载到最终图像生成的各个阶段：
-
 ```mermaid
 graph TD
-    A[模型加载] --> B[场景构建]
-    B --> C[几何变换]
+    A[TOML配置加载] --> B[场景构建]
+    B --> C[几何变换管线]
     
-    subgraph 几何阶段
+    subgraph 几何处理
         C --> D[模型变换]
         D --> E[视图变换]
         E --> F[投影变换]
         F --> G[视口变换]
     end
     
-    G --> H[三角形准备]
+    G --> H[三角形筛选]
     
-    subgraph 剔除与筛选
+    subgraph 智能剔除
         H --> H1[视锥剔除]
         H1 --> H2[背面剔除]
         H2 --> H3[小三角形剔除]
     end
     
-    H3 --> I[三角形光栅化]
+    H3 --> I[多线程光栅化]
     
-    subgraph 像素处理
-        I --> J1[重心坐标计算]
+    subgraph 像素着色
+        I --> J1[重心坐标插值]
         J1 --> J2[深度测试]
-        J2 --> J3[透视校正插值]
-        J3 --> J4[纹理采样]
-        J4 --> J5[法线插值]
+        J2 --> J3[纹理采样]
+        J3 --> J4[法线插值]
     end
     
-    subgraph 着色阶段
-        J5 --> K1{着色模型选择}
+    subgraph 高级光照
+        J4 --> K1{着色模型}
         K1 -->|Phong| K2[Blinn-Phong着色]
-        K1 -->|PBR| K3[基于物理的渲染]
-        K2 --> K4[光照计算]
+        K1 -->|PBR| K3[基于物理渲染]
+        K2 --> K4[多光源计算]
         K3 --> K4
-        K4 --> K6[🔥 增强AO计算]
-        K6 --> K7[🔥 软阴影计算]
-        K7 --> K5[Gamma校正]
+        K4 --> K5[🔥 增强AO]
+        K5 --> K6[🔥 软阴影]
+        K6 --> K7[Gamma校正]
     end
     
-    K5 --> L[帧缓冲写入]
-    L --> M[图像输出]
+    K7 --> L[帧缓冲输出]
+    L --> M[图像保存/显示]
     
-    subgraph 动画与视频
-        M --> N1[单帧渲染]
-        M --> N2[实时动画]
-        M --> N3[预渲染帧序列]
-        N3 --> N4[视频生成]
+    subgraph 动画系统
+        M --> N1[实时动画]
+        M --> N2[预渲染帧序列]
+        N2 --> N3[FFmpeg视频合成]
     end
     
     subgraph GUI交互
         M --> O1[相机交互]
-        O1 --> O2[实时重新渲染]
-        O2 --> M
+        O1 --> O2[参数实时调整]
+        O2 --> C
     end
-```
-
-## 安装与构建
-
-### 环境要求
-
-- **Rust**: 1.81 或更高版本 (推荐最新稳定版)
-- **Cargo**: Rust包管理器 (随Rust一同安装)
-- **FFmpeg**: (可选) 用于将渲染的帧序列合成为视频
-  - **Ubuntu/Debian**: `sudo apt-get install ffmpeg libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev pkg-config`
-  - **macOS**: `brew install ffmpeg pkg-config`
-  - **Windows**: 从 [FFmpeg官网](https://ffmpeg.org/download.html) 下载并将其可执行文件路径添加到系统PATH
-
-### 构建步骤
-
-1. **克隆项目**：
-
-    ```bash
-    git clone https://github.com/Rukkhadevata123/Rasterizer_rust
-    cd Rasterizer_rust
-    ```
-
-2. **构建项目**：
-    - 开发模式 (较快编译，带调试信息)：
-
-        ```bash
-        cargo build
-        ```
-
-    - 发布模式 (优化性能，用于最终运行，推荐)：
-
-        ```bash
-        cargo build --release # 二进制文件在target目录下
-        ```
-
-## 使用指南
-
-### GUI 模式
-
-推荐使用GUI模式进行交互式体验和参数调整。GUI模式是默认启动方式。
-
-- **启动GUI** (无参数或未指定OBJ文件时自动启动)：
-
-    ```bash
-    cargo run --release
-    ```
-
-- **启动GUI并加载指定模型**：
-
-    ```bash
-    cargo run --release -- --obj path/to/your_model.obj
-    ```
-
-在GUI中进行3D模型观察和渲染：
-
-1. **加载模型**：在"文件与输出设置"中选择OBJ文件
-2. **调整参数**：通过左侧面板的各个折叠区域调整渲染参数
-3. **🔥 配置增强效果**：在"增强渲染效果"区域启用并调整AO和软阴影强度
-4. **相机交互**：在中央区域使用鼠标进行3D导航
-5. **实时渲染**：点击"开始渲染"或按Ctrl+R进行单帧渲染
-6. **动画播放**：启用实时动画渲染观察旋转效果
-7. **视频生成**：配置动画参数后点击"生成视频"
-
-### 命令行模式 (CLI)
-
-当指定了OBJ文件路径时，程序进入命令行渲染模式，无需启动GUI。
-
-- **基本渲染示例**：
-
-    ```bash
-    cargo run --release -- --obj obj/simple/bunny.obj --output my_render --width 800 --height 600
-    ```
-
-### 命令行参数详解
-
-所有通过GUI可调的参数均可通过命令行参数设置。以下是主要参数列表：
-
-#### 基础设置
-
-| 参数                     | 描述                                                                 | 默认值                  |
-| :----------------------- | :------------------------------------------------------------------- | :---------------------- |
-| `--obj <PATH>`           | 输入的OBJ模型文件路径。若未提供则启动GUI模式。                        | (无，启动GUI)           |
-| `--animate`              | 运行完整动画循环而非单帧渲染 (仅CLI模式)。                           | `false`                 |
-| `--fps <NUM>`            | 动画帧率，用于视频生成和预渲染。                                      | `30`                    |
-| `--rotation-speed <F>`   | 旋转速度系数，控制动画旋转的速度。                                    | `1.0`                   |
-| `--rotation-cycles <F>`  | 完整旋转圈数，用于视频生成 (默认1圈)。                               | `1.0`                   |
-| `--animation-type <TYPE>`| 动画类型：`CameraOrbit`, `ObjectLocalRotation`, `None`。             | `CameraOrbit`           |
-| `--rotation-axis <AXIS>` | 动画旋转轴：`X`, `Y`, `Z`, `Custom`。                                | `Y`                     |
-| `--custom-rotation-axis <X,Y,Z>`| 自定义旋转轴，格式 "x,y,z"。                              | `0,1,0`                 |
-
-#### 文件与输出设置
-
-| 参数                     | 描述                                                                 | 默认值                  |
-| :----------------------- | :------------------------------------------------------------------- | :---------------------- |
-| `--output <NAME>`        | 输出文件的基础名称 (例如: "render" -> "render_color.png")。          | `output`                |
-| `--output-dir <DIR>`     | 输出图像的目录。                                                     | `output_rust`           |
-| `--width <PIXELS>`       | 输出图像宽度。                                                       | `1024`                  |
-| `--height <PIXELS>`      | 输出图像高度。                                                       | `1024`                  |
-| `--save-depth`           | 启用渲染和保存深度图。                                               | `true`                  |
-
-#### 渲染基础设置
-
-| 参数                     | 描述                                                                 | 默认值                  |
-| :----------------------- | :------------------------------------------------------------------- | :---------------------- |
-| `--projection <TYPE>`    | 投影类型: "perspective" (透视) 或 "orthographic" (正交)。             | `perspective`           |
-| `--use-zbuffer`          | 启用Z缓冲 (深度测试)。                                               | `true`                  |
-| `--colorize`             | 使用伪随机面颜色而非材质颜色 (与 `--use-texture` 互斥)。              | `false`                 |
-| `--use-texture`          | 启用纹理加载和使用 (与 `--colorize` 互斥)。                           | `true`                  |
-| `--texture <PATH>`       | 显式指定要使用的纹理文件，覆盖MTL设置。                                | (无)                    |
-| `--use-gamma`            | 启用Gamma校正。                                                      | `true`                  |
-| `--backface-culling`     | 启用背面剔除。                                                       | `false`                 |
-| `--wireframe`            | 以线框模式渲染。                                                     | `false`                 |
-| `--use-multithreading`   | 启用多线程渲染。                                                     | `true`                  |
-| `--cull-small-triangles` | 启用小三角形剔除。                                                   | `false`                 |
-| `--min-triangle-area <F>`| 小三角形剔除的最小面积阈值 (屏幕空间比例)。                            | `1e-3`                  |
-
-#### 物体变换控制
-
-| 参数                     | 描述                                                                 | 默认值                  |
-| :----------------------- | :------------------------------------------------------------------- | :---------------------- |
-| `--object-scale <F>`     | 物体的全局均匀缩放因子。                                              | `1.0`                   |
-| `--object-position <X,Y,Z>`| 物体位置，格式为 "x,y,z"。                                         | `0,0,0`                 |
-| `--object-rotation <X,Y,Z>`| 物体旋转 (欧拉角，度)，格式为 "x,y,z"。                            | `0,0,0`                 |
-| `--object-scale-xyz <X,Y,Z>`| 物体缩放，格式为 "x,y,z"。                                       | `1,1,1`                 |
-
-#### 相机参数
-
-| 参数                   | 描述                                                              | 默认值        |
-| :--------------------- | :---------------------------------------------------------------- | :------------ |
-| `--camera-from <X,Y,Z>`| 相机位置 (视点), 格式为 "x,y,z"。                                  | `0,0,3`       |
-| `--camera-at <X,Y,Z>`  | 相机目标 (观察点), 格式为 "x,y,z"。                                | `0,0,0`       |
-| `--camera-up <X,Y,Z>`  | 相机世界坐标系上方向, 格式为 "x,y,z"。                              | `0,1,0`       |
-| `--camera-fov <DEG>`   | 相机垂直视场角 (度, 用于透视投影)。                                 | `45.0`        |
-
-#### 光照基础参数
-
-| 参数                     | 描述                                                                 | 默认值                  |
-| :----------------------- | :------------------------------------------------------------------- | :---------------------- |
-| `--use-lighting`         | 启用光照计算。                                                       | `true`                  |
-| `--ambient <FACTOR>`     | 环境光强度因子 (会乘以环境光颜色)。                                    | `0.1`                   |
-| `--ambient-color <R,G,B>`| 环境光RGB颜色 (0-1范围, 如 "0.1,0.1,0.1")。                           | `0.1,0.1,0.1`           |
-| `--lighting-preset <P>`  | 光照预设: `SingleDirectional`, `ThreeDirectional`, `MixedComplete`, `None`。 | `SingleDirectional` |
-| `--main-light-intensity <F>`| 主光源强度 (0.0-1.0)。                                           | `0.8`                   |
-
-#### 着色模型设置
-
-**Phong 着色模型** (默认启用):
-
-| 参数                     | 描述                                                              | 默认值          |
-| :----------------------- | :---------------------------------------------------------------- | :-------------- |
-| `--use-phong`            | 使用Phong着色 (逐像素光照)。                                         | `true`         |
-| `--diffuse-color <R,G,B>`| 漫反射颜色 (0-1范围, 如 "0.8,0.8,0.8")。                             | `0.8,0.8,0.8`   |
-| `--specular <FACTOR>`    | 镜面反射强度 (0.0-1.0)。                                           | `0.5`           |
-| `--shininess <FACTOR>`   | 材质的光泽度 (硬度) 参数 (通常 1.0-200.0)。                          | `32.0`          |
-
-**PBR 材质设置** (可选启用):
-
-| 参数                       | 描述                                                              | 默认值          |
-| :------------------------- | :---------------------------------------------------------------- | :-------------- |
-| `--use-pbr`                | 使用基于物理的渲染 (PBR) 而不是传统Blinn-Phong。                    | `false`         |
-| `--base-color <R,G,B>`     | 材质的基础颜色 (0-1范围, 如 "0.8,0.8,0.8")。                         | `0.8,0.8,0.8`   |
-| `--metallic <FACTOR>`      | 材质的金属度 (0.0-1.0)。                                           | `0.0`           |
-| `--roughness <FACTOR>`     | 材质的粗糙度 (0.0-1.0)。                                           | `0.5`           |
-| `--ambient-occlusion <F>`  | 环境光遮蔽系数 (0.0-1.0)。                                         | `1.0`           |
-
-**通用材质参数**:
-
-| 参数                     | 描述                                                              | 默认值          |
-| :----------------------- | :---------------------------------------------------------------- | :-------------- |
-| `--emissive <R,G,B>`     | 材质的自发光颜色 (0-1范围, 如 "0.0,0.0,0.0")。                      | `0.0,0.0,0.0`   |
-
-#### 🔥 增强渲染效果设置
-
-| 参数                     | 描述                                                              | 默认值          |
-| :----------------------- | :---------------------------------------------------------------- | :-------------- |
-| `--enhanced-ao`          | 启用增强环境光遮蔽(Enhanced AO)效果。                             | `true`          |
-| `--ao-strength <F>`      | 环境光遮蔽强度 (0.0-1.0)，数值越大遮蔽效果越明显。                  | `0.5`           |
-| `--soft-shadows`         | 启用软阴影(Soft Shadows)效果。                                   | `true`          |
-| `--shadow-strength <F>`  | 软阴影强度 (0.0-1.0)，数值越大阴影效果越明显。                      | `0.7`           |
-
-**🔥 增强AO特性**：
-
-- **法线朝向分析**：朝下的表面产生更强的遮蔽效果
-- **边缘检测**：三角形边缘区域自动增强遮蔽
-- **曲率分析**：基于法线变化检测凹陷区域
-- **位置相关遮蔽**：根据在三角形内的位置调整遮蔽强度
-
-**🔥 软阴影特性**：
-
-- **角度软化**：在掠射角处产生更柔和的阴影过渡
-- **深度相关遮蔽**：距离相机较远的区域增强环境遮蔽
-- **局部遮蔽**：基于法线变化计算局部阴影
-- **多光源支持**：为每个光源独立计算软阴影因子
-
-#### 背景与环境设置
-
-| 参数                             | 描述                                     | 默认值            |
-| :------------------------------- | :--------------------------------------- | :---------------- |
-| `--enable-gradient-background`   | 启用渐变背景。                           | `false`           |
-| `--gradient-top-color <R,G,B>`   | 渐变背景顶部颜色 (0-1范围, 如 "0.5,0.7,1.0")。 | `0.5,0.7,1.0`     |
-| `--gradient-bottom-color <R,G,B>`| 渐变背景底部颜色 (0-1范围, 如 "0.1,0.2,0.4")。 | `0.1,0.2,0.4`     |
-| `--enable-ground-plane`          | 启用地面平面。                           | `false`           |
-| `--ground-plane-color <R,G,B>`   | 地面平面颜色 (0-1范围, 如 "0.3,0.5,0.2")。   | `0.3,0.5,0.2`     |
-| `--ground-plane-height <Y>`      | 地面平面在Y轴上的高度 (世界坐标系, <=0)。  | `-1.0`            |
-| `--use-background-image`         | 启用背景图片。                           | `false`           |
-| `--background-image-path <PATH>` | 背景图片的路径。                          | (无)              |
-
-#### 动画设置
-
-| 参数                        | 描述                                                                   | 默认值            |
-| :-------------------------- | :--------------------------------------------------------------------- | :---------------- |
-| `--animate`                 | 渲染动画序列而非单帧 (仅CLI模式)。                                       | `false`           |
-| `--fps <NUM>`               | 视频生成及预渲染帧率（每秒帧数）。                                        | `30`              |
-| `--rotation-cycles <NUM>`   | 动画完成的旋转圈数，影响生成的总帧数。                                    | `1.0`             |
-| `--animation-type <TYPE>`   | 动画类型: `CameraOrbit`, `ObjectLocalRotation`, `None`。                 | `CameraOrbit`     |
-| `--rotation-axis <AXIS>`    | 动画旋转轴: `X`, `Y`, `Z`, `Custom`。                                    | `Y`               |
-| `--custom-rotation-axis <X,Y,Z>` | 自定义旋转轴 (当 `rotation-axis` 为 `Custom` 时使用), 格式 "x,y,z"。 | `0,1,0`           |
-| `--rotation-speed <FACTOR>` | 实时渲染中的旋转速度倍率。                                              | `1.0`             |
-
-### 命令行示例
-
-以下示例演示了如何使用命令行参数进行不同类型的渲染：
-
-#### 1. 基础渲染 (斯坦福兔子)
-
-使用Phong着色渲染默认的兔子模型。
-
-```bash
-cargo run --release -- \
-    --obj obj/simple/bunny.obj \
-    --output-dir output_bunny_phong \
-    --output bunny_phong_render \
-    --width 1024 \
-    --height 1024 \
-    --camera-from "0,0.1,2.5" \
-    --camera-at "0,0.1,0" \
-    --use-phong
-```
-
-#### 2. 带纹理的模型渲染 (Spot)
-
-渲染Spot模型，并使用其纹理。
-
-```bash
-cargo run --release -- \
-    --obj obj/models/spot/spot_triangulated.obj \
-    --texture obj/models/spot/spot_texture.png \
-    --output-dir output_spot_textured \
-    --output spot_textured_render \
-    --width 1024 \
-    --height 1024 \
-    --camera-from "0,0.5,3" \
-    --camera-at "0,0.5,0" \
-    --use-phong \
-    --use-texture
-```
-
-#### 3. PBR 渲染 (岩石模型)
-
-使用PBR参数渲染岩石模型，并应用混合光源和渐变背景。
-
-```bash
-cargo run --release -- \
-    --obj obj/models/rock/rock.obj \
-    --texture obj/models/rock/rock.png \
-    --output-dir output_rock_pbr \
-    --output rock_pbr_render \
-    --width 1280 \
-    --height 720 \
-    --camera-from "3,0.5,3" \
-    --camera-at "0,0.5,0" \
-    --lighting-preset MixedComplete \
-    --ambient 0.3 \
-    --ambient-color "0.5,0.5,0.55" \
-    --use-pbr \
-    --metallic 0.1 \
-    --roughness 0.8 \
-    --base-color "0.9,0.85,0.8" \
-    --ambient-occlusion 0.9 \
-    --enable-gradient-background \
-    --gradient-top-color "0.4,0.6,0.9" \
-    --gradient-bottom-color "0.8,0.8,0.9"
-```
-
-#### 4. 🔥 增强AO和软阴影渲染
-
-展示增强AO和软阴影效果的高质量渲染。
-
-```bash
-cargo run --release -- \
-    --obj obj/simple/bunny.obj \
-    --output-dir output_bunny_enhanced \
-    --output bunny_enhanced_render \
-    --width 1024 \
-    --height 1024 \
-    --camera-from "0,0.1,2.5" \
-    --camera-at "0,0.1,0" \
-    --lighting-preset ThreeDirectional \
-    --ambient 0.2 \
-    --ambient-color "0.3,0.3,0.4" \
-    --use-phong \
-    --enhanced-ao \
-    --ao-strength 0.8 \
-    --soft-shadows \
-    --shadow-strength 0.6 \
-    --enable-gradient-background \
-    --gradient-top-color "0.7,0.8,1.0" \
-    --gradient-bottom-color "0.2,0.3,0.5"
-```
-
-#### 5. 生成动画序列 (相机轨道)
-
-为兔子模型生成一个相机轨道动画序列，完成一整圈旋转。
-
-```bash
-cargo run --release -- \
-    --obj obj/simple/bunny.obj \
-    --output-dir output_bunny_orbit_cli \
-    --output frame \
-    --width 800 \
-    --height 600 \
-    --camera-from "0,0.1,2.5" \
-    --camera-at "0,0.1,0" \
-    --use-phong \
-    --enhanced-ao \
-    --ao-strength 0.6 \
-    --soft-shadows \
-    --shadow-strength 0.5 \
-    --animate \
-    --rotation-cycles 1.0 \
-    --fps 30 \
-    --animation-type CameraOrbit \
-    --rotation-axis Y
-```
-
-然后，你可以使用FFmpeg将 `output_bunny_orbit_cli` 目录下的 `frame_XXX_color.png` 文件合成为视频：
-
-```bash
-ffmpeg -y -framerate 30 -i output_bunny_orbit_cli/frame_%03d_color.png -c:v libx264 -pix_fmt yuv420p bunny_orbit_cli.mp4
 ```
 
 ## 项目架构
 
-项目采用模块化设计，以下是 src 目录的主要结构：
-
-```bash
+```
 src/
-├── core/                    # 核心渲染组件
-│   ├── frame_buffer.rs      # 帧缓冲区管理
-│   ├── geometry_processor.rs # 几何处理管线
-│   ├── rasterizer.rs        # 🔥 光栅化算法实现 (含增强AO和软阴影)
-│   ├── renderer.rs          # 主渲染器逻辑
-│   ├── triangle_processor.rs # 三角形处理和光栅化
-│   └── mod.rs               # 核心模块声明
-├── geometry/                # 几何处理模块
-│   ├── camera.rs            # 相机实现与交互系统
-│   ├── culling.rs           # 剔除算法 (背面、小三角形等)
-│   ├── interpolation.rs     # 插值算法
-│   ├── transform.rs         # 几何变换 (视图、投影、模型变换等)
-│   └── mod.rs               # 几何模块声明
-├── io/                      # 输入输出处理
-│   ├── loaders.rs           # 模型文件加载 (OBJ等)
-│   ├── render_settings.rs   # 🔥 统一的渲染设置与参数处理 (含AO/阴影参数)
-│   ├── resource_loader.rs   # 统一资源加载器
-│   └── mod.rs               # IO模块声明
-├── material_system/         # 材质相关模块
-│   ├── color.rs             # 颜色相关的定义与操作
-│   ├── light.rs             # 光源定义与管理，支持多光源和预设
-│   ├── materials.rs         # 材质定义 (Phong, PBR等)
-│   ├── texture.rs           # 纹理加载与管理
-│   └── mod.rs               # 材质系统模块声明
-├── scene/                   # 场景管理
-│   ├── scene_object.rs      # 场景对象定义与变换控制
-│   ├── scene_utils.rs       # 场景管理工具与统计
-│   └── mod.rs               # 场景模块声明
-├── ui/                      # 用户界面模块
-│   ├── animation.rs         # 动画控制与预渲染逻辑
-│   ├── app.rs               # eframe/egui 应用主逻辑与相机交互
-│   ├── core.rs              # UI核心方法和状态管理
-│   ├── render_ui.rs         # 渲染调用和结果显示
-│   ├── widgets.rs           # 🔥 自定义UI组件和侧边栏绘制 (含AO/阴影控件)
-│   └── mod.rs               # UI模块声明
-├── utils/                   # 工具函数
-│   ├── model_utils.rs       # 模型处理相关的工具函数
-│   ├── render_utils.rs      # 渲染相关的工具函数
-│   ├── save_utils.rs        # 图像保存等工具函数
-│   └── mod.rs               # 工具模块声明
-└── main.rs                  # 程序入口点
+├── 🏗️ core/                    # 核心渲染引擎
+│   ├── frame_buffer.rs         # 帧缓冲区与背景管理
+│   ├── renderer.rs            # 主渲染器协调
+│   ├── rasterizer.rs          # 🔥 增强光栅化算法
+│   └── triangle_processor.rs  # 三角形处理与多线程
+├── 📐 geometry/                # 几何处理模块  
+│   ├── camera.rs              # 专业相机系统
+│   ├── transform.rs           # 几何变换矩阵
+│   ├── culling.rs             # 智能剔除算法
+│   └── interpolation.rs       # 插值算法
+├── 📁 io/                      # 🔥 配置与IO系统
+│   ├── config_loader.rs       # TOML配置管理器
+│   ├── simple_cli.rs          # 极简CLI处理
+│   ├── render_settings.rs     # 统一配置数据结构
+│   └── model_loader.rs        # 模型资源加载
+├── 💡 material_system/         # 材质与光照
+│   ├── light.rs               # 多光源系统
+│   ├── materials.rs           # Phong/PBR材质
+│   ├── texture.rs             # 纹理管理
+│   └── color.rs               # 颜色处理
+├── 🎬 scene/                   # 场景管理
+│   ├── scene_utils.rs         # 场景构建与统计
+│   └── scene_object.rs        # 场景对象变换
+├── 🖥️ ui/                      # 现代化GUI界面
+│   ├── app.rs                 # eframe应用主逻辑
+│   ├── widgets.rs             # 自定义UI组件
+│   ├── render_ui.rs           # 文件选择与配置管理
+│   ├── core.rs                # GUI核心方法
+│   └── animation.rs           # 动画控制逻辑
+├── 🛠️ utils/                   # 工具函数库
+│   ├── render_utils.rs        # 渲染辅助函数
+│   ├── model_utils.rs         # 模型处理工具
+│   └── save_utils.rs          # 文件保存工具
+└── main.rs                    # 程序入口点
 ```
 
-**各主要模块功能概览：**
+### 🔥 v2.0 架构亮点
 
-- **`core`**: 包含渲染器核心组件，包括帧缓冲区、几何处理器、🔥**增强光栅化器**和三角形处理器
-- **`geometry`**: 处理几何变换、相机系统（含交互功能）、插值和剔除等
-- **`material_system`**: 定义材质、光源、颜色和纹理，支持多种光源类型和预设
-- **`scene`**: 管理场景对象和变换，包括场景统计和对象控制
-- **`io`**: 负责输入/输出，包括🔥**增强参数解析**和资源加载
-- **`ui`**: 实现完整的图形用户界面，包括相机交互、动画控制、🔥**AO/阴影参数调整**等
-- **`utils`**: 包含各种辅助函数，如模型处理、渲染辅助和保存图像
+- **🎯 配置驱动架构**: `RenderSettings`作为单一数据源，CLI/GUI/TOML三者统一
+- **📦 模块化设计**: 清晰的功能边界，便于维护和扩展
+- **⚡ 性能优化**: 多线程渲染、智能剔除、预渲染缓存
+- **🔄 实时交互**: GUI参数变化立即反映到渲染结果
+- **💾 状态管理**: 统一的错误处理、进度监控、资源清理
 
-**🔥 增强渲染特性：**
+## 示例与教程
 
-- **增强环境光遮蔽(Enhanced AO)**: 基于法线朝向、边缘检测、曲率分析和位置相关的高级AO算法
-- **软阴影(Soft Shadows)**: 基于角度软化、深度相关遮蔽和局部遮蔽的软阴影计算
-- **智能强度控制**: 可调节的强度参数，支持从微妙到显著的效果变化
-- **多着色模型支持**: 同时支持PBR、Phong和Flat着色模式的增强效果
+### 📚 基础渲染示例
 
-**核心设计特点：**
+#### 简单模型渲染
 
-- **模块化架构**: 清晰的功能分离，便于维护和扩展
-- **统一参数管理**: `RenderSettings` 同时支持CLI和GUI模式
-- **专业相机系统**: 支持工业级3D软件标准的相机交互
-- **多线程渲染**: 充分利用现代CPU的多核性能
-- **实时交互**: GUI支持实时参数调整和相机操作
-- **🔥 高级视觉效果**: 增强AO和软阴影提供电影级的渲染质量
+```bash
+# 1. 创建基础配置
+cargo run --release -- --use-example-config
 
-## 未来展望
+# 2. 编辑配置 - 设置自己的模型
+[files]
+obj = "path/to/your/model.obj"
+output = "my_first_render"
 
-- **🌫️ 阴影映射** - Shadow Mapping，正在开发中
-- **🎨 高级材质系统** - 次表面散射、清漆层、各向异性材质
-- **⚡ 后处理效果** - 抗锯齿AA、景深DoF、辉光Bloom、色调映射
-- **🔥 屏幕空间效果** - SSAO、SSR（屏幕空间反射）、SSGI（屏幕空间全局光照）
-- **🦴 骨骼动画支持** - 角色动画和蒙皮
-- **🎬 动画编辑器** - 关键帧动画系统
-- **🔧 场景编辑器** - 多对象场景管理和编辑
-- **📊 性能分析器** - 渲染性能监控和优化
-- **🎮 VR/AR支持** - 立体渲染和沉浸式体验
+# 3. GUI模式渲染
+cargo run --release -- --config temp_example_config.toml
+```
+
+#### PBR材质展示
+
+```toml
+[material]
+use_pbr = true
+base_color = "0.9,0.7,0.5"      # 金属基色
+metallic = 0.8                   # 高金属度
+roughness = 0.2                  # 低粗糙度(光滑)
+enhanced_ao = true
+ao_strength = 0.7
+
+[[light]]
+type = "directional"
+direction = "0.2,-1.0,-0.3"
+color = "1.0,0.9,0.8"            # 暖色调主光
+intensity = 1.2
+
+[[light]]
+type = "point"
+position = "3.0,2.0,3.0"
+color = "0.6,0.8,1.0"            # 冷色调补光
+intensity = 0.8
+```
+
+### 🎬 动画制作工作流
+
+#### 相机轨道动画
+
+```toml
+[animation]
+animation_type = "CameraOrbit"
+rotation_axis = "Y"
+rotation_cycles = 1.0            # 完整一圈
+fps = 30                         # 30fps视频
+
+[camera]
+from = "3.0,1.0,3.0"            # 起始位置
+at = "0,0.5,0"                  # 观察中心
+```
+
+**操作流程**:
+
+1. 在GUI中点击"开始动画渲染"预览效果
+2. 调整相机位置和旋转速度
+3. 启用预渲染模式进行高质量预览
+4. 满意后点击"生成视频"导出MP4
+
+#### 物体旋转展示
+
+```toml
+[animation]
+animation_type = "ObjectLocalRotation"
+rotation_axis = "Custom"
+custom_rotation_axis = "0.3,1.0,0.2"  # 倾斜轴旋转
+rotation_cycles = 2.0                   # 两圈展示
+
+[object]
+position = "0,0,0"
+scale = 1.5                            # 放大展示
+```
+
+### 🏭 生产环境配置
+
+#### 高质量静态渲染
+
+```toml
+[render]
+width = 3840                     # 4K分辨率
+height = 2160
+use_multithreading = true
+enhanced_ao = true
+ao_strength = 0.8
+soft_shadows = true
+shadow_strength = 0.6
+
+[lighting]
+ambient = 0.15                   # 适中环境光
+
+# 三点布光设置
+[[light]]
+type = "directional"             # 主光源
+direction = "0.3,-0.8,-0.5"
+intensity = 1.0
+
+[[light]]
+type = "point"                   # 补光源
+position = "-2.0,1.5,2.0"
+intensity = 0.6
+
+[[light]]
+type = "point"                   # 轮廓光
+position = "1.5,0.5,-2.0"
+intensity = 0.4
+```
+
+#### 批量渲染脚本
+
+```bash
+#!/bin/bash
+# batch_render.sh
+
+models_dir="assets/models"
+output_dir="rendered_images"
+config_template="templates/high_quality.toml"
+
+for model_file in "$models_dir"/*.obj; do
+    model_name=$(basename "$model_file" .obj)
+    
+    # 复制配置模板
+    config_file="temp_${model_name}_config.toml"
+    cp "$config_template" "$config_file"
+    
+    # 修改配置中的模型路径
+    sed -i "s|PLACEHOLDER_MODEL|$model_file|g" "$config_file"
+    sed -i "s|PLACEHOLDER_OUTPUT|$model_name|g" "$config_file"
+    
+    # 无头渲染
+    cargo run --release -- --config "$config_file" --headless
+    
+    # 清理临时配置
+    rm "$config_file"
+    
+    echo "✅ 完成渲染: $model_name"
+done
+
+echo "🎉 批量渲染完成！"
+```
+
+## 性能优化建议
+
+### 💻 硬件配置
+
+- **CPU**: 推荐8核心以上，受益于多线程光栅化
+- **内存**: 16GB+，支持大模型和预渲染缓存
+- **存储**: SSD优先，加速纹理和模型加载
+
+### ⚙️ 渲染设置优化
+
+#### 高性能设置
+
+```toml
+[render]
+use_multithreading = true        # 多线程加速
+cull_small_triangles = true      # 剔除小三角形
+min_triangle_area = 0.001       # 剔除阈值
+backface_culling = true         # 背面剔除
+```
+
+#### 高质量设置
+
+```toml
+[render]
+enhanced_ao = true
+ao_strength = 0.8
+soft_shadows = true
+shadow_strength = 0.6
+use_gamma = true                # Gamma校正
+```
+
+#### 平衡设置
+
+```toml
+[render]
+enhanced_ao = true
+ao_strength = 0.5               # 适中AO强度
+soft_shadows = true  
+shadow_strength = 0.4           # 适中阴影强度
+cull_small_triangles = true
+```
+
+## 故障排除
+
+### 常见问题
+
+#### 🔧 编译问题
+
+```bash
+# 确保Rust版本
+rustc --version  # 应为1.81+
+
+# 清理重新构建
+cargo clean
+cargo build --release
+```
+
+#### 📁 文件加载问题
+
+```bash
+# 检查文件路径
+ls -la obj/models/        # Linux/macOS
+dir obj\models\           # Windows
+
+# 验证文件格式
+file model.obj            # 应显示ASCII text
+```
+
+#### 🎥 视频生成问题
+
+```bash
+# 检查FFmpeg
+ffmpeg -version
+
+# Windows安装FFmpeg
+choco install ffmpeg
+
+# 检查输出目录权限
+ls -la output_directory/
+```
+
+#### 🖱️ 相机交互无响应
+
+- 确保在**中央渲染区域**操作，不是左侧面板
+- 首先进行一次渲染，生成图像后才能交互
+- 检查鼠标是否在图像区域内
+
+### 📊 性能分析
+
+#### 内存使用
+
+```bash
+# 查看内存占用
+top -p $(pgrep rasterizer)    # Linux
+# 或在任务管理器中查看        # Windows
+```
+
+#### 渲染性能
+
+```toml
+# 在GUI中启用FPS显示
+# 实时动画渲染时查看右上角FPS统计
+# 目标: 
+# - 简单场景: 30+ FPS
+# - 复杂场景: 15+ FPS  
+# - 高质量渲染: 5+ FPS
+```
+
+## 贡献指南
+
+### 🛠️ 开发环境搭建
+
+```bash
+# 1. Fork项目
+git clone https://github.com/Rukkhadevata123/Rasterizer_rust
+cd Rasterizer_rust
+
+# 2. 创建开发分支
+git checkout -b feature/your-feature-name
+
+# 3. 安装开发依赖
+cargo install cargo-clippy cargo-fmt
+
+# 4. 运行测试
+cargo test
+cargo clippy
+cargo fmt
+```
+
+### 📝 代码规范
+
+- **Rust风格**: 遵循官方Rust代码规范
+- **注释语言**: 中文注释，英文变量名
+- **提交信息**: 使用约定式提交格式
+- **测试覆盖**: 新功能需要相应测试
+
+### 🔍 测试配置
+
+```toml
+# tests/test_config.toml - 单元测试配置
+[files]
+obj = "tests/assets/cube.obj"
+output = "test_output"
+
+[render]
+width = 256
+height = 256
+use_multithreading = false      # 测试时禁用多线程
+```
+
+## 版本历史
+
+### 🎉 v2.0.0 (Current)
+
+- ✨ **全新TOML配置系统**
+- 🖥️ **现代化GUI界面重构**  
+- 📁 **配置文件管理功能**
+- 🔥 **增强AO和软阴影算法**
+- 🎬 **预渲染动画系统**
+- 🖱️ **专业级相机交互**
+
+### v1.x Legacy
+
+- 基础光栅化渲染器
+- CLI参数配置
+- Phong/PBR着色模型
+- 多线程渲染支持
 
 ## 许可证
 
-本项目采用 MIT 许可证。详见 LICENSE 文件。
+本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
+
+## 致谢
+
+- **egui**: 现代化Rust GUI框架
+- **nalgebra**: 高性能线性代数库
+- **image**: 图像处理库
+- **toml**: TOML配置解析
+- **clap**: CLI参数解析
+
+---
+
+<div align="center">
+
+**🎨 用Rust重新定义软件光栅化渲染 🎨**
+
+[🔗 GitHub仓库](https://github.com/Rukkhadevata123/Rasterizer_rust) | [📚 文档](README.md) | [🐛 问题反馈](https://github.com/Rukkhadevata123/Rasterizer_rust/issues)
+
+</div>

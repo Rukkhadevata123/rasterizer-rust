@@ -1,3 +1,4 @@
+use crate::io::config_loader::TomlConfigLoader;
 use crate::io::model_loader::ModelLoader;
 use crate::ui::app::RasterizerApp;
 use native_dialog::FileDialogBuilder;
@@ -8,6 +9,7 @@ use native_dialog::FileDialogBuilder;
 /// - 文件选择对话框
 /// - 背景图片处理
 /// - 输出目录选择
+/// - 配置文件管理
 pub trait RenderUIMethods {
     /// 选择OBJ文件
     fn select_obj_file(&mut self);
@@ -20,6 +22,15 @@ pub trait RenderUIMethods {
 
     /// 选择输出目录
     fn select_output_dir(&mut self);
+
+    /// 🔥 **加载配置文件**
+    fn load_config_file(&mut self);
+
+    /// 🔥 **保存配置文件**
+    fn save_config_file(&mut self);
+
+    /// 🔥 **应用加载的配置到GUI**
+    fn apply_loaded_config(&mut self, settings: crate::io::render_settings::RenderSettings);
 }
 
 impl RenderUIMethods for RasterizerApp {
@@ -144,5 +155,119 @@ impl RenderUIMethods for RasterizerApp {
                 self.set_error(format!("目录选择器错误: {}", e));
             }
         }
+    }
+
+    /// 🔥 **加载配置文件**
+    fn load_config_file(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("加载配置文件")
+            .add_filter("TOML配置文件", ["toml"])
+            .open_single_file()
+            .show();
+
+        match result {
+            Ok(Some(path)) => {
+                if let Some(path_str) = path.to_str() {
+                    match TomlConfigLoader::load_from_file(path_str) {
+                        Ok(loaded_settings) => {
+                            self.apply_loaded_config(loaded_settings);
+                            self.status_message = format!("配置已加载: {}", path_str);
+                        }
+                        Err(e) => {
+                            self.set_error(format!("配置加载失败: {}", e));
+                        }
+                    }
+                }
+            }
+            Ok(None) => {
+                self.status_message = "配置加载被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("文件选择器错误: {}", e));
+            }
+        }
+    }
+
+    /// 🔥 **保存配置文件**
+    fn save_config_file(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("保存配置文件")
+            .add_filter("TOML配置文件", ["toml"])
+            .save_single_file()
+            .show();
+
+        match result {
+            Ok(Some(path)) => {
+                let mut save_path = path;
+
+                // 自动添加.toml扩展名（如果没有）
+                if save_path.extension().is_none() {
+                    save_path.set_extension("toml");
+                }
+
+                if let Some(path_str) = save_path.to_str() {
+                    match TomlConfigLoader::save_to_file(&self.settings, path_str) {
+                        Ok(_) => {
+                            self.status_message = format!("配置已保存: {}", path_str);
+                        }
+                        Err(e) => {
+                            self.set_error(format!("配置保存失败: {}", e));
+                        }
+                    }
+                }
+            }
+            Ok(None) => {
+                self.status_message = "配置保存被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("文件选择器错误: {}", e));
+            }
+        }
+    }
+
+    /// 🔥 **应用加载的配置到GUI**
+    fn apply_loaded_config(&mut self, loaded_settings: crate::io::render_settings::RenderSettings) {
+        // 保存旧的settings
+        self.settings = loaded_settings;
+
+        // 🔥 **重新同步GUI专用向量字段**
+        self.object_position_vec = if let Ok(pos) =
+            crate::io::render_settings::parse_vec3(&self.settings.object_position)
+        {
+            pos
+        } else {
+            nalgebra::Vector3::new(0.0, 0.0, 0.0)
+        };
+
+        self.object_rotation_vec = if let Ok(rot) =
+            crate::io::render_settings::parse_vec3(&self.settings.object_rotation)
+        {
+            nalgebra::Vector3::new(rot.x.to_radians(), rot.y.to_radians(), rot.z.to_radians())
+        } else {
+            nalgebra::Vector3::new(0.0, 0.0, 0.0)
+        };
+
+        self.object_scale_vec = if let Ok(scale) =
+            crate::io::render_settings::parse_vec3(&self.settings.object_scale_xyz)
+        {
+            scale
+        } else {
+            nalgebra::Vector3::new(1.0, 1.0, 1.0)
+        };
+
+        // 🔥 **如果分辨率变化，重新创建渲染器**
+        if self.renderer.frame_buffer.width != self.settings.width
+            || self.renderer.frame_buffer.height != self.settings.height
+        {
+            self.renderer =
+                crate::core::renderer::Renderer::new(self.settings.width, self.settings.height);
+        }
+
+        // 🔥 **清除现有场景和渲染结果，强制重新加载**
+        self.scene = None;
+        self.rendered_image = None;
+        self.interface_interaction.anything_changed = true;
+
+        println!("配置已应用到GUI界面");
     }
 }

@@ -4,7 +4,8 @@ use std::sync::atomic::Ordering;
 use super::animation::AnimationMethods;
 use super::app::RasterizerApp;
 use super::core::CoreMethods;
-use super::render_ui::RenderUIMethods;
+use super::render_ui::RenderUIMethods; // 🔥 **新增：导入RenderUIMethods**
+use crate::io::config_loader::TomlConfigLoader; // 🔥 **新增：导入配置加载器**
 use crate::io::render_settings::{AnimationType, RotationAxis, parse_vec3};
 
 /// UI组件和工具提示相关方法的特质
@@ -172,6 +173,42 @@ impl WidgetMethods for RasterizerApp {
                 app.select_obj_file();
             }
         });
+
+        // 🔥 **新增：配置文件管理** - 放在OBJ文件下方
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label("配置文件：");
+            if ui.button("📁 加载配置").clicked() {
+                app.load_config_file();
+            }
+            if ui.button("💾 保存配置").clicked() {
+                app.save_config_file();
+            }
+            if ui.button("📋 示例配置").clicked() {
+                // 创建示例配置并应用
+                match TomlConfigLoader::create_example_config("temp_example_for_gui.toml") {
+                    Ok(_) => {
+                        match TomlConfigLoader::load_from_file("temp_example_for_gui.toml") {
+                            Ok(example_settings) => {
+                                app.apply_loaded_config(example_settings);
+                                app.status_message = "示例配置已应用".to_string();
+                                // 删除临时文件
+                                let _ = std::fs::remove_file("temp_example_for_gui.toml");
+                            }
+                            Err(e) => {
+                                app.set_error(format!("加载示例配置失败: {}", e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        app.set_error(format!("创建示例配置失败: {}", e));
+                    }
+                }
+            }
+        });
+        ui.small("💡 提示：加载配置会覆盖当前所有设置");
+
+        ui.separator();
 
         ui.horizontal(|ui| {
             ui.label("输出目录：");
@@ -948,7 +985,7 @@ impl WidgetMethods for RasterizerApp {
         });
     }
 
-    /// 🔥 **光照设置面板** - 移除主光源强度控制
+    /// 🔥 **光照设置面板** - 移除预设，简化为直接光源管理
     fn ui_lighting_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, _ctx: &Context) {
         // 总光照开关
         let resp = ui
@@ -989,60 +1026,7 @@ impl WidgetMethods for RasterizerApp {
 
         ui.separator();
 
-        // 🔥 **光照预设选择器** - 简化，移除主光源强度参数
-        ui.horizontal(|ui| {
-            ui.label("光照预设:");
-            let old_preset = app.settings.lighting_preset.clone();
-
-            egui::ComboBox::from_id_salt("lighting_preset_combo")
-                .selected_text(match app.settings.lighting_preset {
-                    crate::material_system::light::LightingPreset::SingleDirectional => {
-                        "单一方向光"
-                    }
-                    crate::material_system::light::LightingPreset::ThreeDirectional => "三面方向光",
-                    crate::material_system::light::LightingPreset::MixedComplete => "混合光源",
-                    crate::material_system::light::LightingPreset::None => "无光源",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut app.settings.lighting_preset,
-                        crate::material_system::light::LightingPreset::SingleDirectional,
-                        "单一方向光",
-                    );
-                    ui.selectable_value(
-                        &mut app.settings.lighting_preset,
-                        crate::material_system::light::LightingPreset::ThreeDirectional,
-                        "三面方向光",
-                    );
-                    ui.selectable_value(
-                        &mut app.settings.lighting_preset,
-                        crate::material_system::light::LightingPreset::MixedComplete,
-                        "混合光源",
-                    );
-                    ui.selectable_value(
-                        &mut app.settings.lighting_preset,
-                        crate::material_system::light::LightingPreset::None,
-                        "无光源",
-                    );
-                });
-
-            // 🔥 **自动应用：预设变化时立即更新光源** - 使用默认强度
-            if app.settings.lighting_preset != old_preset {
-                app.settings.lights =
-                    crate::material_system::light::LightManager::create_preset_lights(
-                        &app.settings.lighting_preset,
-                        app.settings.use_lighting,
-                        app.settings.main_light_intensity, // 保持CLI兼容性，但GUI不显示
-                    );
-                app.interface_interaction.anything_changed = true;
-            }
-        });
-
-        // 🔥 **移除了主光源强度控制** - GUI中直接编辑各个光源
-
-        ui.separator();
-
-        // 🔥 **动态光源管理** - 添加/删除按钮
+        // 🔥 **直接光源管理** - 添加/删除按钮
         if app.settings.use_lighting {
             ui.horizontal(|ui| {
                 if ui.button("➕ 添加方向光").clicked() {
@@ -1114,7 +1098,7 @@ impl WidgetMethods for RasterizerApp {
                                 }
 
                                 if *enabled {
-                                    // 🔥 **独立的强度控制** - 不再依赖全局主光源强度
+                                    // 🔥 **独立的强度控制**
                                     let resp = ui.add(
                                         egui::Slider::new(intensity, 0.0..=3.0)
                                             .text("强度")
@@ -1268,7 +1252,6 @@ impl WidgetMethods for RasterizerApp {
                 ui.group(|ui| {
                     ui.label("💡 提示：当前没有光源");
                     ui.label("点击上方的「➕ 添加」按钮来添加光源");
-                    ui.label("🎛️ 或选择光照预设快速配置");
                 });
             }
         }
