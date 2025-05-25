@@ -24,7 +24,7 @@ impl Renderer {
     }
 
     /// 渲染完整场景 - 唯一的公共渲染接口
-    pub fn render_scene(&self, scene: &mut Scene, settings: &RenderSettings) {
+    pub fn render_scene(&mut self, scene: &mut Scene, settings: &RenderSettings) {
         let start_time = Instant::now();
 
         // 清空帧缓冲区

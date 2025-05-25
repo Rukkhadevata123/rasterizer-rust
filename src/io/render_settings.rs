@@ -166,11 +166,11 @@ pub struct RenderSettings {
     pub use_lighting: bool,
 
     /// 环境光强度因子
-    #[arg(long, default_value_t = 0.1)]
+    #[arg(long, default_value_t = 0.3)]
     pub ambient: f32,
 
     /// 环境光强度RGB值，格式为"r,g,b"
-    #[arg(long, default_value = "0.1,0.1,0.1")]
+    #[arg(long, default_value = "0.3,0.4,0.5")]
     pub ambient_color: String,
 
     /// 光照预设模式
@@ -274,24 +274,9 @@ pub struct RenderSettings {
     #[arg(long)]
     pub background_image_path: Option<String>,
 
-    // ===== 运行时字段（不是命令行参数） =====
+    // ===== 🔥 **运行时字段（不是命令行参数）** =====
     #[arg(skip)]
     pub lights: Vec<Light>,
-
-    #[arg(skip)]
-    pub ambient_color_vec: Vector3<f32>,
-
-    #[arg(skip)]
-    pub gradient_top_color_vec: Vector3<f32>,
-
-    #[arg(skip)]
-    pub gradient_bottom_color_vec: Vector3<f32>,
-
-    #[arg(skip)]
-    pub ground_plane_color_vec: Vector3<f32>,
-
-    #[arg(skip)]
-    pub background_image: Option<crate::material_system::texture::Texture>,
 }
 
 /// 辅助函数用于解析逗号分隔的浮点数
@@ -339,35 +324,64 @@ pub fn get_animation_axis_vector(settings: &RenderSettings) -> Vector3<f32> {
 
 impl Default for RenderSettings {
     fn default() -> Self {
-        let mut settings = Self::parse_from(std::iter::empty::<String>());
+        // 🔥 **智能选择：检查是否有命令行参数**
+        let args: Vec<String> = std::env::args().collect();
 
-        // 🔥 **直接基于预设创建光源**
-        settings.lights = crate::material_system::light::LightManager::create_preset_lights(
-            &settings.lighting_preset,
-            settings.main_light_intensity,
-        );
+        let mut settings = if args.len() > 1
+            && args
+                .iter()
+                .any(|arg| arg.starts_with("--") || arg.ends_with(".obj"))
+        {
+            // 有有效命令行参数，解析它们
+            Self::parse()
+        } else {
+            // 无有效命令行参数，使用clap默认值
+            Self::parse_from(std::iter::empty::<String>())
+        };
 
-        // 🔥 **确保有光源**
-        crate::material_system::light::LightManager::ensure_lights_exist(
-            &mut settings.lights,
-            settings.use_lighting,
-            settings.main_light_intensity,
-        );
-
-        // 初始化其他运行时字段
-        settings.ambient_color_vec = Vector3::new(0.1, 0.1, 0.1);
-        settings.gradient_top_color_vec = Vector3::new(0.5, 0.7, 1.0);
-        settings.gradient_bottom_color_vec = Vector3::new(0.1, 0.2, 0.4);
-        settings.ground_plane_color_vec = Vector3::new(0.3, 0.5, 0.2);
-        settings.background_image = None;
-
-        settings.update_color_vectors();
+        // 🔥 **关键修复：无论哪种情况都确保有光源**
+        if settings.use_lighting {
+            settings.lights = crate::material_system::light::LightManager::create_preset_lights(
+                &settings.lighting_preset,
+                settings.use_lighting,
+                settings.main_light_intensity,
+            );
+        } else {
+            settings.lights = Vec::new();
+        }
 
         settings
     }
 }
 
 impl RenderSettings {
+    // ===== 🔥 **新增：按需计算方法（替代重复存储）** =====
+
+    /// 获取环境光颜色向量（按需计算）
+    pub fn get_ambient_color_vec(&self) -> Vector3<f32> {
+        parse_vec3(&self.ambient_color).unwrap_or_else(|_| Vector3::new(0.1, 0.1, 0.1))
+    }
+
+    /// 获取渐变顶部颜色向量（按需计算）
+    pub fn get_gradient_top_color_vec(&self) -> Vector3<f32> {
+        parse_vec3(&self.gradient_top_color).unwrap_or_else(|_| Vector3::new(0.5, 0.7, 1.0))
+    }
+
+    /// 获取渐变底部颜色向量（按需计算）
+    pub fn get_gradient_bottom_color_vec(&self) -> Vector3<f32> {
+        parse_vec3(&self.gradient_bottom_color).unwrap_or_else(|_| Vector3::new(0.1, 0.2, 0.4))
+    }
+
+    /// 获取地面平面颜色向量（按需计算）
+    pub fn get_ground_plane_color_vec(&self) -> Vector3<f32> {
+        parse_vec3(&self.ground_plane_color).unwrap_or_else(|_| Vector3::new(0.3, 0.5, 0.2))
+    }
+
+    // ===== 🔥 **删除了 update_color_vectors 方法** =====
+    // 不再需要同步方法！
+
+    // ===== **保留原有的方法** =====
+
     /// 解析物体变换参数为向量（统一接口）
     pub fn get_object_transform_components(&self) -> (Vector3<f32>, Vector3<f32>, Vector3<f32>) {
         // 解析位置
@@ -403,21 +417,6 @@ impl RenderSettings {
         false
     }
 
-    /// 更新所有颜色向量，将字符串表示解析为Vector3
-    pub fn update_color_vectors(&mut self) {
-        self.ambient_color_vec =
-            parse_vec3(&self.ambient_color).unwrap_or_else(|_| Vector3::new(0.1, 0.1, 0.1));
-
-        self.gradient_top_color_vec =
-            parse_vec3(&self.gradient_top_color).unwrap_or_else(|_| Vector3::new(0.5, 0.7, 1.0));
-
-        self.gradient_bottom_color_vec =
-            parse_vec3(&self.gradient_bottom_color).unwrap_or_else(|_| Vector3::new(0.1, 0.2, 0.4));
-
-        self.ground_plane_color_vec =
-            parse_vec3(&self.ground_plane_color).unwrap_or_else(|_| Vector3::new(0.3, 0.5, 0.2));
-    }
-
     /// 判断是否使用透视投影
     pub fn is_perspective(&self) -> bool {
         self.projection == "perspective"
@@ -432,23 +431,6 @@ impl RenderSettings {
         } else {
             "平面着色模型".to_string()
         }
-    }
-
-    pub fn change_lighting_preset(&mut self, new_preset: LightingPreset) {
-        self.lighting_preset = new_preset;
-
-        // 🔥 **直接重用LightManager的逻辑**
-        self.lights = crate::material_system::light::LightManager::create_preset_lights(
-            &self.lighting_preset,
-            self.main_light_intensity,
-        );
-
-        // 🔥 **确保有光源**
-        crate::material_system::light::LightManager::ensure_lights_exist(
-            &mut self.lights,
-            self.use_lighting,
-            self.main_light_intensity,
-        );
     }
 
     /// 验证渲染参数

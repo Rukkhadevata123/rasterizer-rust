@@ -1,4 +1,4 @@
-use crate::ResourceLoader;
+use crate::io::model_loader::ModelLoader;
 use crate::ui::app::RasterizerApp;
 use native_dialog::FileDialogBuilder;
 
@@ -11,6 +11,9 @@ use native_dialog::FileDialogBuilder;
 pub trait RenderUIMethods {
     /// 选择OBJ文件
     fn select_obj_file(&mut self);
+
+    /// 选择纹理文件
+    fn select_texture_file(&mut self);
 
     /// 选择背景图片
     fn select_background_image(&mut self);
@@ -33,6 +36,11 @@ impl RenderUIMethods for RasterizerApp {
                 if let Some(path_str) = path.to_str() {
                     self.settings.obj = Some(path_str.to_string());
                     self.status_message = format!("已选择模型: {}", path_str);
+
+                    // 🔥 **新增：OBJ文件变化需要重新加载场景和重新渲染**
+                    self.interface_interaction.anything_changed = true;
+                    self.scene = None; // 清除现有场景，强制重新加载
+                    self.rendered_image = None; // 清除渲染结果
                 }
             }
             Ok(None) => {
@@ -44,7 +52,34 @@ impl RenderUIMethods for RasterizerApp {
         }
     }
 
-    /// 选择背景图片
+    /// 选择纹理文件
+    fn select_texture_file(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("选择纹理文件")
+            .add_filter("图像文件", ["png", "jpg", "jpeg", "bmp", "tga"])
+            .open_single_file()
+            .show();
+
+        match result {
+            Ok(Some(path)) => {
+                if let Some(path_str) = path.to_str() {
+                    self.settings.texture = Some(path_str.to_string());
+                    self.status_message = format!("已选择纹理: {}", path_str);
+
+                    // 🔥 **纹理变化需要重新渲染**
+                    self.interface_interaction.anything_changed = true;
+                }
+            }
+            Ok(None) => {
+                self.status_message = "纹理选择被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("纹理选择错误: {}", e));
+            }
+        }
+    }
+
+    /// 🔥 **修复：选择背景图片** - 适配新的背景管理架构
     fn select_background_image(&mut self) {
         let result = FileDialogBuilder::default()
             .set_title("选择背景图片")
@@ -55,21 +90,26 @@ impl RenderUIMethods for RasterizerApp {
         match result {
             Ok(Some(path)) => {
                 if let Some(path_str) = path.to_str() {
-                    // 设置背景图片路径
+                    // 🔥 **只设置背景图片路径，不再直接加载到 settings**
                     self.settings.background_image_path = Some(path_str.to_string());
-                    self.status_message = format!("已选择背景图片: {}", path_str);
+                    self.settings.use_background_image = true;
 
-                    // 使用ResourceLoader加载背景图片
-                    match ResourceLoader::load_background_image_from_path(path_str) {
-                        Ok(texture) => {
-                            self.settings.background_image = Some(texture);
-                            self.settings.use_background_image = true;
-                            self.status_message = format!("背景图片加载成功: {}", path_str);
+                    // 🔥 **使用 ModelLoader 验证背景图片是否有效**
+                    match ModelLoader::validate_resources(&self.settings) {
+                        Ok(_) => {
+                            self.status_message = format!("背景图片配置成功: {}", path_str);
+
+                            // 🔥 **清除已渲染的图像，强制重新渲染以应用新背景**
+                            self.rendered_image = None;
+
+                            println!("背景图片路径已设置: {}", path_str);
+                            println!("背景图片将在下次渲染时由 FrameBuffer 自动加载");
                         }
                         Err(e) => {
-                            self.set_error(format!("背景图片加载失败: {}", e));
+                            // 🔥 **验证失败，重置背景设置**
+                            self.set_error(format!("背景图片验证失败: {}", e));
                             self.settings.background_image_path = None;
-                            self.settings.background_image = None;
+                            self.settings.use_background_image = false;
                         }
                     }
                 }

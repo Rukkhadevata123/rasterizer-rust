@@ -53,7 +53,7 @@ where
     F: FnMut(usize, Vec<u8>),
 {
     // 创建线程渲染器
-    let thread_renderer = Renderer::new(width, height);
+    let mut thread_renderer = Renderer::new(width, height);
 
     // 计算旋转参数
     let (effective_rotation_speed_dps, _, frames_to_render) =
@@ -136,8 +136,13 @@ impl AnimationMethods for RasterizerApp {
                         return;
                     }
                 };
-                match self.load_model(&obj_path) {
-                    Ok(_) => {
+                match crate::io::model_loader::ModelLoader::load_and_create_scene(
+                    &obj_path,
+                    &self.settings,
+                ) {
+                    Ok((scene, model_data)) => {
+                        self.scene = Some(scene);
+                        self.model_data = Some(model_data);
                         self.start_pre_rendering(ctx);
                         return;
                     }
@@ -173,9 +178,15 @@ impl AnimationMethods for RasterizerApp {
                     return;
                 }
             };
-            match self.load_model(&obj_path) {
-                Ok(_) => {
-                    self.status_message = "模型加载成功，开始实时渲染...".to_string();
+            match crate::io::model_loader::ModelLoader::load_and_create_scene(
+                &obj_path,
+                &self.settings,
+            ) {
+                Ok((scene, model_data)) => {
+                    self.scene = Some(scene);
+                    self.model_data = Some(model_data);
+                    self.start_pre_rendering(ctx);
+                    return;
                 }
                 Err(e) => {
                     self.set_error(format!("加载模型失败: {}", e));
@@ -289,8 +300,15 @@ impl AnimationMethods for RasterizerApp {
                             return;
                         }
                     };
-                    match self.load_model(&obj_path) {
-                        Ok(_) => self.status_message = "模型加载成功，开始生成视频...".to_string(),
+                    match crate::io::model_loader::ModelLoader::load_and_create_scene(
+                        &obj_path,
+                        &self.settings,
+                    ) {
+                        Ok((scene, model_data)) => {
+                            self.scene = Some(scene);
+                            self.model_data = Some(model_data);
+                            self.status_message = "模型加载成功，开始生成视频...".to_string();
+                        }
                         Err(e) => {
                             self.set_error(format!("加载模型失败，无法生成视频: {}", e));
                             return;
@@ -490,8 +508,15 @@ impl AnimationMethods for RasterizerApp {
                             return;
                         }
                     };
-                    match self.load_model(&obj_path) {
-                        Ok(_) => self.status_message = "模型加载成功，开始预渲染...".to_string(),
+                    match crate::io::model_loader::ModelLoader::load_and_create_scene(
+                        &obj_path,
+                        &self.settings,
+                    ) {
+                        Ok((scene, model_data)) => {
+                            self.scene = Some(scene);
+                            self.model_data = Some(model_data);
+                            self.status_message = "模型加载成功，开始预渲染...".to_string();
+                        }
                         Err(e) => {
                             self.set_error(format!("加载模型失败，无法预渲染: {}", e));
                             return;

@@ -79,26 +79,6 @@ pub struct InterfaceInteraction {
 }
 
 impl RasterizerApp {
-    /// 🔥 **统一的设置后处理方法** - 只处理GUI特有逻辑
-    pub fn finalize_settings_for_gui(mut settings: RenderSettings) -> RenderSettings {
-        // 🔥 **关键修复：确保所有向量字段都被正确初始化**
-        settings.update_color_vectors();
-
-        // 确保Phong着色开启，PBR关闭 (GUI默认偏好)
-        settings.use_phong = true;
-        settings.use_pbr = false;
-
-        // 🔥 **关键修复：如果光源为空，使用预设创建**
-        if settings.lights.is_empty() && settings.use_lighting {
-            settings.lights = crate::material_system::light::LightManager::create_preset_lights(
-                &settings.lighting_preset,
-                settings.main_light_intensity,
-            );
-        }
-
-        settings
-    }
-
     /// 创建新的GUI应用实例
     pub fn new(settings: RenderSettings, cc: &eframe::CreationContext<'_>) -> Self {
         // 配置字体，添加中文支持
@@ -118,14 +98,30 @@ impl RasterizerApp {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        // 🔥 **关键修复：确保GUI设置正确初始化**
-        let settings_copy = Self::finalize_settings_for_gui(settings);
+        // 🔥 **直接内联：从settings字符串初始化GUI专用字段**
+        let object_position_vec =
+            if let Ok(pos) = crate::io::render_settings::parse_vec3(&settings.object_position) {
+                pos
+            } else {
+                nalgebra::Vector3::new(0.0, 0.0, 0.0)
+            };
 
-        // 🔥 **从settings字符串解析GUI专用字段**
-        let (position, rotation_rad, scale) = settings_copy.get_object_transform_components();
+        let object_rotation_vec =
+            if let Ok(rot) = crate::io::render_settings::parse_vec3(&settings.object_rotation) {
+                nalgebra::Vector3::new(rot.x.to_radians(), rot.y.to_radians(), rot.z.to_radians())
+            } else {
+                nalgebra::Vector3::new(0.0, 0.0, 0.0)
+            };
+
+        let object_scale_vec =
+            if let Ok(scale) = crate::io::render_settings::parse_vec3(&settings.object_scale_xyz) {
+                scale
+            } else {
+                nalgebra::Vector3::new(1.0, 1.0, 1.0)
+            };
 
         // 创建渲染器
-        let renderer = Renderer::new(settings_copy.width, settings_copy.height);
+        let renderer = Renderer::new(settings.width, settings.height);
 
         // 检查ffmpeg是否可用
         let ffmpeg_available = Self::check_ffmpeg_available();
@@ -134,11 +130,11 @@ impl RasterizerApp {
             renderer,
             scene: None,
             model_data: None,
-            settings: settings_copy,
+            settings,
 
-            object_position_vec: position,
-            object_rotation_vec: rotation_rad,
-            object_scale_vec: scale,
+            object_position_vec,
+            object_rotation_vec,
+            object_scale_vec,
 
             rendered_image: None,
             last_render_time: None,
@@ -190,64 +186,7 @@ impl RasterizerApp {
         self.show_error_dialog = true;
     }
 
-    /// 🔥 **从GUI字段更新RenderSettings字符串** - 单向同步
-    fn sync_transform_to_settings(&mut self) {
-        self.settings.object_position = format!(
-            "{},{},{}",
-            self.object_position_vec.x, self.object_position_vec.y, self.object_position_vec.z
-        );
-
-        self.settings.object_rotation = format!(
-            "{},{},{}",
-            self.object_rotation_vec.x.to_degrees(),
-            self.object_rotation_vec.y.to_degrees(),
-            self.object_rotation_vec.z.to_degrees()
-        );
-
-        self.settings.object_scale_xyz = format!(
-            "{},{},{}",
-            self.object_scale_vec.x, self.object_scale_vec.y, self.object_scale_vec.z
-        );
-    }
-
-    /// 🔥 **从RenderSettings字符串更新GUI字段** - 反向同步
-    pub fn sync_transform_from_settings(&mut self) {
-        let (position, rotation_rad, scale) = self.settings.get_object_transform_components();
-        self.object_position_vec = position;
-        self.object_rotation_vec = rotation_rad;
-        self.object_scale_vec = scale;
-    }
-
-    /// 应用物体变换到场景（统一入口）
-    pub fn apply_object_transform(&mut self) {
-        // 🔥 **首先同步GUI字段到settings**
-        self.sync_transform_to_settings();
-
-        // 🔥 **分离借用作用域 - 避免借用冲突**
-        if let Some(scene) = &mut self.scene {
-            // 直接更新场景对象变换
-            scene.update_object_transform(&self.settings);
-        }
-
-        // 🔥 **在独立作用域中标记相机状态已改变**
-        self.interface_interaction.anything_changed = true;
-    }
-
-    /// 🔥 **统一的相机参数更新方法**
-    fn update_camera_settings_from_scene(&mut self) {
-        if let Some(scene) = &self.scene {
-            let camera = &scene.active_camera;
-            let pos = camera.position();
-            let target = camera.params.target;
-            let up = camera.params.up;
-
-            self.settings.camera_from = format!("{},{},{}", pos.x, pos.y, pos.z);
-            self.settings.camera_at = format!("{},{},{}", target.x, target.y, target.z);
-            self.settings.camera_up = format!("{},{},{}", up.x, up.y, up.z);
-        }
-    }
-
-    /// 处理相机交互
+    /// 🔥 **简化相机交互 - 直接更新settings**
     fn handle_camera_interaction(&mut self, image_response: &egui::Response, ctx: &egui::Context) {
         if let Some(scene) = &mut self.scene {
             let mut camera_changed = false;
@@ -262,6 +201,11 @@ impl RasterizerApp {
                 if let Some(last_pos) = self.interface_interaction.last_mouse_pos {
                     let current_pos = image_response.interact_pointer_pos().unwrap_or_default();
                     let delta = current_pos - last_pos;
+
+                    // 🔥 **设置最小移动阈值，避免微小抖动触发重新渲染**
+                    if delta.length() < 1.0 {
+                        return;
+                    }
 
                     let is_shift_pressed = ctx.input(|i| i.modifiers.shift);
 
@@ -324,14 +268,23 @@ impl RasterizerApp {
                 }
             });
 
-            // 如果相机发生变化，统一更新
+            // 🔥 **如果相机发生变化，直接更新settings并标记**
             if camera_changed {
-                self.interface_interaction.anything_changed = true;
-                self.update_camera_settings_from_scene();
+                // 直接更新settings字符串
+                let pos = scene.active_camera.position();
+                let target = scene.active_camera.params.target;
+                let up = scene.active_camera.params.up;
 
-                // 在非实时模式下立即重新渲染
+                self.settings.camera_from = format!("{},{},{}", pos.x, pos.y, pos.z);
+                self.settings.camera_at = format!("{},{},{}", target.x, target.y, target.z);
+                self.settings.camera_up = format!("{},{},{}", up.x, up.y, up.z);
+
+                // 统一标记
+                self.interface_interaction.anything_changed = true;
+
+                // 在非实时模式下请求重绘
                 if !self.is_realtime_rendering {
-                    CoreMethods::render_if_anything_changed(self, ctx);
+                    ctx.request_repaint();
                 }
             }
         }
@@ -494,7 +447,7 @@ impl eframe::App for RasterizerApp {
             }
         });
 
-        // 处理相机变化引起的重新渲染
+        // 🔥 **统一处理所有变化引起的重新渲染**
         CoreMethods::render_if_anything_changed(self, ctx);
 
         // 在每帧更新结束时清理不需要的资源

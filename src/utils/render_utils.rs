@@ -13,7 +13,7 @@ const BASE_SPEED: f32 = 60.0; // 1s旋转60度
 ///
 /// # 参数
 /// * `scene` - 场景引用
-/// * `renderer` - 渲染器引用
+/// * `renderer` - 渲染器可变引用 🔥 **修复：改为可变引用**
 /// * `settings` - 渲染设置引用
 /// * `output_name` - 输出文件名
 ///
@@ -21,7 +21,7 @@ const BASE_SPEED: f32 = 60.0; // 1s旋转60度
 /// Result，成功为()，失败为包含错误信息的字符串
 pub fn render_single_frame(
     scene: &mut Scene,
-    renderer: &Renderer,
+    renderer: &mut Renderer, // 🔥 **修复：改为 &mut Renderer**
     settings: &RenderSettings,
     output_name: &str,
 ) -> Result<(), String> {
@@ -124,14 +124,14 @@ pub fn calculate_rotation_parameters(rotation_speed: f32, fps: usize) -> (f32, f
 ///
 /// # 参数
 /// * `scene` - 场景引用
-/// * `renderer` - 渲染器引用
+/// * `renderer` - 渲染器可变引用 🔥 **修复：改为可变引用**
 /// * `settings` - 渲染设置引用
 ///
 /// # 返回值
 /// Result，成功为()，失败为包含错误信息的字符串
 pub fn run_animation_loop(
     scene: &mut Scene,
-    renderer: &Renderer,
+    renderer: &mut Renderer, // 🔥 **修复：改为 &mut Renderer**
     settings: &RenderSettings,
 ) -> Result<(), String> {
     // 使用通用函数计算旋转参数

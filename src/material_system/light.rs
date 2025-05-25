@@ -160,8 +160,17 @@ pub struct LightManager;
 
 impl LightManager {
     /// 🔥 **创建预设光源** - 返回统一的Light数组
-    pub fn create_preset_lights(preset: &LightingPreset, main_intensity: f32) -> Vec<Light> {
-        match preset {
+    pub fn create_preset_lights(
+        preset: &LightingPreset,
+        use_lighting: bool,
+        main_intensity: f32,
+    ) -> Vec<Light> {
+        // 如果不使用光照，直接返回空数组
+        if !use_lighting {
+            return Vec::new();
+        }
+
+        let lights = match preset {
             LightingPreset::SingleDirectional => {
                 vec![Light::directional(
                     Vector3::new(0.0, -1.0, -1.0),
@@ -214,22 +223,17 @@ impl LightManager {
                 lights
             }
             LightingPreset::None => Vec::new(),
-        }
-    }
+        };
 
-    /// 🔥 **确保有光源** - 如果为空则创建默认光源
-    pub fn ensure_lights_exist(lights: &mut Vec<Light>, use_lighting: bool, main_intensity: f32) {
-        if !use_lighting {
-            lights.clear();
-            return;
-        }
-
-        if lights.is_empty() {
-            lights.push(Light::directional(
+        // 🔥 **融合 ensure 逻辑：如果预设为空但启用了光照，创建默认光源**
+        if lights.is_empty() && use_lighting {
+            vec![Light::directional(
                 Vector3::new(0.0, -1.0, -1.0),
                 Vector3::new(1.0, 1.0, 1.0),
                 main_intensity * 0.8,
-            ));
+            )]
+        } else {
+            lights
         }
     }
 }

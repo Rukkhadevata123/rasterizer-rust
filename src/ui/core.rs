@@ -1,7 +1,5 @@
-use crate::ResourceLoader;
 use crate::ui::app::RasterizerApp;
 use crate::utils::save_utils::save_render_with_settings;
-use clap::Parser;
 use egui::{Color32, Context};
 use std::fs;
 use std::path::Path;
@@ -23,9 +21,6 @@ pub trait CoreMethods {
 
     /// 🔥 **渲染当前场景** - 统一渲染入口
     fn render(&mut self, ctx: &Context);
-
-    /// 🔥 **加载模型并设置场景** - 统一初始化入口
-    fn load_model(&mut self, obj_path: &str) -> Result<(), String>;
 
     /// 在UI中显示渲染结果
     fn display_render_result(&mut self, ctx: &Context);
@@ -109,13 +104,26 @@ impl CoreMethods for RasterizerApp {
         self.status_message = format!("正在加载 {}...", obj_path);
         ctx.request_repaint(); // 立即更新状态消息
 
-        // 🔥 **关键修复：在渲染前确保所有向量字段都是最新的**
-        self.settings.update_color_vectors();
-
         // 加载模型
-        if let Err(e) = self.load_model(&obj_path) {
-            self.set_error(format!("加载模型失败: {}", e));
-            return;
+        match crate::io::model_loader::ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
+            Ok((scene, model_data)) => {
+                println!(
+                    "🎯 场景创建完成: 光源数量={}, 使用光照={}, 环境光强度={}",
+                    scene.lights.len(),
+                    self.settings.use_lighting,
+                    self.settings.ambient
+                );
+                
+                // 直接设置场景和模型数据
+                self.scene = Some(scene);
+                self.model_data = Some(model_data);
+                
+                self.status_message = "模型加载成功，开始渲染...".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("加载模型失败: {}", e));
+                return;
+            }
         }
 
         self.status_message = "模型加载成功，开始渲染...".to_string();
@@ -132,9 +140,6 @@ impl CoreMethods for RasterizerApp {
         let start_time = Instant::now();
 
         if let Some(scene) = &mut self.scene {
-            // 🔥 **关键修复：在每次渲染前都要同步光源配置**
-            RasterizerApp::sync_scene_lighting_static(scene, &self.settings);
-
             // 渲染到帧缓冲区
             self.renderer.render_scene(scene, &self.settings);
 
@@ -156,40 +161,6 @@ impl CoreMethods for RasterizerApp {
             // 在UI中显示渲染结果
             self.display_render_result(ctx);
         }
-    }
-
-    /// 🔥 **加载模型并设置场景** - 统一初始化逻辑
-    fn load_model(&mut self, obj_path: &str) -> Result<(), String> {
-        // 🔥 **关键修复：在加载前确保所有向量字段都是最新的**
-        self.settings.update_color_vectors();
-
-        // 使用ResourceLoader加载模型和创建场景
-        let (mut scene, model_data) =
-            ResourceLoader::load_model_and_create_scene(obj_path, &self.settings)?;
-
-        // 🔥 **关键修复：立即同步场景光源配置**
-        RasterizerApp::sync_scene_lighting_static(&mut scene, &self.settings);
-
-        println!(
-            "🎯 场景创建完成: 光源数量={}, 使用光照={}, 环境光强度={}",
-            scene.lights.len(),
-            self.settings.use_lighting,
-            self.settings.ambient
-        );
-
-        // 保存场景和模型数据
-        self.scene = Some(scene);
-        self.model_data = Some(model_data);
-
-        // 使用ResourceLoader加载背景图片
-        if self.settings.use_background_image {
-            if let Err(e) = ResourceLoader::load_background_image_if_enabled(&mut self.settings) {
-                println!("背景图片加载问题: {}", e);
-                // 继续执行，不中断加载过程
-            }
-        }
-
-        Ok(())
     }
 
     /// 在UI中显示渲染结果
@@ -230,21 +201,70 @@ impl CoreMethods for RasterizerApp {
         );
     }
 
-    /// 如果任何内容发生变化，执行重新渲染
+    /// 🔥 **统一同步入口 - 所有变化都在这里处理**
     fn render_if_anything_changed(&mut self, ctx: &Context) {
-        // 🔥 **统一条件：任何需要重新渲染的变化**
         if self.interface_interaction.anything_changed && self.scene.is_some() {
-            // 🔥 **关键修复：确保颜色向量字段是最新的**
-            self.settings.update_color_vectors();
-
             if let Some(scene) = &mut self.scene {
-                // 🔥 **光照变化已经在UI面板中同步过了，这里不需要重复同步**
-                // 🔥 **只在设置变化时避免重复光源同步**
+                // 🔥 **统一同步所有状态 - 消除不对称性**
 
+                // 1. 光源同步
+                scene.lights = self.settings.lights.clone();
+                scene.set_ambient_light(
+                    self.settings.ambient,
+                    self.settings.get_ambient_color_vec(),
+                );
+
+                // 2. 相机同步
+                if let Ok(from) =
+                    crate::io::render_settings::parse_point3(&self.settings.camera_from)
+                {
+                    scene.active_camera.params.position = from;
+                }
+                if let Ok(at) = crate::io::render_settings::parse_point3(&self.settings.camera_at) {
+                    scene.active_camera.params.target = at;
+                }
+                if let Ok(up) = crate::io::render_settings::parse_vec3(&self.settings.camera_up) {
+                    scene.active_camera.params.up = up.normalize();
+                }
+                if let crate::geometry::camera::ProjectionType::Perspective {
+                    fov_y_degrees, ..
+                } = &mut scene.active_camera.params.projection
+                {
+                    *fov_y_degrees = self.settings.camera_fov;
+                }
+                scene.active_camera.update_matrices();
+
+                // 3. 物体变换同步
+                scene.update_object_transform(&self.settings);
+
+                // 🔥 **4. 材质参数同步 - 新增的关键逻辑！**
+                if let Some(model_data) = &mut self.model_data {
+                    // 同步PBR材质参数
+                    if self.settings.use_pbr {
+                        // 使用现有的 apply_pbr_parameters 函数
+                        crate::material_system::materials::material_applicator::apply_pbr_parameters(
+                            model_data,
+                            &self.settings
+                        );
+                    }
+
+                    // 同步Phong材质参数
+                    if self.settings.use_phong {
+                        // 使用现有的 apply_phong_parameters 函数
+                        crate::material_system::materials::material_applicator::apply_phong_parameters(
+                            model_data,
+                            &self.settings
+                        );
+                    }
+
+                    // 🔥 **重要：将更新后的材质同步到场景对象**
+                    scene.object.model_data = model_data.clone();
+                }
+
+                // 5. 执行渲染
                 self.renderer.render_scene(scene, &self.settings);
             }
 
-            // 🔥 **在独立作用域中更新UI和状态**
             self.display_render_result(ctx);
             self.interface_interaction.anything_changed = false;
         }
@@ -294,21 +314,13 @@ impl CoreMethods for RasterizerApp {
         let output_dir = self.settings.output_dir.clone();
         let output_name = self.settings.output.clone();
 
-        // 🔥 **直接使用默认构造，信任其正确性**
-        let mut new_settings = if let Some(obj_path) = &obj_path {
-            crate::io::render_settings::RenderSettings::parse_from(
-                ["program_name", "--obj", obj_path].iter(),
-            )
-        } else {
-            crate::io::render_settings::RenderSettings::default()
+        // 🔥 **修复 Clippy 警告：使用结构体初始化语法**
+        let new_settings = crate::io::render_settings::RenderSettings {
+            obj: obj_path,
+            output_dir,
+            output: output_name,
+            ..Default::default()
         };
-
-        // 恢复保留的路径
-        new_settings.output_dir = output_dir;
-        new_settings.output = output_name;
-
-        // 🔥 **使用统一方法处理GUI特有设置**
-        new_settings = Self::finalize_settings_for_gui(new_settings);
 
         // 如果渲染尺寸变化，重新创建渲染器
         if self.renderer.frame_buffer.width != new_settings.width
@@ -321,19 +333,31 @@ impl CoreMethods for RasterizerApp {
 
         self.settings = new_settings;
 
-        // 🔥 **重置GUI专用变换字段**
-        self.sync_transform_from_settings();
+        // 🔥 **直接内联：从settings初始化GUI变换字段**
+        if let Ok(pos) = crate::io::render_settings::parse_vec3(&self.settings.object_position) {
+            self.object_position_vec = pos;
+        } else {
+            self.object_position_vec = nalgebra::Vector3::new(0.0, 0.0, 0.0);
+        }
+
+        if let Ok(rot) = crate::io::render_settings::parse_vec3(&self.settings.object_rotation) {
+            self.object_rotation_vec =
+                nalgebra::Vector3::new(rot.x.to_radians(), rot.y.to_radians(), rot.z.to_radians());
+        } else {
+            self.object_rotation_vec = nalgebra::Vector3::new(0.0, 0.0, 0.0);
+        }
+
+        if let Ok(scale) = crate::io::render_settings::parse_vec3(&self.settings.object_scale_xyz) {
+            self.object_scale_vec = scale;
+        } else {
+            self.object_scale_vec = nalgebra::Vector3::new(1.0, 1.0, 1.0);
+        }
 
         // 重置GUI状态
         self.camera_pan_sensitivity = 1.0;
         self.camera_orbit_sensitivity = 1.0;
         self.camera_dolly_sensitivity = 1.0;
         self.interface_interaction = InterfaceInteraction::default();
-
-        // 🔥 **重置场景光源 - 使用静态方法**
-        if let Some(scene) = &mut self.scene {
-            RasterizerApp::sync_scene_lighting_static(scene, &self.settings);
-        }
 
         // 重置其他状态
         self.is_realtime_rendering = false;
@@ -357,7 +381,7 @@ impl CoreMethods for RasterizerApp {
         self.fps_history.clear();
         self.avg_fps = 0.0;
 
-        self.status_message = "已重置应用状态".to_string();
+        self.status_message = "已重置应用状态，光源已恢复默认设置".to_string();
     }
 
     /// 切换预渲染模式
@@ -526,17 +550,5 @@ impl CoreMethods for RasterizerApp {
                 self.pre_render_progress.store(0, Ordering::SeqCst);
             }
         }
-    }
-}
-
-impl RasterizerApp {
-    /// 🔥 **静态场景光源同步方法** - 直接创建光源，不依赖设置
-    pub fn sync_scene_lighting_static(
-        scene: &mut crate::scene::scene_utils::Scene,
-        settings: &crate::io::render_settings::RenderSettings,
-    ) {
-        // 直接同步光源和环境光
-        scene.lights = settings.lights.clone();
-        scene.set_ambient_light(settings.ambient, settings.ambient_color_vec);
     }
 }

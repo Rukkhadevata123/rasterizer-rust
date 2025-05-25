@@ -1,111 +1,94 @@
 use crate::geometry::camera::Camera;
 use crate::io::render_settings::RenderSettings;
-use crate::material_system::color;
+use crate::material_system::{color, texture::Texture};
 use atomic_float::AtomicF32;
 use nalgebra::{Matrix4, Point3, Vector3};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// 帧缓冲区实现，存储渲染结果
-pub struct FrameBuffer {
-    pub width: usize,
-    pub height: usize,
-    /// 存储正深度值，数值越小表示越近。使用原子类型以支持并行写入。
-    pub depth_buffer: Vec<AtomicF32>,
-    /// 存储RGB颜色值 [0, 255]，类型为u8。使用原子类型以支持并行写入。
-    pub color_buffer: Vec<AtomicU8>,
+/// 🔥 **简化背景渲染器 - 直接加载，无复杂抽象**
+pub struct BackgroundRenderer {
+    cached_background: Option<Texture>,
+    cached_path: Option<String>,
 }
 
-impl FrameBuffer {
-    pub fn new(width: usize, height: usize) -> Self {
-        let num_pixels = width * height;
-
-        // 为深度缓冲区创建原子浮点数向量
-        let depth_buffer = (0..num_pixels)
-            .map(|_| AtomicF32::new(f32::INFINITY))
-            .collect();
-
-        // 使用迭代器创建颜色缓冲区，避免使用vec!宏
-        let color_buffer = (0..num_pixels * 3).map(|_| AtomicU8::new(0)).collect();
-
-        FrameBuffer {
-            width,
-            height,
-            depth_buffer,
-            color_buffer,
+impl BackgroundRenderer {
+    pub fn new() -> Self {
+        Self {
+            cached_background: None,
+            cached_path: None,
         }
     }
 
-    /// 清除所有缓冲区，并根据配置绘制背景和地面
-    pub fn clear(&self, settings: &RenderSettings, camera: &Camera) {
-        // 重置深度缓冲区
-        self.depth_buffer.par_iter().for_each(|atomic_depth| {
-            atomic_depth.store(f32::INFINITY, Ordering::Relaxed);
-        });
+    /// 🔥 **直接加载背景图片，去除多层包装**
+    pub fn get_background_image(&mut self, settings: &RenderSettings) -> Option<&Texture> {
+        if !settings.use_background_image {
+            return None;
+        }
 
-        // 绘制背景
-        (0..self.height).into_par_iter().for_each(|y| {
-            for x in 0..self.width {
-                let buffer_index = y * self.width + x;
-                let color_index = buffer_index * 3;
+        let current_path = settings.background_image_path.as_ref()?;
 
-                let t_y = y as f32 / (self.height - 1) as f32;
-                let t_x = x as f32 / (self.width - 1) as f32;
-
-                let final_color = self.compute_background_color(settings, camera, t_x, t_y);
-
-                // 转换为u8颜色并保存到缓冲区
-                let color_u8 = color::linear_rgb_to_u8(&final_color, settings.use_gamma);
-                self.color_buffer[color_index].store(color_u8[0], Ordering::Relaxed);
-                self.color_buffer[color_index + 1].store(color_u8[1], Ordering::Relaxed);
-                self.color_buffer[color_index + 2].store(color_u8[2], Ordering::Relaxed);
+        // 检查缓存
+        if let Some(cached_path) = &self.cached_path {
+            if cached_path == current_path && self.cached_background.is_some() {
+                return self.cached_background.as_ref();
             }
-        });
+        }
+
+        // 🔥 **直接加载，无中间层**
+        match Texture::from_file(current_path) {
+            Some(texture) => {
+                println!("背景图片加载成功: {}x{}", texture.width, texture.height);
+                self.cached_background = Some(texture);
+                self.cached_path = Some(current_path.clone());
+                self.cached_background.as_ref()
+            }
+            None => {
+                println!("警告: 无法加载背景图片 '{}'", current_path);
+                None
+            }
+        }
     }
 
-    fn compute_background_color(
-        &self,
+    /// 🔥 **统一的背景颜色计算方法 - 支持并行和串行调用**
+    pub fn compute_background_color_unified(
         settings: &RenderSettings,
         camera: &Camera,
+        background_texture: Option<&Texture>,
         t_x: f32,
         t_y: f32,
     ) -> Vector3<f32> {
-        // 1. 背景图片（最底层）
-        let mut final_color = if settings.use_background_image
-            && settings.background_image.is_some()
-        {
-            let background = settings.background_image.as_ref().unwrap();
+        // 1. 背景图片或渐变（基础层）
+        let mut final_color = if let Some(background) = background_texture {
             let tex_x = t_x;
             let tex_y = 1.0 - t_y; // 翻转Y轴
             background.sample(tex_x, tex_y).into()
         } else if settings.enable_gradient_background {
-            settings.gradient_top_color_vec * (1.0 - t_y) + settings.gradient_bottom_color_vec * t_y
+            let top_color = settings.get_gradient_top_color_vec();
+            let bottom_color = settings.get_gradient_bottom_color_vec();
+            top_color * (1.0 - t_y) + bottom_color * t_y
         } else {
             Vector3::new(0.0, 0.0, 0.0)
         };
 
-        // 2. 渐变叠加
-        if settings.use_background_image
-            && settings.background_image.is_some()
-            && settings.enable_gradient_background
-        {
-            let gradient_color = settings.gradient_top_color_vec * (1.0 - t_y)
-                + settings.gradient_bottom_color_vec * t_y;
+        // 2. 渐变叠加（如果有背景图片且启用渐变）
+        if background_texture.is_some() && settings.enable_gradient_background {
+            let top_color = settings.get_gradient_top_color_vec();
+            let bottom_color = settings.get_gradient_bottom_color_vec();
+            let gradient_color = top_color * (1.0 - t_y) + bottom_color * t_y;
             final_color = final_color * 0.3 + gradient_color * 0.7;
         }
 
-        // 3. 地面平面（最高层） - 使用增强的混合方式使地面更明显
+        // 3. 地面平面（最高层）
         if settings.enable_ground_plane {
-            let ground_factor = self.compute_ground_factor(settings, camera, t_x, t_y);
+            let ground_factor = GroundRenderer::compute_ground_factor(settings, camera, t_x, t_y);
             if ground_factor > 0.0 {
-                let ground_color = self.compute_ground_color(settings, camera, t_x, t_y);
+                let ground_color = GroundRenderer::compute_ground_color(settings, camera, t_x, t_y);
 
-                // 更强的地面混合权重
-                let enhanced_ground_factor = ground_factor.powf(0.65) * 2.0; // 增强权重从1.5到2.0
-                let final_ground_factor = enhanced_ground_factor.min(0.95); // 提高最大限制从0.9到0.95
-
-                // 使用更强的对比度混合模式
-                let darkened_background = final_color * (0.8 - final_ground_factor * 0.5).max(0.1); // 适当压暗背景
+                // 地面混合计算
+                let enhanced_ground_factor = ground_factor.powf(0.65) * 2.0;
+                let final_ground_factor = enhanced_ground_factor.min(0.95);
+                let darkened_background = final_color * (0.8 - final_ground_factor * 0.5).max(0.1);
                 final_color = darkened_background * (1.0 - final_ground_factor)
                     + ground_color * final_ground_factor;
             }
@@ -113,28 +96,25 @@ impl FrameBuffer {
 
         final_color
     }
+}
 
-    fn compute_ground_factor(
-        &self,
+/// 🔥 **地面渲染计算器（静态方法）**
+pub struct GroundRenderer;
+
+impl GroundRenderer {
+    /// 🔥 **计算地面因子**
+    pub fn compute_ground_factor(
         settings: &RenderSettings,
         camera: &Camera,
         t_x: f32,
         t_y: f32,
     ) -> f32 {
-        // 🔥 **移除屏幕下半部分限制** - 允许整个屏幕都可以显示地面
-        // if t_y <= 0.5 {
-        //     return 0.0;
-        // }
-
         // 获取相机的视场角
         let fov_y_rad = match &camera.params.projection {
             crate::geometry::camera::ProjectionType::Perspective { fov_y_degrees, .. } => {
                 fov_y_degrees.to_radians()
             }
-            crate::geometry::camera::ProjectionType::Orthographic { .. } => {
-                // 对于正交投影，使用固定的"视场角"来计算射线方向
-                45.0_f32.to_radians()
-            }
+            crate::geometry::camera::ProjectionType::Orthographic { .. } => 45.0_f32.to_radians(),
         };
 
         // 使用相机数据
@@ -153,9 +133,8 @@ impl FrameBuffer {
         let view_y = ndc_y * (fov_y_rad / 2.0).tan();
         let view_dir = Vector3::new(view_x, view_y, -1.0).normalize();
 
-        // 获取相机的逆视图矩阵（世界到视图的逆变换）
+        // 获取相机的逆视图矩阵
         let view_to_world = view_matrix.try_inverse().unwrap_or_else(Matrix4::identity);
-
         let world_ray_dir = view_to_world.transform_vector(&view_dir).normalize();
         let world_ray_origin = camera_position;
 
@@ -173,7 +152,7 @@ impl FrameBuffer {
 
         let t = (plane_point - world_ray_origin).dot(&ground_normal) / denominator;
 
-        // 后方检测和距离限制（使用近远平面）
+        // 后方检测和距离限制
         if t < near_plane || t > far_plane * 1.5 {
             return 0.0;
         }
@@ -206,18 +185,18 @@ impl FrameBuffer {
             || grid_z > (1.0 - adaptive_line_width);
 
         // 增强网格线对比度
-        let grid_factor = if is_grid_line { 0.8 } else { 0.0 }; // 从0.6提高到0.8
+        let grid_factor = if is_grid_line { 0.8 } else { 0.0 };
 
-        // 距离衰减 - 使用对称的近远平面
+        // 距离衰减
         let effective_far = far_plane * 0.8;
         let distance_factor = (distance_from_camera / effective_far).min(1.0);
 
-        // 🔥 **修改基础地面强度计算** - 不再依赖屏幕Y坐标
+        // 基础地面强度计算
         let camera_height = camera_position.y - ground_y;
         let height_factor = (camera_height / 8.0).clamp(0.3, 1.5);
 
-        // 🔥 **使用射线与地面的角度来计算强度** - 更符合3D透视
-        let ray_to_ground_angle = world_ray_dir.dot(&ground_normal).abs(); // 射线与地面法线的夹角余弦值
+        // 使用射线与地面的角度来计算强度
+        let ray_to_ground_angle = world_ray_dir.dot(&ground_normal).abs();
         let angle_enhanced = ray_to_ground_angle.powf(0.8) * height_factor * 1.2;
 
         // 世界空间中的边缘淡出效果
@@ -225,10 +204,8 @@ impl FrameBuffer {
             ((intersection.x / 20.0).powi(2) + (intersection.z / 20.0).powi(2)).sqrt();
         let world_edge_factor = (1.0 - (world_center_dist / 5.0).min(1.0)).max(0.0);
 
-        // 🔥 **修改聚光灯效果** - 基于世界空间位置而不是屏幕坐标
-        let view_forward = view_matrix.column(2).xyz().normalize(); // 相机前向
-
-        // 计算射线方向与相机前向的偏离程度
+        // 聚光灯效果
+        let view_forward = view_matrix.column(2).xyz().normalize();
         let center_alignment = world_ray_dir.dot(&view_forward).max(0.0);
         let spotlight_factor = center_alignment.powf(2.0);
 
@@ -237,28 +214,27 @@ impl FrameBuffer {
 
         // 组合所有因子
         let combined_factor = (1.0 - distance_factor).powf(0.35)
-            * angle_enhanced  // 🔥 使用角度增强代替深度增强
+            * angle_enhanced
             * (1.0 - grid_factor * 0.75)
             * combined_edge_factor;
 
-        // 返回最终因子
         (combined_factor * 1.1).max(0.0)
     }
 
-    fn compute_ground_color(
-        &self,
+    /// 🔥 **计算地面颜色（使用按需计算）**
+    pub fn compute_ground_color(
         settings: &RenderSettings,
         camera: &Camera,
         t_x: f32,
         t_y: f32,
     ) -> Vector3<f32> {
-        // 增强基础地面颜色，提高亮度
-        let mut ground_color = settings.ground_plane_color_vec * 1.6;
+        // 🔥 按需计算地面颜色，不存储
+        let mut ground_color = settings.get_ground_plane_color_vec() * 1.6;
 
         // 增强饱和度
         let luminance = ground_color.x * 0.299 + ground_color.y * 0.587 + ground_color.z * 0.114;
         ground_color = ground_color * 0.8 + Vector3::new(luminance, luminance, luminance) * 0.2;
-        ground_color *= 1.1; // 整体亮度再提升10%
+        ground_color *= 1.1;
 
         // 色调变化 - 增强对比度
         let t_x_centered = (t_x - 0.5) * 2.0;
@@ -278,11 +254,85 @@ impl FrameBuffer {
 
         // 减少天空反射影响，加强地面本身颜色
         let sky_reflection_strength = (camera_height / 15.0).clamp(0.02, 0.08);
-        let sky_reflection = settings.gradient_top_color_vec * sky_reflection_strength;
+        let sky_reflection = settings.get_gradient_top_color_vec() * sky_reflection_strength;
         ground_color += sky_reflection * (1.0 - (t_y - 0.5) * 1.5).max(0.0);
 
-        // 确保地面颜色不会过暗，增加最小亮度值
+        // 确保地面颜色不会过暗
         ground_color.map(|x| x.max(0.15))
+    }
+}
+
+/// 帧缓冲区实现，存储渲染结果
+pub struct FrameBuffer {
+    pub width: usize,
+    pub height: usize,
+    pub depth_buffer: Vec<AtomicF32>,
+    pub color_buffer: Vec<AtomicU8>,
+
+    // 🔥 **新增：背景管理器**
+    pub background_renderer: BackgroundRenderer,
+}
+
+impl FrameBuffer {
+    pub fn new(width: usize, height: usize) -> Self {
+        let num_pixels = width * height;
+
+        let depth_buffer = (0..num_pixels)
+            .map(|_| AtomicF32::new(f32::INFINITY))
+            .collect();
+
+        let color_buffer = (0..num_pixels * 3).map(|_| AtomicU8::new(0)).collect();
+
+        FrameBuffer {
+            width,
+            height,
+            depth_buffer,
+            color_buffer,
+            background_renderer: BackgroundRenderer::new(),
+        }
+    }
+
+    /// 🔥 **清除所有缓冲区，并根据配置绘制背景和地面**
+    pub fn clear(&mut self, settings: &RenderSettings, camera: &Camera) {
+        // 重置深度缓冲区
+        self.depth_buffer.par_iter().for_each(|atomic_depth| {
+            atomic_depth.store(f32::INFINITY, Ordering::Relaxed);
+        });
+
+        // 🔥 **预加载背景纹理用于并行处理**
+        let background_texture =
+            if settings.use_background_image && settings.background_image_path.is_some() {
+                self.background_renderer
+                    .get_background_image(settings)
+                    .cloned()
+            } else {
+                None
+            };
+
+        // 🔥 **并行绘制背景 - 使用统一方法**
+        (0..self.height).into_par_iter().for_each(|y| {
+            for x in 0..self.width {
+                let buffer_index = y * self.width + x;
+                let color_index = buffer_index * 3;
+                let t_y = y as f32 / (self.height - 1) as f32;
+                let t_x = x as f32 / (self.width - 1) as f32;
+
+                // 🔥 **使用统一的背景颜色计算方法**
+                let final_color = BackgroundRenderer::compute_background_color_unified(
+                    settings,
+                    camera,
+                    background_texture.as_ref(),
+                    t_x,
+                    t_y,
+                );
+
+                // 转换为u8颜色并保存到缓冲区
+                let color_u8 = color::linear_rgb_to_u8(&final_color, settings.use_gamma);
+                self.color_buffer[color_index].store(color_u8[0], Ordering::Relaxed);
+                self.color_buffer[color_index + 1].store(color_u8[1], Ordering::Relaxed);
+                self.color_buffer[color_index + 2].store(color_u8[2], Ordering::Relaxed);
+            }
+        });
     }
 
     /// 获取颜色缓冲区的字节数据

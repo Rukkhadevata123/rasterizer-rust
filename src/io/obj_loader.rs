@@ -78,10 +78,10 @@ fn get_basename_from_path(path: &Path) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// 加载并处理 OBJ 模型文件
-pub fn load_obj_enhanced<P: AsRef<Path>>(
+/// 🔥 **主要功能：加载并处理 OBJ 模型文件**
+pub fn load_obj_model<P: AsRef<Path>>(
     obj_path: P,
-    args: &RenderSettings,
+    settings: &RenderSettings,
 ) -> Result<ModelData, String> {
     let obj_path_ref = obj_path.as_ref();
     println!("加载 OBJ 文件: {:?}", obj_path_ref);
@@ -93,7 +93,7 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(
     let base_path = obj_path_ref.parent().unwrap_or_else(|| Path::new("."));
 
     // 检查命令行指定的纹理
-    let cli_texture: Option<Texture> = if let Some(tex_path_str) = &args.texture {
+    let cli_texture: Option<Texture> = if let Some(tex_path_str) = &settings.texture {
         let tex_path = Path::new(tex_path_str);
         println!("使用命令行指定的纹理: {:?}", tex_path);
         let default_color = Vector3::new(0.8, 0.8, 0.8);
@@ -407,6 +407,7 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(
             material_id: final_material_id,
             name: mesh_name.clone(), // 添加网格名称字段
         });
+
         println!(
             "处理网格 '{}': {} 个唯一顶点, {} 个三角形, 材质 ID: {:?}",
             loaded_meshes.last().unwrap().name,
@@ -429,23 +430,4 @@ pub fn load_obj_enhanced<P: AsRef<Path>>(
 
     println!("创建模型 '{}' 成功", model_data.name);
     Ok(model_data)
-}
-
-/// 加载背景图片
-pub fn load_background_image<P: AsRef<Path>>(
-    image_path: P,
-) -> Result<crate::material_system::texture::Texture, String> {
-    let path = image_path.as_ref();
-    println!("加载背景图片: {:?}", path);
-
-    // 直接使用 Texture::from_file 返回值
-    if let Some(texture) = Texture::from_file(path) {
-        println!("背景图片加载成功: {}x{}", texture.width, texture.height);
-        Ok(texture)
-    } else {
-        // 使用默认纯色作为加载失败时的后备方案
-        // let default_color = Vector3::new(0.0, 0.0, 0.0); // 默认黑色
-        // Ok(Texture::solid_color(default_color))
-        Err(format!("无法加载背景图片: {:?}", path))
-    }
 }

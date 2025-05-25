@@ -56,7 +56,9 @@ impl Scene {
 
         // 直接使用设置中的光源，无需重复创建
         scene.lights = settings.lights.clone();
-        scene.set_ambient_light(settings.ambient, settings.ambient_color_vec);
+
+        // 🔥 **修复：使用按需计算方法获取环境光颜色**
+        scene.set_ambient_light(settings.ambient, settings.get_ambient_color_vec());
 
         Ok(scene)
     }
