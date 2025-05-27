@@ -31,7 +31,7 @@ impl Renderer {
         // 清空帧缓冲区
         self.frame_buffer.clear(settings, &scene.active_camera);
 
-        // 🔥 **优化日志 - 只在debug模式下输出详细信息**
+        // 优化日志 - 只在debug模式下输出详细信息
         debug!("渲染场景对象: '{}'...", scene.object.model_data.name);
         if log::log_enabled!(log::Level::Debug) {
             self.log_lighting_info(scene, settings);
@@ -87,7 +87,7 @@ impl Renderer {
         }
     }
 
-    /// 🔥 **记录光照信息** - 适配新的Light结构
+    /// 记录光照信息 - 适配新的Light结构
     fn log_lighting_info(&self, scene: &Scene, settings: &RenderSettings) {
         debug!("场景光源数量: {}", scene.lights.len());
         debug!("Settings光源数量: {}", settings.lights.len());
@@ -96,7 +96,7 @@ impl Renderer {
             scene.ambient_intensity, scene.ambient_color
         );
 
-        // 🔥 **适配新的Light枚举结构**
+        // 适配新的Light枚举结构
         for (i, light) in scene.lights.iter().enumerate() {
             match light {
                 crate::material_system::light::Light::Directional {

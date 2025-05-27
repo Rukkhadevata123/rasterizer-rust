@@ -18,9 +18,9 @@ use super::app::InterfaceInteraction;
 /// - 性能统计
 /// - 资源管理
 pub trait CoreMethods {
-    // === 🎯 **核心渲染和加载** ===
+    // === 核心渲染和加载 ===
 
-    /// 🔥 **渲染当前场景** - 统一渲染入口
+    /// 渲染当前场景 - 统一渲染入口
     fn render(&mut self, ctx: &Context);
 
     /// 在UI中显示渲染结果
@@ -32,7 +32,7 @@ pub trait CoreMethods {
     /// 保存当前渲染结果为截图
     fn take_screenshot(&mut self) -> Result<String, String>;
 
-    // === 🎯 **状态管理** ===
+    // === 状态管理 ===
 
     /// 设置错误信息
     fn set_error(&mut self, message: String);
@@ -46,7 +46,7 @@ pub trait CoreMethods {
     /// 清空预渲染的动画帧缓冲区
     fn clear_pre_rendered_frames(&mut self);
 
-    // === 🎯 **状态查询** ===
+    // === 状态查询 ===
 
     /// 检查是否可以清除预渲染缓冲区
     fn can_clear_buffer(&self) -> bool;
@@ -60,7 +60,7 @@ pub trait CoreMethods {
     /// 检查是否可以生成视频
     fn can_generate_video(&self) -> bool;
 
-    // === 🎯 **动画状态管理** ===
+    // === 动画状态管理 ===
 
     /// 开始实时渲染动画
     fn start_animation_rendering(&mut self) -> Result<(), String>;
@@ -68,7 +68,7 @@ pub trait CoreMethods {
     /// 停止实时渲染动画
     fn stop_animation_rendering(&mut self);
 
-    // === 🎯 **性能统计** ===
+    // === 性能统计 ===
 
     /// 更新帧率统计信息
     fn update_fps_stats(&mut self, frame_time: Duration);
@@ -76,16 +76,16 @@ pub trait CoreMethods {
     /// 获取格式化的帧率显示文本和颜色
     fn get_fps_display(&self) -> (String, Color32);
 
-    // === 🎯 **资源管理** ===
+    // === 资源管理 ===
 
     /// 执行资源清理操作
     fn cleanup_resources(&mut self);
 }
 
 impl CoreMethods for RasterizerApp {
-    // === 🔥 **核心渲染和加载实现** ===
+    // === 核心渲染和加载实现 ===
 
-    /// 🔥 **渲染当前场景** - 统一渲染逻辑
+    /// 渲染当前场景 - 统一渲染逻辑
     fn render(&mut self, ctx: &Context) {
         // 验证参数
         if let Err(e) = self.settings.validate() {
@@ -203,11 +203,11 @@ impl CoreMethods for RasterizerApp {
         );
     }
 
-    /// 🔥 **统一同步入口 - 所有变化都在这里处理**
+    /// 统一同步入口 - 所有变化都在这里处理
     fn render_if_anything_changed(&mut self, ctx: &Context) {
         if self.interface_interaction.anything_changed && self.scene.is_some() {
             if let Some(scene) = &mut self.scene {
-                // 🔥 **统一同步所有状态 - 消除不对称性**
+                // 统一同步所有状态 - 消除不对称性
 
                 // 1. 光源同步
                 scene.lights = self.settings.lights.clone();
@@ -239,7 +239,7 @@ impl CoreMethods for RasterizerApp {
                 // 3. 物体变换同步
                 scene.update_object_transform(&self.settings);
 
-                // 🔥 **4. 材质参数同步 - 新增的关键逻辑！**
+                // 4. 材质参数同步 - 新增的关键逻辑！
                 if let Some(model_data) = &mut self.model_data {
                     // 同步PBR材质参数
                     if self.settings.use_pbr {
@@ -259,7 +259,7 @@ impl CoreMethods for RasterizerApp {
                         );
                     }
 
-                    // 🔥 **重要：将更新后的材质同步到场景对象**
+                    // 重要：将更新后的材质同步到场景对象
                     scene.object.model_data = model_data.clone();
                 }
 
@@ -301,7 +301,7 @@ impl CoreMethods for RasterizerApp {
         Ok(color_path.to_string_lossy().to_string())
     }
 
-    // === 🔥 **状态管理实现** ===
+    // === 状态管理实现 ===
 
     /// 设置错误信息
     fn set_error(&mut self, message: String) {
@@ -316,7 +316,7 @@ impl CoreMethods for RasterizerApp {
         let output_dir = self.settings.output_dir.clone();
         let output_name = self.settings.output.clone();
 
-        // 🔥 **修复 Clippy 警告：使用结构体初始化语法**
+        // 修复 Clippy 警告：使用结构体初始化语法
         let new_settings = crate::io::render_settings::RenderSettings {
             obj: obj_path,
             output_dir,
@@ -335,7 +335,7 @@ impl CoreMethods for RasterizerApp {
 
         self.settings = new_settings;
 
-        // 🔥 **直接内联：从settings初始化GUI变换字段**
+        // 直接内联：从settings初始化GUI变换字段
         if let Ok(pos) = crate::io::render_settings::parse_vec3(&self.settings.object_position) {
             self.object_position_vec = pos;
         } else {
@@ -446,7 +446,7 @@ impl CoreMethods for RasterizerApp {
         }
     }
 
-    // === 🔥 **状态查询实现** ===
+    // === 状态查询实现 ===
 
     fn can_clear_buffer(&self) -> bool {
         !self.pre_rendered_frames.lock().unwrap().is_empty()
@@ -466,7 +466,7 @@ impl CoreMethods for RasterizerApp {
         !self.is_realtime_rendering && !self.is_generating_video && self.ffmpeg_available
     }
 
-    // === 🔥 **动画状态管理实现** ===
+    // === 动画状态管理实现 ===
 
     fn start_animation_rendering(&mut self) -> Result<(), String> {
         if self.is_generating_video {
@@ -488,7 +488,7 @@ impl CoreMethods for RasterizerApp {
         self.status_message = "已停止动画渲染".to_string();
     }
 
-    // === 🔥 **性能统计实现** ===
+    // === 性能统计实现 ===
 
     fn update_fps_stats(&mut self, frame_time: Duration) {
         const FPS_HISTORY_SIZE: usize = 30;
@@ -521,10 +521,10 @@ impl CoreMethods for RasterizerApp {
         (format!("FPS: {:.1}", self.avg_fps), fps_color)
     }
 
-    // === 🔥 **资源管理实现** ===
+    // === 资源管理实现 ===
 
     fn cleanup_resources(&mut self) {
-        // 🔥 **实际的资源清理逻辑**
+        // 实际的资源清理逻辑
 
         // 1. 限制FPS历史记录大小，防止内存泄漏
         if self.fps_history.len() > 60 {

@@ -18,7 +18,7 @@ use io::simple_cli::SimpleCli;
 use utils::render_utils::{render_single_frame, run_animation_loop};
 
 fn main() -> Result<(), String> {
-    // 🔥 **初始化日志系统** - 默认INFO级别
+    // 初始化日志系统 - 默认DEBUG级别
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Debug)
         .filter_module("eframe", log::LevelFilter::Warn) // 只显示 eframe 的警告和错误
@@ -27,6 +27,7 @@ fn main() -> Result<(), String> {
         .filter_module("winit", log::LevelFilter::Warn) // 只显示 winit 的警告和错误
         .filter_module("wgpu", log::LevelFilter::Warn) // 只显示 wgpu 的警告和错误
         .filter_module("glutin", log::LevelFilter::Warn) // 只显示 glutin 的警告和错误
+        .filter_module("sctk", log::LevelFilter::Warn) // 只显示 sctk 的警告和错误
         .format_timestamp(None)
         .format_level(true)
         .init();

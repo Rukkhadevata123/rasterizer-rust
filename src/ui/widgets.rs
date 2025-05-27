@@ -4,8 +4,8 @@ use std::sync::atomic::Ordering;
 use super::animation::AnimationMethods;
 use super::app::RasterizerApp;
 use super::core::CoreMethods;
-use super::render_ui::RenderUIMethods; // 🔥 **新增：导入RenderUIMethods**
-use crate::io::config_loader::TomlConfigLoader; // 🔥 **新增：导入配置加载器**
+use super::render_ui::RenderUIMethods; // 新增：导入RenderUIMethods
+use crate::io::config_loader::TomlConfigLoader; // 新增：导入配置加载器
 use crate::io::render_settings::{AnimationType, RotationAxis, parse_vec3};
 
 /// UI组件和工具提示相关方法的特质
@@ -19,7 +19,7 @@ pub trait WidgetMethods {
     /// 显示工具提示
     fn add_tooltip(response: egui::Response, ctx: &Context, text: &str) -> egui::Response;
 
-    // === 🎯 **面板函数接口** ===
+    // === 面板函数接口 ===
 
     /// 绘制文件与输出设置面板
     fn ui_file_output_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context);
@@ -90,7 +90,7 @@ impl WidgetMethods for RasterizerApp {
         })
     }
 
-    /// 🔥 **重构后的侧边栏 - 调用各个面板函数**
+    /// 重构后的侧边栏 - 调用各个面板函数
     fn draw_side_panel(&mut self, ctx: &Context, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             // 文件与输出设置
@@ -150,7 +150,7 @@ impl WidgetMethods for RasterizerApp {
         });
     }
 
-    /// 🔥 **文件与输出设置面板**
+    /// 文件与输出设置面板
     fn ui_file_output_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         ui.horizontal(|ui| {
             ui.label("OBJ文件：");
@@ -163,7 +163,7 @@ impl WidgetMethods for RasterizerApp {
                     app.settings.obj = Some(obj_text);
                 }
 
-                // 🔥 **新增：OBJ路径变化需要重新加载场景**
+                // 新增：OBJ路径变化需要重新加载场景
                 app.interface_interaction.anything_changed = true;
                 app.scene = None; // 清除现有场景，强制重新加载
                 app.rendered_image = None; // 清除渲染结果
@@ -174,7 +174,7 @@ impl WidgetMethods for RasterizerApp {
             }
         });
 
-        // 🔥 **新增：配置文件管理** - 放在OBJ文件下方
+        // 新增：配置文件管理 - 放在OBJ文件下方
         ui.separator();
         ui.horizontal(|ui| {
             ui.label("配置文件：");
@@ -266,7 +266,7 @@ impl WidgetMethods for RasterizerApp {
         Self::add_tooltip(response, ctx, "同时保存深度图（深度信息可视化）");
     }
 
-    /// 🔥 **渲染属性设置面板**
+    /// 渲染属性设置面板
     fn ui_render_properties_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         let mut settings_changed = false;
 
@@ -494,7 +494,7 @@ impl WidgetMethods for RasterizerApp {
                     app.settings.texture = Some(texture_path_str);
                 }
 
-                // 🔥 **修复：纹理变化应该立即触发重绘**
+                // 修复：纹理变化应该立即触发重绘
                 app.interface_interaction.anything_changed = true;
             }
 
@@ -503,13 +503,13 @@ impl WidgetMethods for RasterizerApp {
             }
         });
 
-        // 🔥 **统一处理 settings_changed**
+        // 统一处理 settings_changed
         if settings_changed {
             app.interface_interaction.anything_changed = true;
         }
     }
 
-    /// 🔥 **物体变换控制面板** - 修复为统一触发机制
+    /// 物体变换控制面板 - 修复为统一触发机制
     fn ui_object_transform_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, _ctx: &Context) {
         // 位置控制
         ui.group(|ui| {
@@ -550,7 +550,7 @@ impl WidgetMethods for RasterizerApp {
                 position_changed = true;
             }
 
-            // 🔥 **修复：直接更新settings字符串并标记变化**
+            // 修复：直接更新settings字符串并标记变化
             if position_changed {
                 app.settings.object_position = format!(
                     "{},{},{}",
@@ -619,7 +619,7 @@ impl WidgetMethods for RasterizerApp {
                 }
             });
 
-            // 🔥 **修复：直接更新settings字符串并标记变化**
+            // 修复：直接更新settings字符串并标记变化
             if rotation_changed {
                 // 转换回度数存储到settings
                 let rotation_degrees = nalgebra::Vector3::new(
@@ -695,7 +695,7 @@ impl WidgetMethods for RasterizerApp {
                 }
             });
 
-            // 🔥 **修复：直接更新settings字符串并标记变化**
+            // 修复：直接更新settings字符串并标记变化
             if scale_changed {
                 app.settings.object_scale_xyz = format!(
                     "{},{},{}",
@@ -706,7 +706,7 @@ impl WidgetMethods for RasterizerApp {
         });
     }
 
-    /// 🔥 **背景与环境设置面板** - 适配新的背景管理架构
+    /// 背景与环境设置面板 - 适配新的背景管理架构
     fn ui_background_settings(app: &mut RasterizerApp, ui: &mut egui::Ui) {
         // 背景图片选项
         let old_bg_image = app.settings.use_background_image;
@@ -731,7 +731,7 @@ impl WidgetMethods for RasterizerApp {
                     } else {
                         app.settings.background_image_path = Some(path_text.clone());
 
-                        // 🔥 **新架构：不再手动加载，由 FrameBuffer 自动处理**
+                        // 新架构：不再手动加载，由 FrameBuffer 自动处理
                         app.status_message = format!("背景图片路径已设置: {}", path_text);
                     }
                     app.interface_interaction.anything_changed = true;
@@ -755,7 +755,7 @@ impl WidgetMethods for RasterizerApp {
                 ui.label(RichText::new("注意：渐变背景将覆盖在背景图片上").color(Color32::YELLOW));
             }
 
-            // 🔥 **使用按需计算的颜色值**
+            // 使用按需计算的颜色值
             let top_color = app.settings.get_gradient_top_color_vec();
             let mut top_color_array = [top_color.x, top_color.y, top_color.z];
             if ui.color_edit_button_rgb(&mut top_color_array).changed() {
@@ -791,7 +791,7 @@ impl WidgetMethods for RasterizerApp {
                 ui.label(RichText::new("注意：地面平面将覆盖在背景图片上").color(Color32::YELLOW));
             }
 
-            // 🔥 **使用按需计算的地面颜色**
+            // 使用按需计算的地面颜色
             let ground_color = app.settings.get_ground_plane_color_vec();
             let mut ground_color_array = [ground_color.x, ground_color.y, ground_color.z];
             if ui.color_edit_button_rgb(&mut ground_color_array).changed() {
@@ -826,7 +826,7 @@ impl WidgetMethods for RasterizerApp {
                     if let Ok(from) =
                         crate::io::render_settings::parse_point3(&app.settings.camera_from)
                     {
-                        // 🔥 **修复：直接设置参数而不是调用不存在的方法**
+                        // 修复：直接设置参数而不是调用不存在的方法
                         scene.active_camera.params.position = from;
                         scene.active_camera.update_matrices(); // 手动更新矩阵
                         app.interface_interaction.anything_changed = true;
@@ -881,7 +881,7 @@ impl WidgetMethods for RasterizerApp {
                 10.0..=120.0,
             ));
             if (app.settings.camera_fov - old_fov).abs() > 0.1 {
-                // 🔥 **修复：使用 if let 替代 match**
+                // 修复：使用 if let 替代 match
                 if let Some(scene) = &mut app.scene {
                     if let crate::geometry::camera::ProjectionType::Perspective {
                         fov_y_degrees,
@@ -984,7 +984,7 @@ impl WidgetMethods for RasterizerApp {
         });
     }
 
-    /// 🔥 **光照设置面板** - 移除预设，简化为直接光源管理
+    /// 光照设置面板 - 移除预设，简化为直接光源管理
     fn ui_lighting_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, _ctx: &Context) {
         // 总光照开关
         let resp = ui
@@ -1025,7 +1025,7 @@ impl WidgetMethods for RasterizerApp {
 
         ui.separator();
 
-        // 🔥 **直接光源管理** - 添加/删除按钮
+        // 直接光源管理 - 添加/删除按钮
         if app.settings.use_lighting {
             ui.horizontal(|ui| {
                 if ui.button("➕ 添加方向光").clicked() {
@@ -1034,7 +1034,7 @@ impl WidgetMethods for RasterizerApp {
                         .push(crate::material_system::light::Light::directional(
                             nalgebra::Vector3::new(0.0, -1.0, -1.0),
                             nalgebra::Vector3::new(1.0, 1.0, 1.0),
-                            0.8, // 🔥 **直接使用合理的默认强度**
+                            0.8, // 直接使用合理的默认强度
                         ));
                     app.interface_interaction.anything_changed = true;
                 }
@@ -1045,7 +1045,7 @@ impl WidgetMethods for RasterizerApp {
                         .push(crate::material_system::light::Light::point(
                             nalgebra::Point3::new(0.0, 2.0, 0.0),
                             nalgebra::Vector3::new(1.0, 1.0, 1.0),
-                            1.0, // 🔥 **直接使用合理的默认强度**
+                            1.0, // 直接使用合理的默认强度
                             Some((1.0, 0.09, 0.032)),
                         ));
                     app.interface_interaction.anything_changed = true;
@@ -1057,7 +1057,7 @@ impl WidgetMethods for RasterizerApp {
 
             ui.separator();
 
-            // 🔥 **可编辑的光源列表** - 每个光源都有独立的强度控制
+            // 可编辑的光源列表 - 每个光源都有独立的强度控制
             let mut to_remove = Vec::new();
             for (i, light) in app.settings.lights.iter_mut().enumerate() {
                 let mut light_changed = false;
@@ -1081,7 +1081,7 @@ impl WidgetMethods for RasterizerApp {
                         }
                     });
 
-                    // 🔥 **光源参数编辑** - 每个光源独立控制强度
+                    // 光源参数编辑 - 每个光源独立控制强度
                     match light {
                         crate::material_system::light::Light::Directional {
                             enabled,
@@ -1097,7 +1097,7 @@ impl WidgetMethods for RasterizerApp {
                                 }
 
                                 if *enabled {
-                                    // 🔥 **独立的强度控制**
+                                    // 独立的强度控制
                                     let resp = ui.add(
                                         egui::Slider::new(intensity, 0.0..=3.0)
                                             .text("强度")
@@ -1154,7 +1154,7 @@ impl WidgetMethods for RasterizerApp {
                                 }
 
                                 if *enabled {
-                                    // 🔥 **独立的强度控制** - 点光源通常需要更高的强度
+                                    // 独立的强度控制 - 点光源通常需要更高的强度
                                     let resp = ui.add(
                                         egui::Slider::new(intensity, 0.0..=10.0)
                                             .text("强度")
@@ -1256,7 +1256,7 @@ impl WidgetMethods for RasterizerApp {
         }
     }
 
-    /// 🔥 **PBR材质设置面板**
+    /// PBR材质设置面板
     fn ui_pbr_material_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         ui.horizontal(|ui| {
             ui.label("基础颜色 (Base Color):");
@@ -1337,7 +1337,7 @@ impl WidgetMethods for RasterizerApp {
         });
     }
 
-    /// 🔥 **Phong材质设置面板**
+    /// Phong材质设置面板
     fn ui_phong_material_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         ui.horizontal(|ui| {
             ui.label("漫反射颜色 (Diffuse):");
@@ -1410,7 +1410,7 @@ impl WidgetMethods for RasterizerApp {
         });
     }
 
-    /// 🔥 **动画设置面板**
+    /// 动画设置面板
     fn ui_animation_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         ui.horizontal(|ui| {
             ui.label("旋转圈数:");
@@ -1552,7 +1552,7 @@ impl WidgetMethods for RasterizerApp {
         });
     }
 
-    /// 🔥 **按钮控制面板**
+    /// 按钮控制面板
     fn ui_button_controls_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         ui.add_space(20.0);
 
@@ -1726,7 +1726,7 @@ impl WidgetMethods for RasterizerApp {
         });
     }
 
-    /// 🔥 **渲染信息面板**
+    /// 渲染信息面板
     fn ui_render_info_panel(app: &mut RasterizerApp, ui: &mut egui::Ui) {
         // 渲染信息
         if let Some(time) = app.last_render_time {
@@ -1744,7 +1744,7 @@ impl WidgetMethods for RasterizerApp {
             }
         }
 
-        // 🔥 **FPS显示** - 使用CoreMethods的新接口
+        // FPS显示 - 使用CoreMethods的新接口
         if app.is_realtime_rendering {
             let (fps_text, fps_color) = app.get_fps_display();
             ui.separator();

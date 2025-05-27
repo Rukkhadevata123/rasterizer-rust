@@ -12,7 +12,7 @@ pub use crate::core::rasterizer::TriangleData;
 pub struct TriangleProcessor;
 
 impl TriangleProcessor {
-    /// 🔥 **准备所有要渲染的三角形 - 直接接受场景光源数据**
+    /// 准备所有要渲染的三角形 - 直接接受场景光源数据
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_triangles<'a>(
         model_data: &'a ModelData,
@@ -22,9 +22,9 @@ impl TriangleProcessor {
         mesh_vertex_offsets: &[usize],
         material_override: Option<&'a Material>,
         settings: &'a RenderSettings,
-        lights: &'a [crate::material_system::light::Light], // 🔥 **直接传入场景光源**
-        ambient_intensity: f32,                             // 🔥 **直接传入环境光强度**
-        ambient_color: Vector3<f32>,                        // 🔥 **直接传入环境光颜色**
+        lights: &'a [crate::material_system::light::Light], // 直接传入场景光源
+        ambient_intensity: f32,                             // 直接传入环境光强度
+        ambient_color: Vector3<f32>,                        // 直接传入环境光颜色
     ) -> Vec<TriangleData<'a>> {
         model_data
             .meshes
@@ -55,9 +55,9 @@ impl TriangleProcessor {
                             all_view_normals,
                             material_opt,
                             settings,
-                            lights,            // 🔥 **使用传入的场景光源**
-                            ambient_intensity, // 🔥 **使用传入的环境光强度**
-                            ambient_color,     // 🔥 **使用传入的环境光颜色**
+                            lights,            // 使用传入的场景光源
+                            ambient_intensity, // 使用传入的环境光强度
+                            ambient_color,     // 使用传入的环境光颜色
                         )
                     })
                     .collect::<Vec<_>>()

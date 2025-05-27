@@ -79,7 +79,7 @@ fn get_basename_from_path(path: &Path) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// 🔥 **主要功能：加载并处理 OBJ 模型文件**
+/// 主要功能：加载并处理 OBJ 模型文件
 pub fn load_obj_model<P: AsRef<Path>>(
     obj_path: P,
     settings: &RenderSettings,

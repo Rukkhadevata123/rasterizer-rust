@@ -7,7 +7,7 @@ use nalgebra::{Matrix4, Point3, Vector3};
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// 🔥 **简化背景渲染器 - 直接加载，无复杂抽象**
+/// 简化背景渲染器 - 直接加载，无复杂抽象
 pub struct BackgroundRenderer {
     cached_background: Option<Texture>,
     cached_path: Option<String>,
@@ -21,7 +21,7 @@ impl BackgroundRenderer {
         }
     }
 
-    /// 🔥 **直接加载背景图片，去除多层包装**
+    /// 直接加载背景图片，去除多层包装
     pub fn get_background_image(&mut self, settings: &RenderSettings) -> Option<&Texture> {
         if !settings.use_background_image {
             return None;
@@ -36,7 +36,7 @@ impl BackgroundRenderer {
             }
         }
 
-        // 🔥 **直接加载，无中间层**
+        // 直接加载，无中间层
         match Texture::from_file(current_path) {
             Some(texture) => {
                 debug!("背景图片加载成功: {}x{}", texture.width, texture.height);
@@ -51,7 +51,7 @@ impl BackgroundRenderer {
         }
     }
 
-    /// 🔥 **统一的背景颜色计算方法 - 支持并行和串行调用**
+    /// 统一的背景颜色计算方法 - 支持并行和串行调用
     pub fn compute_background_color_unified(
         settings: &RenderSettings,
         camera: &Camera,
@@ -99,11 +99,11 @@ impl BackgroundRenderer {
     }
 }
 
-/// 🔥 **地面渲染计算器（静态方法）**
+/// 地面渲染计算器（静态方法）
 pub struct GroundRenderer;
 
 impl GroundRenderer {
-    /// 🔥 **计算地面因子**
+    /// 计算地面因子
     pub fn compute_ground_factor(
         settings: &RenderSettings,
         camera: &Camera,
@@ -222,7 +222,7 @@ impl GroundRenderer {
         (combined_factor * 1.1).max(0.0)
     }
 
-    /// 🔥 **计算地面颜色（使用按需计算）**
+    /// 计算地面颜色（使用按需计算）
     pub fn compute_ground_color(
         settings: &RenderSettings,
         camera: &Camera,
@@ -270,7 +270,7 @@ pub struct FrameBuffer {
     pub depth_buffer: Vec<AtomicF32>,
     pub color_buffer: Vec<AtomicU8>,
 
-    // 🔥 **新增：背景管理器**
+    // 新增：背景管理器
     pub background_renderer: BackgroundRenderer,
 }
 
@@ -293,14 +293,14 @@ impl FrameBuffer {
         }
     }
 
-    /// 🔥 **清除所有缓冲区，并根据配置绘制背景和地面**
+    /// 清除所有缓冲区，并根据配置绘制背景和地面
     pub fn clear(&mut self, settings: &RenderSettings, camera: &Camera) {
         // 重置深度缓冲区
         self.depth_buffer.par_iter().for_each(|atomic_depth| {
             atomic_depth.store(f32::INFINITY, Ordering::Relaxed);
         });
 
-        // 🔥 **预加载背景纹理用于并行处理**
+        // 预加载背景纹理用于并行处理
         let background_texture =
             if settings.use_background_image && settings.background_image_path.is_some() {
                 self.background_renderer
@@ -310,7 +310,7 @@ impl FrameBuffer {
                 None
             };
 
-        // 🔥 **并行绘制背景 - 使用统一方法**
+        // 并行绘制背景 - 使用统一方法
         (0..self.height).into_par_iter().for_each(|y| {
             for x in 0..self.width {
                 let buffer_index = y * self.width + x;
@@ -318,7 +318,7 @@ impl FrameBuffer {
                 let t_y = y as f32 / (self.height - 1) as f32;
                 let t_x = x as f32 / (self.width - 1) as f32;
 
-                // 🔥 **使用统一的背景颜色计算方法**
+                // 使用统一的背景颜色计算方法
                 let final_color = BackgroundRenderer::compute_background_color_unified(
                     settings,
                     camera,

@@ -3,7 +3,7 @@ use crate::io::render_settings::RenderSettings;
 use clap::Parser;
 use log::info;
 
-/// 🔥 **极简CLI** - 专注配置文件和GUI控制
+/// 极简CLI - 专注配置文件和GUI控制
 #[derive(Parser, Debug)]
 #[command(name = "rasterizer")]
 #[command(about = "🎨 TOML驱动的光栅化渲染器")]
@@ -22,7 +22,7 @@ pub struct SimpleCli {
 }
 
 impl SimpleCli {
-    /// 🔥 **处理CLI参数并返回RenderSettings和是否启动GUI**
+    /// 处理CLI参数并返回RenderSettings和是否启动GUI
     pub fn process() -> Result<(RenderSettings, bool), String> {
         let cli = Self::parse();
 

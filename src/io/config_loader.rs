@@ -3,11 +3,11 @@ use crate::material_system::light::Light;
 use std::path::Path;
 use toml::Value;
 
-/// 🔥 **TOML配置管理器** - 统一处理所有配置的读写
+/// TOML配置管理器 - 统一处理所有配置的读写
 pub struct TomlConfigLoader;
 
 impl TomlConfigLoader {
-    /// 🔥 **从TOML文件加载完整配置**
+    /// 从TOML文件加载完整配置
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<RenderSettings, String> {
         let content = std::fs::read_to_string(path.as_ref())
             .map_err(|e| format!("读取配置文件失败: {}", e))?;
@@ -15,7 +15,7 @@ impl TomlConfigLoader {
         Self::load_from_content(&content)
     }
 
-    /// 🔥 **从TOML内容字符串加载配置**
+    /// 从TOML内容字符串加载配置
     pub fn load_from_content(content: &str) -> Result<RenderSettings, String> {
         let toml_value: Value =
             toml::from_str(content).map_err(|e| format!("解析TOML失败: {}", e))?;
@@ -23,15 +23,15 @@ impl TomlConfigLoader {
         Self::parse_toml_to_settings(toml_value)
     }
 
-    /// 🔥 **保存配置到TOML文件**
+    /// 保存配置到TOML文件
     pub fn save_to_file<P: AsRef<Path>>(settings: &RenderSettings, path: P) -> Result<(), String> {
         let toml_content = Self::settings_to_toml(settings)?;
         std::fs::write(path, toml_content).map_err(|e| format!("写入配置文件失败: {}", e))
     }
 
-    /// 🔥 **直接生成示例配置文件** - 内联实现，不依赖额外方法
+    /// 直接生成示例配置文件 - 内联实现，不依赖额外方法
     pub fn create_example_config<P: AsRef<Path>>(path: P) -> Result<(), String> {
-        // 🔥 **修复Clippy警告：在初始化时设置字段**
+        // 修复Clippy警告：在初始化时设置字段
         let settings = RenderSettings {
             obj: Some("obj/simple/bunny.obj".to_string()),
             texture: None,
@@ -43,7 +43,7 @@ impl TomlConfigLoader {
         Self::save_to_file(&settings, path).map_err(|e| format!("创建示例配置失败: {}", e))
     }
 
-    // ===== 🔥 **TOML -> RenderSettings 转换** =====
+    // ===== TOML -> RenderSettings 转换 =====
 
     fn parse_toml_to_settings(toml: Value) -> Result<RenderSettings, String> {
         let mut settings = RenderSettings::default();
@@ -73,7 +73,7 @@ impl TomlConfigLoader {
             Self::parse_lighting_section(&mut settings, lighting)?;
         }
 
-        // 🔥 **[[light]] 数组 - 多光源支持**
+        // [[light]] 数组 - 多光源支持
         settings.lights = Self::parse_lights_array(&toml)?;
 
         // [material] 部分
@@ -94,7 +94,7 @@ impl TomlConfigLoader {
         Ok(settings)
     }
 
-    // ===== 🔥 **各个section的解析方法** =====
+    // ===== 各个section的解析方法 =====
 
     fn parse_files_section(
         settings: &mut RenderSettings,
@@ -222,7 +222,7 @@ impl TomlConfigLoader {
         Ok(())
     }
 
-    /// 🔥 **多光源解析 - 支持 [[light]] 数组语法**
+    /// 多光源解析 - 支持 [[light]] 数组语法
     fn parse_lights_array(toml: &Value) -> Result<Vec<Light>, String> {
         let mut lights = Vec::new();
 
@@ -466,7 +466,7 @@ impl TomlConfigLoader {
         Ok(())
     }
 
-    // ===== 🔥 **RenderSettings -> TOML 转换** =====
+    // ===== RenderSettings -> TOML 转换 =====
 
     fn settings_to_toml(settings: &RenderSettings) -> Result<String, String> {
         let mut content = String::new();
@@ -548,7 +548,7 @@ impl TomlConfigLoader {
         content.push_str(&format!("ambient_color = \"{}\"\n", settings.ambient_color));
         content.push('\n');
 
-        // 🔥 **[[light]] 数组 - 使用default的光源配置**
+        // [[light]] 数组 - 使用default的光源配置
         if !settings.lights.is_empty() {
             content.push_str("# 🔥 光源配置 - 默认包含一个方向光\n");
             for light in &settings.lights {

@@ -232,7 +232,7 @@ fn write_pixel_color(
     }
 }
 
-/// 🔥 **计算增强的环境光遮蔽因子** - 更明显的效果
+/// 计算增强的环境光遮蔽因子 - 更明显的效果
 fn calculate_enhanced_ao(
     triangle: &TriangleData,
     bary: Vector3<f32>,
@@ -243,7 +243,7 @@ fn calculate_enhanced_ao(
         return 1.0; // 禁用时返回无遮蔽
     }
 
-    // 🔥 **更激进的基础AO计算**
+    // 更激进的基础AO计算
     // 基于法线朝向 - 增强对比度
     let up_factor = {
         let raw_up = (interp_normal.y + 1.0) * 0.5;
@@ -251,7 +251,7 @@ fn calculate_enhanced_ao(
         raw_up.powf(1.5) // 让朝下的表面更暗
     };
 
-    // 🔥 **更明显的边缘遮蔽效果**
+    // 更明显的边缘遮蔽效果
     let edge_proximity = {
         let min_bary = bary.x.min(bary.y).min(bary.z);
         let edge_factor = (min_bary * 2.0).min(1.0); // 减少乘数，让边缘效果更强
@@ -264,24 +264,24 @@ fn calculate_enhanced_ao(
         triangle.vertices[1].normal_view,
         triangle.vertices[2].normal_view,
     ) {
-        // 🔥 **增强法线变化检测**
+        // 增强法线变化检测
         let normal_variance = (n0 - n1).magnitude() + (n1 - n2).magnitude() + (n2 - n0).magnitude();
 
         // 更激进的曲率因子
         let curvature_factor = (1.0 - (normal_variance * 0.4).min(0.7)).max(0.1); // 增强变化检测
 
-        // 🔥 **更明显的位置相关AO**
+        // 更明显的位置相关AO
         let center_distance = (bary - Vector3::new(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)).magnitude();
         let position_factor = 1.0 - (center_distance * 0.5).min(0.3); // 增强中心遮蔽
 
-        // 🔥 **重新调整权重，让效果更明显**
+        // 重新调整权重，让效果更明显
         let base_ao = (up_factor * 0.5 +           // 增加法线影响
             curvature_factor * 0.3 +
             edge_proximity * 0.15 +
             position_factor * 0.05)
             .clamp(0.05, 1.0); // 🔥 降低最小值，允许更暗的阴影
 
-        // 🔥 **应用用户设置，但增强效果**
+        // 应用用户设置，但增强效果
         let enhanced_strength = settings.ao_strength * 1.5; // 放大用户设置的效果
         let final_ao = 1.0 - ((1.0 - base_ao) * enhanced_strength.min(1.0));
         final_ao.clamp(0.05, 1.0) // 🔥 允许更暗的阴影
@@ -293,7 +293,7 @@ fn calculate_enhanced_ao(
     }
 }
 
-/// 🔥 **计算光源的简单软阴影因子**
+/// 计算光源的简单软阴影因子
 fn calculate_simple_shadow_factor(
     light_dir: &Vector3<f32>,
     surface_normal: &Vector3<f32>,
@@ -343,12 +343,12 @@ fn calculate_simple_shadow_factor(
     // 5. 组合所有因子
     let base_shadow = edge_factor * depth_factor * local_occlusion;
 
-    // 🔥 **应用用户设置的阴影强度**
+    // 应用用户设置的阴影强度
     let final_shadow = 1.0 - ((1.0 - base_shadow) * settings.shadow_strength);
     final_shadow.clamp(0.1, 1.0) // 确保不会完全黑
 }
 
-/// 🔥 **应用AO到环境光的新函数**
+/// 应用AO到环境光的新函数
 fn apply_ao_to_ambient(ambient: &Color, ao_factor: f32) -> Color {
     Color::new(
         ambient.x * ao_factor,
@@ -365,7 +365,7 @@ fn apply_ao_to_ambient(ambient: &Color, ao_factor: f32) -> Color {
 /// 2. Phong着色（逐像素光照计算）
 /// 3. 预计算光照（Flat或Gouraud着色）
 ///
-/// 🔥 **新增功能：增强AO和软阴影**
+/// 新增功能：增强AO和软阴影
 ///
 /// # 参数
 /// * `triangle` - 三角形数据
@@ -427,10 +427,10 @@ fn calculate_pixel_color(
         // 计算视线方向
         let view_dir = (-interp_position.coords).normalize();
 
-        // 🔥 **计算增强的AO因子**
+        // 计算增强的AO因子
         let ao_factor = calculate_enhanced_ao(triangle, bary, &interp_normal, settings);
 
-        // 🔥 **为每个光源计算软阴影**
+        // 为每个光源计算软阴影
         let mut total_direct_light = Vector3::zeros();
 
         // 遍历所有光源
@@ -439,7 +439,7 @@ fn calculate_pixel_color(
             let light_dir = light.get_direction(&interp_position);
             let light_intensity = light.get_intensity(&interp_position);
 
-            // 🔥 **计算此光源的软阴影因子**
+            // 计算此光源的软阴影因子
             let shadow_factor = calculate_simple_shadow_factor(
                 &light_dir,
                 &interp_normal,
@@ -451,7 +451,7 @@ fn calculate_pixel_color(
             // 计算材质对该光源的响应
             let response = material_view.compute_response(&light_dir, &view_dir, &interp_normal);
 
-            // 🔥 **应用软阴影因子到光照**
+            // 应用软阴影因子到光照
             total_direct_light += Vector3::new(
                 response.x * light_intensity.x * shadow_factor,
                 response.y * light_intensity.y * shadow_factor,
@@ -466,7 +466,7 @@ fn calculate_pixel_color(
             total_direct_light.z,
         );
 
-        // 🔥 **应用AO到环境光**
+        // 应用AO到环境光
         let ao_ambient = apply_ao_to_ambient(ambient_contribution, ao_factor);
 
         // 处理纹理和应用光照
@@ -500,9 +500,9 @@ fn calculate_pixel_color(
             base_color
         };
 
-        // 🔥 **为Blinn-Phong模式也应用简单AO**
+        // 为Blinn-Phong模式也应用简单AO
         if settings.use_lighting {
-            // 🔥 **为非PBR/Phong模式计算简单AO**
+            // 为非PBR/Phong模式计算简单AO
             let ao_factor = if settings.enhanced_ao {
                 // 计算法线（如果可用）
                 let interp_normal = if let (Some(n0), Some(n1), Some(n2)) = (
@@ -529,7 +529,7 @@ fn calculate_pixel_color(
                 1.0 // 禁用AO时不应用遮蔽
             };
 
-            // 🔥 **应用AO到环境光**
+            // 应用AO到环境光
             let ao_ambient = apply_ao_to_ambient(ambient_contribution, ao_factor);
             surface_color.component_mul(&ao_ambient)
         } else {

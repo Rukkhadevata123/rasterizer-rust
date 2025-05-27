@@ -6,11 +6,11 @@ use log::{debug, info};
 use std::path::Path;
 use std::time::Instant;
 
-/// 🔥 **模型加载器 - 专注模型加载和场景创建**
+/// 模型加载器 - 专注模型加载和场景创建
 pub struct ModelLoader;
 
 impl ModelLoader {
-    /// 🔥 **主要功能：加载OBJ模型并创建场景**
+    /// 主要功能：加载OBJ模型并创建场景
     pub fn load_and_create_scene(
         obj_path: &str,
         settings: &RenderSettings,
@@ -45,7 +45,7 @@ impl ModelLoader {
         Ok((scene, model_data))
     }
 
-    /// 🔥 **验证资源 - 简化版本**
+    /// 验证资源 - 简化版本
     pub fn validate_resources(settings: &RenderSettings) -> Result<(), String> {
         // 验证 OBJ 文件
         if let Some(obj_path) = &settings.obj {

@@ -266,7 +266,7 @@ impl AnimationMethods for RasterizerApp {
             return;
         }
 
-        // 🔥 **使用 CoreMethods 验证参数**
+        // 使用 CoreMethods 验证参数
         match self.settings.validate() {
             Ok(_) => {
                 let output_dir = self.settings.output_dir.clone();
@@ -496,7 +496,7 @@ impl AnimationMethods for RasterizerApp {
             return;
         }
 
-        // 🔥 **使用 CoreMethods 验证参数**
+        // 使用 CoreMethods 验证参数
         match self.settings.validate() {
             Ok(_) => {
                 if self.scene.is_none() {

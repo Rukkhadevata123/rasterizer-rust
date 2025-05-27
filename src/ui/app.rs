@@ -12,13 +12,13 @@ use super::animation::AnimationMethods;
 use super::core::CoreMethods;
 use super::widgets::WidgetMethods;
 
-/// 🔥 **GUI应用状态** - 清晰分离TOML配置和GUI专用参数
+/// GUI应用状态 - 清晰分离TOML配置和GUI专用参数
 pub struct RasterizerApp {
-    // ===== 🔥 **TOML可配置参数 - 统一存储在settings中** =====
-    /// 🔥 **所有TOML可配置的渲染参数**
+    // ===== TOML可配置参数 - 统一存储在settings中 =====
+    /// 所有TOML可配置的渲染参数
     pub settings: RenderSettings,
 
-    // ===== 🔥 **GUI专用向量字段 - 从settings字符串同步** =====
+    // ===== GUI专用向量字段 - 从settings字符串同步 =====
     /// GUI中物体位置控制的向量表示（与settings.object_position同步）
     pub object_position_vec: Vector3<f32>,
     /// GUI中物体旋转控制的向量表示（与settings.object_rotation同步，弧度制）
@@ -26,7 +26,7 @@ pub struct RasterizerApp {
     /// GUI中物体缩放控制的向量表示（与settings.object_scale_xyz同步）
     pub object_scale_vec: Vector3<f32>,
 
-    // ===== 🔥 **渲染运行时状态 - 不可配置** =====
+    // ===== 渲染运行时状态 - 不可配置 =====
     /// 渲染器实例
     pub renderer: Renderer,
     /// 当前加载的场景
@@ -34,7 +34,7 @@ pub struct RasterizerApp {
     /// 当前加载的模型数据
     pub model_data: Option<ModelData>,
 
-    // ===== 🔥 **GUI界面状态 - 不可配置** =====
+    // ===== GUI界面状态 - 不可配置 =====
     /// 渲染结果纹理句柄
     pub rendered_image: Option<egui::TextureHandle>,
     /// 上次渲染耗时
@@ -46,7 +46,7 @@ pub struct RasterizerApp {
     /// 错误消息内容
     pub error_message: String,
 
-    // ===== 🔥 **实时渲染状态 - 不可配置** =====
+    // ===== 实时渲染状态 - 不可配置 =====
     /// 当前实时帧率
     pub current_fps: f32,
     /// 帧率历史记录，用于平滑显示
@@ -58,7 +58,7 @@ pub struct RasterizerApp {
     /// 上一帧的时间戳
     pub last_frame_time: Option<std::time::Instant>,
 
-    // ===== 🔥 **预渲染状态 - 不可配置** =====
+    // ===== 预渲染状态 - 不可配置 =====
     /// 是否启用预渲染模式
     pub pre_render_mode: bool,
     /// 是否正在预渲染
@@ -74,7 +74,7 @@ pub struct RasterizerApp {
     /// 预渲染一个完整周期所需的总帧数
     pub total_frames_for_pre_render_cycle: usize,
 
-    // ===== 🔥 **视频生成状态 - 不可配置** =====
+    // ===== 视频生成状态 - 不可配置 =====
     /// 是否正在生成视频
     pub is_generating_video: bool,
     /// 视频生成线程句柄
@@ -82,7 +82,7 @@ pub struct RasterizerApp {
     /// 视频生成进度
     pub video_progress: Arc<AtomicUsize>,
 
-    // ===== 🔥 **相机交互设置 - 可考虑加入TOML配置** =====
+    // ===== 相机交互设置 - 可考虑加入TOML配置 =====
     /// 平移敏感度
     pub camera_pan_sensitivity: f32,
     /// 轨道旋转敏感度
@@ -90,11 +90,11 @@ pub struct RasterizerApp {
     /// 推拉缩放敏感度
     pub camera_dolly_sensitivity: f32,
 
-    // ===== 🔥 **相机交互状态 - 不可配置** =====
+    // ===== 相机交互状态 - 不可配置 =====
     /// 相机交互状态
     pub interface_interaction: InterfaceInteraction,
 
-    // ===== 🔥 **系统状态 - 不可配置** =====
+    // ===== 系统状态 - 不可配置 =====
     /// ffmpeg可用性检查结果
     pub ffmpeg_available: bool,
 }
@@ -128,7 +128,7 @@ impl RasterizerApp {
 
         cc.egui_ctx.set_fonts(fonts);
 
-        // 🔥 **从settings字符串初始化GUI专用向量字段**
+        // 从settings字符串初始化GUI专用向量字段
         let object_position_vec =
             if let Ok(pos) = crate::io::render_settings::parse_vec3(&settings.object_position) {
                 pos
@@ -226,7 +226,7 @@ impl RasterizerApp {
         self.show_error_dialog = true;
     }
 
-    /// 🔥 **简化相机交互 - 直接更新settings**
+    /// 简化相机交互 - 直接更新settings
     fn handle_camera_interaction(&mut self, image_response: &egui::Response, ctx: &egui::Context) {
         if let Some(scene) = &mut self.scene {
             let mut camera_changed = false;
@@ -242,7 +242,7 @@ impl RasterizerApp {
                     let current_pos = image_response.interact_pointer_pos().unwrap_or_default();
                     let delta = current_pos - last_pos;
 
-                    // 🔥 **设置最小移动阈值，避免微小抖动触发重新渲染**
+                    // 设置最小移动阈值，避免微小抖动触发重新渲染
                     if delta.length() < 1.0 {
                         return;
                     }
@@ -308,7 +308,7 @@ impl RasterizerApp {
                 }
             });
 
-            // 🔥 **如果相机发生变化，直接更新settings并标记**
+            // 如果相机发生变化，直接更新settings并标记
             if camera_changed {
                 // 直接更新settings字符串
                 let pos = scene.active_camera.position();
@@ -330,7 +330,7 @@ impl RasterizerApp {
         }
     }
 
-    /// 🔥 **统一的资源清理方法**
+    /// 统一的资源清理方法
     fn cleanup_resources(&mut self) {
         CoreMethods::cleanup_resources(self);
     }
@@ -487,7 +487,7 @@ impl eframe::App for RasterizerApp {
             }
         });
 
-        // 🔥 **统一处理所有变化引起的重新渲染**
+        // 统一处理所有变化引起的重新渲染
         CoreMethods::render_if_anything_changed(self, ctx);
 
         // 在每帧更新结束时清理不需要的资源
