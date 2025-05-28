@@ -1,45 +1,16 @@
-use super::color_calculator::calculate_pixel_color;
-use super::lighting_effects::calculate_ambient_contribution;
+use super::shading::{calculate_ambient_contribution, calculate_pixel_color};
 use super::triangle_data::{BoundingBox, TriangleData};
 use crate::geometry::culling::is_on_triangle_edge;
 use crate::geometry::interpolation::{
     barycentric_coordinates, interpolate_depth, is_inside_triangle,
 };
 use crate::io::render_settings::RenderSettings;
-use crate::material_system::color::linear_rgb_to_u8;
+use crate::material_system::color::{Color, linear_rgb_to_u8};
 use atomic_float::AtomicF32;
-use nalgebra::Point2;
+use nalgebra::{Point2, Vector3};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// 渲染上下文 - 缓存预计算值
-struct RenderContext {
-    use_phong_or_pbr: bool,
-    use_texture: bool,
-    ambient_contribution: nalgebra::Vector3<f32>,
-}
-
-impl RenderContext {
-    fn new(triangle: &TriangleData, settings: &RenderSettings) -> Self {
-        let use_phong_or_pbr = (settings.use_pbr || settings.use_phong)
-            && triangle.vertices[0].normal_view.is_some()
-            && triangle.vertices[0].position_view.is_some()
-            && !triangle.lights.is_empty();
-
-        let use_texture = !matches!(
-            triangle.texture_source,
-            super::triangle_data::TextureSource::None
-        );
-        let ambient_contribution = calculate_ambient_contribution(triangle);
-
-        Self {
-            use_phong_or_pbr,
-            use_texture,
-            ambient_contribution,
-        }
-    }
-}
-
-/// 光栅化单个三角形
+/// 光栅化单个三角形 - 简化，直接计算需要的值
 pub fn rasterize_triangle(
     triangle: &TriangleData,
     width: usize,
@@ -57,7 +28,18 @@ pub fn rasterize_triangle(
         None => return,
     };
 
-    let render_context = RenderContext::new(triangle, settings);
+    // 预计算一次，避免重复计算
+    let use_phong_or_pbr = (settings.use_pbr || settings.use_phong)
+        && triangle.vertices[0].normal_view.is_some()
+        && triangle.vertices[0].position_view.is_some()
+        && !triangle.lights.is_empty();
+
+    let use_texture = !matches!(
+        triangle.texture_source,
+        super::triangle_data::TextureSource::None
+    );
+
+    let ambient_contribution = calculate_ambient_contribution(triangle);
 
     bbox.for_each_pixel(|x, y| {
         let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
@@ -67,7 +49,9 @@ pub fn rasterize_triangle(
             triangle,
             pixel_center,
             pixel_index,
-            &render_context,
+            use_phong_or_pbr,
+            use_texture,
+            &ambient_contribution,
             depth_buffer,
             color_buffer,
             settings,
@@ -75,7 +59,7 @@ pub fn rasterize_triangle(
     });
 }
 
-/// 处理单个像素
+/// 处理单个像素 - 简化接口
 pub fn rasterize_pixel(
     triangle: &TriangleData,
     pixel_center: Point2<f32>,
@@ -84,25 +68,40 @@ pub fn rasterize_pixel(
     color_buffer: &[AtomicU8],
     settings: &RenderSettings,
 ) {
-    let render_context = RenderContext::new(triangle, settings);
+    let use_phong_or_pbr = (settings.use_pbr || settings.use_phong)
+        && triangle.vertices[0].normal_view.is_some()
+        && triangle.vertices[0].position_view.is_some()
+        && !triangle.lights.is_empty();
+
+    let use_texture = !matches!(
+        triangle.texture_source,
+        super::triangle_data::TextureSource::None
+    );
+
+    let ambient_contribution = calculate_ambient_contribution(triangle);
 
     process_pixel(
         triangle,
         pixel_center,
         pixel_index,
-        &render_context,
+        use_phong_or_pbr,
+        use_texture,
+        &ambient_contribution,
         depth_buffer,
         color_buffer,
         settings,
     );
 }
 
-/// 核心像素处理
+/// 核心像素处理 - 简化参数
+#[allow(clippy::too_many_arguments)]
 fn process_pixel(
     triangle: &TriangleData,
     pixel_center: Point2<f32>,
     pixel_index: usize,
-    render_context: &RenderContext,
+    use_phong_or_pbr: bool,
+    use_texture: bool,
+    ambient_contribution: &Color,
     depth_buffer: &[AtomicF32],
     color_buffer: &[AtomicU8],
     settings: &RenderSettings,
@@ -148,9 +147,9 @@ fn process_pixel(
         triangle,
         bary,
         settings,
-        render_context.use_phong_or_pbr,
-        render_context.use_texture,
-        &render_context.ambient_contribution,
+        use_phong_or_pbr,
+        use_texture,
+        ambient_contribution,
     );
 
     write_pixel_color(pixel_index, &final_color, color_buffer, settings.use_gamma);
@@ -159,7 +158,7 @@ fn process_pixel(
 #[inline]
 fn write_pixel_color(
     pixel_index: usize,
-    color: &nalgebra::Vector3<f32>,
+    color: &Vector3<f32>,
     color_buffer: &[AtomicU8],
     apply_gamma: bool,
 ) {
