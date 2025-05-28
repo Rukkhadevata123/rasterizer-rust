@@ -18,7 +18,6 @@ use_texture = true
 use_gamma = true
 backface_culling = true
 wireframe = false
-use_multithreading = true
 cull_small_triangles = true
 min_triangle_area = 0.001
 save_depth = true

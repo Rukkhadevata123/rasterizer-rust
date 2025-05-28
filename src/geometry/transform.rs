@@ -171,63 +171,14 @@ pub fn transform_point_to_screen(
 
 //------------------------ 第4层：批量变换函数 ------------------------//
 
-/// 对点集合应用变换矩阵
-pub fn transform_points(points: &[Point3<f32>], matrix: &Matrix4<f32>) -> Vec<Point3<f32>> {
-    points
-        .iter()
-        .map(|point| transform_point(point, matrix))
-        .collect()
-}
+// 对点集合应用变换矩阵
 
-/// 将法线向量批量从一个空间变换到另一个空间
-pub fn transform_normals(
-    normals: &[Vector3<f32>],
-    normal_matrix: &Matrix3<f32>,
-) -> Vec<Vector3<f32>> {
-    normals
-        .iter()
-        .map(|normal| transform_normal(normal, normal_matrix))
-        .collect()
-}
+// Optimized
 
 //------------------------ 第5层：完整渲染管线变换 ------------------------//
 
 /// 顶点管线变换结果类型别名，减少复杂度警告
 pub type VertexPipelineResult = (Vec<Point2<f32>>, Vec<Point3<f32>>, Vec<Vector3<f32>>);
-
-/// 执行完整的渲染管线变换（串行版本）
-///
-/// 适用于小数据量或调试，按顺序处理每个顶点
-pub fn vertex_pipeline_serial(
-    vertices_model: &[Point3<f32>],
-    normals_model: &[Vector3<f32>],
-    model_matrix: &Matrix4<f32>,
-    view_matrix: &Matrix4<f32>,
-    projection_matrix: &Matrix4<f32>,
-    screen_width: usize,
-    screen_height: usize,
-) -> VertexPipelineResult {
-    // 预计算变换矩阵 - 使用工厂方法
-    let model_view = TransformFactory::model_view(model_matrix, view_matrix);
-    let mvp = TransformFactory::model_view_projection(model_matrix, view_matrix, projection_matrix);
-    let normal_matrix = compute_normal_matrix(&model_view);
-
-    // 批量变换到视图空间 - 复用第4层函数
-    let view_positions = transform_points(vertices_model, &model_view);
-
-    // 批量变换到屏幕空间 - 直接使用MVP矩阵，更高效
-    let screen_coords = vertices_model
-        .iter()
-        .map(|vertex| {
-            transform_point_to_screen(vertex, &mvp, screen_width as f32, screen_height as f32)
-        })
-        .collect::<Vec<Point2<f32>>>();
-
-    // 变换法线 - 复用第4层函数
-    let view_normals = transform_normals(normals_model, &normal_matrix);
-
-    (screen_coords, view_positions, view_normals)
-}
 
 /// 执行完整的渲染管线变换（并行版本）
 ///

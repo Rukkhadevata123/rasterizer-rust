@@ -445,15 +445,6 @@ impl WidgetMethods for RasterizerApp {
         }
         Self::add_tooltip(resp9, ctx, "仅渲染三角形边缘，显示为线框");
 
-        ui.separator();
-
-        let old_multithreading = app.settings.use_multithreading;
-        let resp10 = ui.checkbox(&mut app.settings.use_multithreading, "启用多线程渲染");
-        if app.settings.use_multithreading != old_multithreading {
-            settings_changed = true;
-        }
-        Self::add_tooltip(resp10, ctx, "使用多线程加速渲染，提高性能");
-
         // 小三角形剔除设置
         ui.horizontal(|ui| {
             let old_cull = app.settings.cull_small_triangles;

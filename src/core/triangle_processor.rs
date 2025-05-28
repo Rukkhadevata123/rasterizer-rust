@@ -1,6 +1,8 @@
+use crate::core::geometry_processor::GeometryResult;
 use crate::core::rasterizer::{TextureSource, VertexRenderData};
 use crate::geometry::culling::{is_backface, should_cull_small_triangle};
 use crate::io::render_settings::RenderSettings;
+use crate::material_system::light::Light;
 use crate::material_system::materials::{Material, MaterialView, ModelData, Vertex};
 use nalgebra::{Point2, Point3, Vector3};
 use rayon::prelude::*;
@@ -12,33 +14,26 @@ pub use crate::core::rasterizer::TriangleData;
 pub struct TriangleProcessor;
 
 impl TriangleProcessor {
-    /// 准备所有要渲染的三角形 - 直接接受场景光源数据
+    /// 准备所有要渲染的三角形 - 使用新的GeometryResult结构
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_triangles<'a>(
         model_data: &'a ModelData,
-        all_pixel_coords: &[Point2<f32>],
-        all_view_coords: &[Point3<f32>],
-        all_view_normals: &[Vector3<f32>],
-        mesh_vertex_offsets: &[usize],
+        geometry_result: &GeometryResult,
         material_override: Option<&'a Material>,
         settings: &'a RenderSettings,
-        lights: &'a [crate::material_system::light::Light], // 直接传入场景光源
-        ambient_intensity: f32,                             // 直接传入环境光强度
-        ambient_color: Vector3<f32>,                        // 直接传入环境光颜色
+        lights: &'a [Light],
+        ambient_intensity: f32,
+        ambient_color: Vector3<f32>,
     ) -> Vec<TriangleData<'a>> {
         model_data
             .meshes
             .par_iter()
             .enumerate()
             .flat_map(|(mesh_idx, mesh)| {
-                let vertex_offset = mesh_vertex_offsets[mesh_idx];
-                let model_materials = &model_data.materials;
+                let vertex_offset = geometry_result.mesh_offsets[mesh_idx];
+                let material_opt = material_override
+                    .or_else(|| mesh.material_id.and_then(|id| model_data.materials.get(id)));
 
-                // 确定材质
-                let material_opt: Option<&Material> = material_override
-                    .or_else(|| mesh.material_id.and_then(|id| model_materials.get(id)));
-
-                // 处理三角形
                 mesh.indices
                     .chunks_exact(3)
                     .enumerate()
@@ -50,14 +45,12 @@ impl TriangleProcessor {
                             &mesh.vertices,
                             vertex_offset,
                             global_face_index,
-                            all_pixel_coords,
-                            all_view_coords,
-                            all_view_normals,
+                            geometry_result,
                             material_opt,
                             settings,
-                            lights,            // 使用传入的场景光源
-                            ambient_intensity, // 使用传入的环境光强度
-                            ambient_color,     // 使用传入的环境光颜色
+                            lights,
+                            ambient_intensity,
+                            ambient_color,
                         )
                     })
                     .collect::<Vec<_>>()
@@ -65,18 +58,17 @@ impl TriangleProcessor {
             .collect()
     }
 
+    /// 处理单个三角形 - 更新为使用GeometryResult
     #[allow(clippy::too_many_arguments)]
     fn process_triangle<'a>(
         indices: &[u32],
         vertices: &[Vertex],
         vertex_offset: usize,
         global_face_index: u64,
-        all_pixel_coords: &[Point2<f32>],
-        all_view_coords: &[Point3<f32>],
-        all_view_normals: &[Vector3<f32>],
+        geometry_result: &GeometryResult,
         material_opt: Option<&'a Material>,
         settings: &'a RenderSettings,
-        lights: &'a [crate::material_system::light::Light],
+        lights: &'a [Light],
         ambient_intensity: f32,
         ambient_color: Vector3<f32>,
     ) -> Option<TriangleData<'a>> {
@@ -90,22 +82,22 @@ impl TriangleProcessor {
         let global_i1 = vertex_offset + i1;
         let global_i2 = vertex_offset + i2;
 
-        // 检查索引有效性
-        if global_i0 >= all_pixel_coords.len()
-            || global_i1 >= all_pixel_coords.len()
-            || global_i2 >= all_pixel_coords.len()
+        // 检查索引有效性 - 使用GeometryResult的字段
+        if global_i0 >= geometry_result.screen_coords.len()
+            || global_i1 >= geometry_result.screen_coords.len()
+            || global_i2 >= geometry_result.screen_coords.len()
         {
             return None;
         }
 
-        // 获取坐标
-        let pix0 = all_pixel_coords[global_i0];
-        let pix1 = all_pixel_coords[global_i1];
-        let pix2 = all_pixel_coords[global_i2];
+        // 获取坐标 - 使用GeometryResult的字段
+        let pix0 = geometry_result.screen_coords[global_i0];
+        let pix1 = geometry_result.screen_coords[global_i1];
+        let pix2 = geometry_result.screen_coords[global_i2];
 
-        let view_pos0 = all_view_coords[global_i0];
-        let view_pos1 = all_view_coords[global_i1];
-        let view_pos2 = all_view_coords[global_i2];
+        let view_pos0 = geometry_result.view_coords[global_i0];
+        let view_pos1 = geometry_result.view_coords[global_i1];
+        let view_pos2 = geometry_result.view_coords[global_i2];
 
         // 背面剔除
         if settings.backface_culling && is_backface(&view_pos0, &view_pos1, &view_pos2) {
@@ -133,7 +125,7 @@ impl TriangleProcessor {
             }
         });
 
-        // 创建顶点数据
+        // 创建顶点数据 - 使用GeometryResult的字段
         let vertex_data = [
             Self::create_vertex_render_data(
                 &pix0,
@@ -141,7 +133,7 @@ impl TriangleProcessor {
                 &vertices[i0],
                 global_i0,
                 &texture_source,
-                all_view_normals,
+                &geometry_result.view_normals,
             ),
             Self::create_vertex_render_data(
                 &pix1,
@@ -149,7 +141,7 @@ impl TriangleProcessor {
                 &vertices[i1],
                 global_i1,
                 &texture_source,
-                all_view_normals,
+                &geometry_result.view_normals,
             ),
             Self::create_vertex_render_data(
                 &pix2,
@@ -157,7 +149,7 @@ impl TriangleProcessor {
                 &vertices[i2],
                 global_i2,
                 &texture_source,
-                all_view_normals,
+                &geometry_result.view_normals,
             ),
         ];
 

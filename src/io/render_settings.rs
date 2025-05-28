@@ -56,8 +56,6 @@ pub struct RenderSettings {
     pub backface_culling: bool,
     /// 以线框模式渲染
     pub wireframe: bool,
-    /// 启用多线程渲染
-    pub use_multithreading: bool,
     /// 启用小三角形剔除
     pub cull_small_triangles: bool,
     /// 小三角形剔除的最小面积阈值
@@ -229,7 +227,6 @@ impl Default for RenderSettings {
             use_gamma: true,
             backface_culling: false,
             wireframe: false,
-            use_multithreading: true,
             cull_small_triangles: false,
             min_triangle_area: 1e-3,
             save_depth: true,

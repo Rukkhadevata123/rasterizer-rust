@@ -149,10 +149,6 @@ impl TomlConfigLoader {
         if let Some(wireframe) = render.get("wireframe").and_then(|v| v.as_bool()) {
             settings.wireframe = wireframe;
         }
-        if let Some(use_multithreading) = render.get("use_multithreading").and_then(|v| v.as_bool())
-        {
-            settings.use_multithreading = use_multithreading;
-        }
         if let Some(cull_small_triangles) =
             render.get("cull_small_triangles").and_then(|v| v.as_bool())
         {
@@ -510,10 +506,6 @@ impl TomlConfigLoader {
             settings.backface_culling
         ));
         content.push_str(&format!("wireframe = {}\n", settings.wireframe));
-        content.push_str(&format!(
-            "use_multithreading = {}\n",
-            settings.use_multithreading
-        ));
         content.push_str(&format!(
             "cull_small_triangles = {}\n",
             settings.cull_small_triangles
