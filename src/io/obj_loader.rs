@@ -1,6 +1,11 @@
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::materials::{
-    Material, Mesh, ModelData, TextureOptions, Vertex, tbn_utils,
+    Material,
+    Mesh,
+    ModelData,
+    TextureOptions,
+    Vertex,
+    tbn, // 更新导入
 };
 use crate::material_system::texture::{Texture, load_texture};
 use log::{debug, info, warn};
@@ -170,7 +175,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                             normal_texture
                         });
 
-                        // 修复：创建包含所有字段的Material结构
+                        // 创建包含所有字段的Material结构
                         Material {
                             // --- 通用属性 ---
                             texture,
@@ -182,19 +187,19 @@ pub fn load_obj_model<P: AsRef<Path>>(
                             ambient_factor: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8]))
                                 * 0.3,
 
-                            // --- 修复：完整的Blinn-Phong渲染专用属性 ---
+                            // --- Blinn-Phong渲染专用属性 ---
                             specular: Vector3::from(mat.specular.unwrap_or([0.5, 0.5, 0.5])),
                             shininess: mat.shininess.unwrap_or(32.0),
-                            diffuse_intensity: 1.0,  // 新增：默认漫反射强度
-                            specular_intensity: 1.0, // 新增：默认镜面反射强度
+                            diffuse_intensity: 1.0,  // 默认漫反射强度
+                            specular_intensity: 1.0, // 默认镜面反射强度
 
                             // --- PBR渲染专用属性 ---
                             metallic: 0.0,
                             roughness: 0.5,
                             ambient_occlusion: 1.0,
-                            subsurface: 0.0,       // 新增：默认无次表面散射
-                            anisotropy: 0.0,       // 新增：默认各向同性
-                            normal_intensity: 1.0, // 新增：默认法线强度
+                            subsurface: 0.0,       // 默认无次表面散射
+                            anisotropy: 0.0,       // 默认各向同性
+                            normal_intensity: 1.0, // 默认法线强度
                         }
                     })
                     .collect()
@@ -211,7 +216,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
 
     // 处理无材质的情况
     if loaded_materials.is_empty() {
-        // 修复：优先检查colorize模式
+        // 优先检查colorize模式
         if settings.colorize {
             debug!("无 MTL 材质且启用colorize，创建面颜色纹理材质");
 
@@ -401,13 +406,14 @@ pub fn load_obj_model<P: AsRef<Path>>(
             }
         }
 
-        // 计算TBN向量（切线和副切线）
+        // 修复：计算TBN向量（切线和副切线）
         if !vertices.is_empty() && !final_indices.is_empty() {
             let tbn_positions: Vec<Point3<f32>> = vertices.iter().map(|v| v.position).collect();
             let tbn_texcoords: Vec<Vector2<f32>> = vertices.iter().map(|v| v.texcoord).collect();
             let tbn_normals: Vec<Vector3<f32>> = vertices.iter().map(|v| v.normal).collect();
 
-            match tbn_utils::calculate_tangents_and_bitangents(
+            // 修复：使用新的模块路径
+            match tbn::calculate_tangents_and_bitangents(
                 &tbn_positions,
                 &tbn_texcoords,
                 Some(&tbn_normals),
@@ -425,12 +431,12 @@ pub fn load_obj_model<P: AsRef<Path>>(
                         "为网格 '{}' 计算TBN向量失败: {}。法线贴图可能无法正常工作。",
                         mesh_name, e
                     );
-                    // 保留 T 和 B 为零向量，后续会被validate_and_fix_tbn修复
+                    // 保留 T 和 B 为零向量，后续会被validate_and_fix修复
                 }
             }
 
-            // 验证并修复TBN向量
-            tbn_utils::validate_and_fix_tbn(&mut vertices);
+            // 修复：验证并修复TBN向量
+            tbn::validate_and_fix(&mut vertices);
         }
 
         // 确定最终的材质 ID
