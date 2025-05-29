@@ -333,6 +333,10 @@ impl TomlConfigLoader {
         if let Some(diffuse_color) = material.get("diffuse_color").and_then(|v| v.as_str()) {
             settings.diffuse_color = diffuse_color.to_string();
         }
+        // 新增：透明度解析
+        if let Some(alpha) = material.get("alpha").and_then(|v| v.as_float()) {
+            settings.alpha = alpha as f32;
+        }
         // 新增：漫反射强度
         if let Some(diffuse_intensity) =
             material.get("diffuse_intensity").and_then(|v| v.as_float())
@@ -625,6 +629,7 @@ impl TomlConfigLoader {
             "diffuse_intensity = {}\n",
             settings.diffuse_intensity
         )); // 新增
+        content.push_str(&format!("alpha = {}\n", settings.alpha));
         content.push_str(&format!(
             "specular_color = \"{}\"\n",
             settings.specular_color

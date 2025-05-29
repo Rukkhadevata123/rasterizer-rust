@@ -62,7 +62,7 @@ impl FrameBuffer {
                 let t_x = x as f32 / (self.width - 1) as f32;
 
                 // 使用统一的背景颜色计算方法
-                let final_color = compute_background_color_unified(
+                let final_color = compute_background_color(
                     settings,
                     camera,
                     background_texture.as_ref(),
@@ -124,12 +124,45 @@ impl FrameBuffer {
             .map(|atomic_depth| atomic_depth.load(Ordering::Relaxed))
             .collect()
     }
+
+    /// 获取指定像素的背景颜色（线性空间）
+    pub fn get_pixel_color(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+
+        let buffer_index = y * self.width + x;
+        let color_index = buffer_index * 3;
+
+        if color_index + 2 < self.color_buffer.len() {
+            let r = self.color_buffer[color_index].load(Ordering::Relaxed) as f32 / 255.0;
+            let g = self.color_buffer[color_index + 1].load(Ordering::Relaxed) as f32 / 255.0;
+            let b = self.color_buffer[color_index + 2].load(Ordering::Relaxed) as f32 / 255.0;
+
+            Some(Vector3::new(r, g, b))
+        } else {
+            None
+        }
+    }
+
+    /// 获取指定像素的背景颜色（返回Color类型，用于着色器）
+    pub fn get_pixel_color_as_color(
+        &self,
+        x: usize,
+        y: usize,
+    ) -> crate::material_system::color::Color {
+        if let Some(color_vec) = self.get_pixel_color(x, y) {
+            crate::material_system::color::Color::new(color_vec.x, color_vec.y, color_vec.z)
+        } else {
+            crate::material_system::color::Color::new(0.1, 0.1, 0.1)
+        }
+    }
 }
 
 // ===== 背景和地面计算函数（原来的结构体改为函数）=====
 
 /// 统一的背景颜色计算方法 - 支持并行和串行调用
-pub fn compute_background_color_unified(
+pub fn compute_background_color(
     settings: &RenderSettings,
     camera: &Camera,
     background_texture: Option<&Texture>,

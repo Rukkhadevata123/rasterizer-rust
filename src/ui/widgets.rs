@@ -93,60 +93,83 @@ impl WidgetMethods for RasterizerApp {
     /// 重构后的侧边栏 - 调用各个面板函数
     fn draw_side_panel(&mut self, ctx: &Context, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // 文件与输出设置
-            ui.collapsing("文件与输出设置", |ui| {
+            // === 核心设置组 ===
+            ui.collapsing("📁 文件与输出", |ui| {
                 Self::ui_file_output_panel(self, ui, ctx);
             });
 
-            // 渲染属性设置
-            ui.collapsing("渲染属性设置", |ui| {
-                Self::ui_render_properties_panel(self, ui, ctx);
+            ui.collapsing("🎨 场景与视觉", |ui| {
+                // 合并渲染属性和背景设置
+                ui.group(|ui| {
+                    ui.label(RichText::new("渲染设置").size(14.0).strong());
+                    Self::ui_render_properties_panel(self, ui, ctx);
+                });
+
+                ui.separator();
+
+                ui.group(|ui| {
+                    ui.label(RichText::new("背景设置").size(14.0).strong());
+                    Self::ui_background_settings(self, ui);
+                });
             });
 
-            // 物体变换控制
-            ui.collapsing("物体变换控制", |ui| {
-                Self::ui_object_transform_panel(self, ui, ctx);
+            // === 3D变换组 ===
+            ui.collapsing("🔄 3D变换与相机", |ui| {
+                ui.group(|ui| {
+                    ui.label(RichText::new("物体变换").size(14.0).strong());
+                    Self::ui_object_transform_panel(self, ui, ctx);
+                });
+
+                ui.separator();
+
+                ui.group(|ui| {
+                    ui.label(RichText::new("相机控制").size(14.0).strong());
+                    Self::ui_camera_settings_panel(self, ui, ctx);
+                });
             });
 
-            // 背景与环境设置
-            ui.collapsing("背景与环境", |ui| {
-                Self::ui_background_settings(self, ui);
-            });
-
-            // 相机设置
-            ui.collapsing("相机设置", |ui| {
-                Self::ui_camera_settings_panel(self, ui, ctx);
-            });
-
-            // 光照设置
-            ui.collapsing("光照设置", |ui| {
+            // === 材质与光照组 ===
+            ui.collapsing("💡 光照与材质", |ui| {
+                // 先显示光照和通用材质属性
                 Self::ui_lighting_panel(self, ui, ctx);
+
+                ui.separator();
+
+                // 然后根据着色模型显示专用设置
+                if self.settings.use_pbr {
+                    ui.group(|ui| {
+                        ui.label(RichText::new("🏗️ PBR专用参数").size(14.0).strong());
+                        Self::ui_pbr_material_panel(self, ui, ctx);
+                    });
+                }
+
+                if self.settings.use_phong {
+                    ui.group(|ui| {
+                        ui.label(RichText::new("✨ Phong专用参数").size(14.0).strong());
+                        Self::ui_phong_material_panel(self, ui, ctx);
+                    });
+                }
             });
 
-            // PBR材质设置
-            if self.settings.use_pbr {
-                ui.collapsing("PBR材质设置", |ui| {
-                    Self::ui_pbr_material_panel(self, ui, ctx);
+            // === 动画与渲染组 ===
+            ui.collapsing("🎬 动画与渲染", |ui| {
+                ui.group(|ui| {
+                    ui.label(RichText::new("动画设置").size(14.0).strong());
+                    Self::ui_animation_panel(self, ui, ctx);
                 });
-            }
 
-            // Phong材质设置
-            if self.settings.use_phong {
-                ui.collapsing("Phong材质设置", |ui| {
-                    Self::ui_phong_material_panel(self, ui, ctx);
+                ui.separator();
+
+                ui.group(|ui| {
+                    ui.label(RichText::new("渲染控制").size(14.0).strong());
+                    Self::ui_button_controls_panel(self, ui, ctx);
                 });
-            }
-
-            // 动画设置
-            ui.collapsing("动画设置", |ui| {
-                Self::ui_animation_panel(self, ui, ctx);
             });
 
-            // 按钮控制区域
-            Self::ui_button_controls_panel(self, ui, ctx);
-
-            // 渲染信息
-            Self::ui_render_info_panel(self, ui);
+            // === 信息显示组 ===
+            ui.collapsing("📊 渲染信息", |ui| {
+                Self::ui_render_info_panel(self, ui);
+            });
         });
     }
 
@@ -976,7 +999,7 @@ impl WidgetMethods for RasterizerApp {
     }
 
     /// 光照设置面板 - 移除预设，简化为直接光源管理
-    fn ui_lighting_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, _ctx: &Context) {
+    fn ui_lighting_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         // 总光照开关
         let resp = ui
             .checkbox(&mut app.settings.use_lighting, "启用光照")
@@ -1013,6 +1036,84 @@ impl WidgetMethods for RasterizerApp {
                 app.interface_interaction.anything_changed = true;
             }
         });
+        ui.separator();
+
+        // 新增：统一的材质通用属性控制
+        ui.group(|ui| {
+    ui.label(RichText::new("🎨 材质通用属性").size(16.0).strong());
+    ui.separator();
+
+    // 基础颜色（通用于PBR和Phong）
+    ui.horizontal(|ui| {
+        ui.label("基础颜色 (Base Color / Diffuse):");
+        let base_color_vec = if app.settings.use_pbr {
+            parse_vec3(&app.settings.base_color)
+        } else {
+            parse_vec3(&app.settings.diffuse_color)
+        }.unwrap_or_else(|_| nalgebra::Vector3::new(0.8, 0.8, 0.8));
+
+        let mut base_color_rgb = [base_color_vec.x, base_color_vec.y, base_color_vec.z];
+        let resp = ui.color_edit_button_rgb(&mut base_color_rgb);
+        if resp.changed() {
+            let color_str = format!(
+                "{:.3},{:.3},{:.3}",
+                base_color_rgb[0], base_color_rgb[1], base_color_rgb[2]
+            );
+
+            // 同时更新PBR和Phong的颜色设置
+            if app.settings.use_pbr {
+                app.settings.base_color = color_str;
+            } else {
+                app.settings.diffuse_color = color_str;
+            }
+            app.interface_interaction.anything_changed = true;
+        }
+        Self::add_tooltip(
+            resp,
+            ctx,
+            "材质的基础颜色\nPBR模式下为Base Color，Phong模式下为Diffuse Color",
+        );
+    });
+
+    // 透明度控制（通用于PBR和Phong）
+    ui.horizontal(|ui| {
+        ui.label("透明度 (Alpha)：");
+        let resp = ui.add(egui::Slider::new(&mut app.settings.alpha, 0.0..=1.0));
+        if resp.changed() {
+            app.interface_interaction.anything_changed = true;
+        }
+        Self::add_tooltip(
+            resp,
+            ctx,
+            "材质透明度，0为完全透明，1为完全不透明\n适用于PBR和Phong着色模型\n调整此值可立即看到透明效果",
+        );
+    });
+
+    // 自发光控制（通用于PBR和Phong）
+    ui.horizontal(|ui| {
+        ui.label("自发光颜色 (Emissive):");
+        let emissive_color_vec = parse_vec3(&app.settings.emissive)
+            .unwrap_or_else(|_| nalgebra::Vector3::new(0.0, 0.0, 0.0));
+        let mut emissive_color_rgb = [
+            emissive_color_vec.x,
+            emissive_color_vec.y,
+            emissive_color_vec.z,
+        ];
+        let resp = ui.color_edit_button_rgb(&mut emissive_color_rgb);
+        if resp.changed() {
+            app.settings.emissive = format!(
+                "{:.3},{:.3},{:.3}",
+                emissive_color_rgb[0], emissive_color_rgb[1], emissive_color_rgb[2]
+            );
+            app.interface_interaction.anything_changed = true;
+        }
+        Self::add_tooltip(
+            resp,
+            ctx,
+            "材质的自发光颜色，表示材质本身发出的光\n不受光照影响，适用于发光物体",
+        );
+    });
+});
 
         ui.separator();
 
@@ -1250,168 +1351,70 @@ impl WidgetMethods for RasterizerApp {
     /// PBR材质设置面板
     fn ui_pbr_material_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         ui.horizontal(|ui| {
-            ui.label("基础颜色 (Base Color):");
-            let base_color_vec = parse_vec3(&app.settings.base_color)
-                .unwrap_or_else(|_| nalgebra::Vector3::new(0.8, 0.8, 0.8));
-            let mut base_color_rgb = [base_color_vec.x, base_color_vec.y, base_color_vec.z];
-            let resp = ui.color_edit_button_rgb(&mut base_color_rgb);
-            if resp.changed() {
-                app.settings.base_color = format!(
-                    "{},{},{}",
-                    base_color_rgb[0], base_color_rgb[1], base_color_rgb[2]
-                );
-                app.interface_interaction.anything_changed = true;
-            }
-            Self::add_tooltip(
-                resp,
-                ctx,
-                "材质的基础颜色 (Base Color)\n在PBR中代表材质的反射率或颜色",
-            );
-        });
-
-        ui.horizontal(|ui| {
             ui.label("金属度 (Metallic)：");
             let resp = ui.add(egui::Slider::new(&mut app.settings.metallic, 0.0..=1.0));
             if resp.changed() {
                 app.interface_interaction.anything_changed = true;
             }
-            Self::add_tooltip(
-                resp,
-                ctx,
-                "材质的金属特性 (Metallic)，0为非金属，1为纯金属\n影响材质如何反射光线和能量守恒",
-            );
+            Self::add_tooltip(resp, ctx, "材质的金属特性，0为非金属，1为纯金属");
         });
 
         ui.horizontal(|ui| {
-        ui.label("粗糙度 (Roughness)：");
-        let resp = ui.add(egui::Slider::new(&mut app.settings.roughness, 0.0..=1.0));
-        if resp.changed() {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(resp, ctx, "材质的粗糙程度 (Roughness)，0为完全光滑，1为完全粗糙\n影响高光的散射程度和微表面特性");
-    });
-
-        ui.horizontal(|ui| {
-        ui.label("环境光遮蔽 (Ambient Occlusion)：");
-        let resp = ui.add(egui::Slider::new(
-            &mut app.settings.ambient_occlusion,
-            0.0..=1.0,
-        ));
-        if resp.changed() {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(resp, ctx, "环境光遮蔽程度 (Ambient Occlusion)，0为完全遮蔽，1为无遮蔽\n模拟物体凹陷处接收较少环境光的效果");
-    });
-
-        // 新增：次表面散射控制
-        ui.horizontal(|ui| {
-        ui.label("次表面散射 (Subsurface)：");
-        let resp = ui.add(egui::Slider::new(&mut app.settings.subsurface, 0.0..=1.0));
-        if resp.changed() {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(
-            resp,
-            ctx,
-            "次表面散射强度 (Subsurface Scattering)\n模拟光线在材质内部的散射，0为无散射，1为强散射\n适用于皮肤、蜡、大理石等半透明材质",
-        );
-    });
-
-        // 新增：各向异性控制
-        ui.horizontal(|ui| {
-        ui.label("各向异性 (Anisotropy)：");
-        let resp = ui.add(egui::Slider::new(&mut app.settings.anisotropy, -1.0..=1.0));
-        if resp.changed() {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(
-            resp,
-            ctx,
-            "各向异性程度 (Anisotropy)\n控制高光的方向性，0为各向同性，±1为强各向异性\n适用于金属拉丝、头发、刷子纹理等材质",
-        );
-    });
-
-        // 新增：法线强度控制
-        ui.horizontal(|ui| {
-        ui.label("法线强度 (Normal Intensity)：");
-        let resp = ui.add(egui::Slider::new(&mut app.settings.normal_intensity, 0.0..=2.0));
-        if resp.changed() {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(
-            resp,
-            ctx,
-            "法线强度系数 (Normal Intensity)\n控制表面细节的强度，0为完全平滑，1为正常，2为增强细节\n影响材质表面的凹凸效果",
-        );
-    });
-
-        ui.horizontal(|ui| {
-            ui.label("自发光颜色 (Emissive):");
-            let emissive_color_vec = parse_vec3(&app.settings.emissive)
-                .unwrap_or_else(|_| nalgebra::Vector3::new(0.0, 0.0, 0.0));
-            let mut emissive_color_rgb = [
-                emissive_color_vec.x,
-                emissive_color_vec.y,
-                emissive_color_vec.z,
-            ];
-            let resp = ui.color_edit_button_rgb(&mut emissive_color_rgb);
+            ui.label("粗糙度 (Roughness)：");
+            let resp = ui.add(egui::Slider::new(&mut app.settings.roughness, 0.0..=1.0));
             if resp.changed() {
-                app.settings.emissive = format!(
-                    "{},{},{}",
-                    emissive_color_rgb[0], emissive_color_rgb[1], emissive_color_rgb[2]
-                );
                 app.interface_interaction.anything_changed = true;
             }
-            Self::add_tooltip(
-                resp,
-                ctx,
-                "材质的自发光颜色 (Emissive)\n表示材质本身发出的光，不受光照影响",
-            );
+            Self::add_tooltip(resp, ctx, "材质的粗糙程度，影响高光的散射");
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("环境光遮蔽 (AO)：");
+            let resp = ui.add(egui::Slider::new(
+                &mut app.settings.ambient_occlusion,
+                0.0..=1.0,
+            ));
+            if resp.changed() {
+                app.interface_interaction.anything_changed = true;
+            }
+            Self::add_tooltip(resp, ctx, "环境光遮蔽程度，模拟凹陷处的阴影");
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("次表面散射：");
+            let resp = ui.add(egui::Slider::new(&mut app.settings.subsurface, 0.0..=1.0));
+            if resp.changed() {
+                app.interface_interaction.anything_changed = true;
+            }
+            Self::add_tooltip(resp, ctx, "光线在材质内部的散射，适用于皮肤、蜡等");
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("各向异性：");
+            let resp = ui.add(egui::Slider::new(&mut app.settings.anisotropy, -1.0..=1.0));
+            if resp.changed() {
+                app.interface_interaction.anything_changed = true;
+            }
+            Self::add_tooltip(resp, ctx, "高光的方向性，适用于金属拉丝等材质");
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("法线强度：");
+            let resp = ui.add(egui::Slider::new(
+                &mut app.settings.normal_intensity,
+                0.0..=2.0,
+            ));
+            if resp.changed() {
+                app.interface_interaction.anything_changed = true;
+            }
+            Self::add_tooltip(resp, ctx, "控制表面细节的强度");
         });
     }
 
-    /// Phong材质设置面板
+    /// 简化后的Phong材质设置面板 - 仅显示Phong特有参数
     fn ui_phong_material_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         ui.horizontal(|ui| {
-            ui.label("漫反射颜色 (Diffuse):");
-            let diffuse_color_vec = parse_vec3(&app.settings.diffuse_color)
-                .unwrap_or_else(|_| nalgebra::Vector3::new(0.8, 0.8, 0.8));
-            let mut diffuse_color_rgb = [
-                diffuse_color_vec.x,
-                diffuse_color_vec.y,
-                diffuse_color_vec.z,
-            ];
-            let resp = ui.color_edit_button_rgb(&mut diffuse_color_rgb);
-            if resp.changed() {
-                app.settings.diffuse_color = format!(
-                    "{:.3},{:.3},{:.3}",
-                    diffuse_color_rgb[0], diffuse_color_rgb[1], diffuse_color_rgb[2]
-                );
-                app.interface_interaction.anything_changed = true;
-            }
-            Self::add_tooltip(
-                resp,
-                ctx,
-                "材质的漫反射颜色 (Diffuse Color)\n决定物体表面向各个方向均匀散射的颜色",
-            );
-        });
-
-        // 新增：漫反射强度控制
-        ui.horizontal(|ui| {
-        ui.label("漫反射强度 (Diffuse Intensity)：");
-        let resp = ui.add(egui::Slider::new(&mut app.settings.diffuse_intensity, 0.0..=2.0));
-        if resp.changed() {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(
-            resp,
-            ctx,
-            "材质的漫反射强度系数，0为无漫反射，1为标准强度，2为增强漫反射\n控制漫反射光的亮度倍数",
-        );
-    });
-
-        ui.horizontal(|ui| {
-            ui.label("镜面反射颜色 (Specular):");
+            ui.label("镜面反射颜色：");
             let specular_color_vec = parse_vec3(&app.settings.specular_color)
                 .unwrap_or_else(|_| nalgebra::Vector3::new(0.5, 0.5, 0.5));
             let mut specular_color_rgb = [
@@ -1427,58 +1430,40 @@ impl WidgetMethods for RasterizerApp {
                 );
                 app.interface_interaction.anything_changed = true;
             }
-            Self::add_tooltip(
-                resp,
-                ctx,
-                "材质的镜面反射颜色 (Specular Color)\n决定高光的颜色，通常接近白色或略带材质色彩",
-            );
+            Self::add_tooltip(resp, ctx, "高光的颜色");
         });
 
-        // 新增：镜面反射强度控制
         ui.horizontal(|ui| {
-        ui.label("镜面反射强度 (Specular Intensity)：");
-        let resp = ui.add(egui::Slider::new(&mut app.settings.specular_intensity, 0.0..=2.0));
-        if resp.changed() {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(
-            resp,
-            ctx,
-            "材质的镜面反射强度系数，0为无镜面反射，1为标准强度，2为增强镜面反射\n控制高光的亮度倍数",
-        );
-    });
-
-        ui.horizontal(|ui| {
-        ui.label("光泽度 (Shininess)：");
-        let resp = ui.add(egui::Slider::new(&mut app.settings.shininess, 1.0..=100.0));
-        if resp.changed() {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(resp, ctx, "材质的光泽度 (Shininess)，数值越大高光越小越集中\n也称为Phong指数，控制高光的锐利程度");
-    });
-
-        ui.horizontal(|ui| {
-            ui.label("自发光颜色 (Emissive):");
-            let emissive_color_vec = parse_vec3(&app.settings.emissive)
-                .unwrap_or_else(|_| nalgebra::Vector3::new(0.0, 0.0, 0.0));
-            let mut emissive_color_rgb = [
-                emissive_color_vec.x,
-                emissive_color_vec.y,
-                emissive_color_vec.z,
-            ];
-            let resp = ui.color_edit_button_rgb(&mut emissive_color_rgb);
+            ui.label("漫反射强度：");
+            let resp = ui.add(egui::Slider::new(
+                &mut app.settings.diffuse_intensity,
+                0.0..=2.0,
+            ));
             if resp.changed() {
-                app.settings.emissive = format!(
-                    "{:.3},{:.3},{:.3}",
-                    emissive_color_rgb[0], emissive_color_rgb[1], emissive_color_rgb[2]
-                );
                 app.interface_interaction.anything_changed = true;
             }
-            Self::add_tooltip(
-                resp,
-                ctx,
-                "材质的自发光颜色 (Emissive)\n表示材质本身发出的光，不受光照影响",
-            );
+            Self::add_tooltip(resp, ctx, "漫反射光的强度倍数");
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("镜面反射强度：");
+            let resp = ui.add(egui::Slider::new(
+                &mut app.settings.specular_intensity,
+                0.0..=2.0,
+            ));
+            if resp.changed() {
+                app.interface_interaction.anything_changed = true;
+            }
+            Self::add_tooltip(resp, ctx, "高光的强度倍数");
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("光泽度：");
+            let resp = ui.add(egui::Slider::new(&mut app.settings.shininess, 1.0..=100.0));
+            if resp.changed() {
+                app.interface_interaction.anything_changed = true;
+            }
+            Self::add_tooltip(resp, ctx, "高光的锐利程度，值越大越集中");
         });
     }
 

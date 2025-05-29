@@ -17,6 +17,7 @@ impl ParallelRasterizer {
         depth_buffer: &[AtomicF32],
         color_buffer: &[AtomicU8],
         settings: &RenderSettings,
+        frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
     ) {
         if triangles.is_empty() {
             return;
@@ -34,6 +35,7 @@ impl ParallelRasterizer {
                     depth_buffer,
                     color_buffer,
                     settings,
+                    frame_buffer, // 新增：传递帧缓冲区
                 );
             }
             RenderStrategy::SmallTriangleParallel => {
@@ -44,6 +46,7 @@ impl ParallelRasterizer {
                     depth_buffer,
                     color_buffer,
                     settings,
+                    frame_buffer, // 新增：传递帧缓冲区
                 );
             }
             RenderStrategy::Mixed => {
@@ -54,6 +57,7 @@ impl ParallelRasterizer {
                     depth_buffer,
                     color_buffer,
                     settings,
+                    frame_buffer, // 新增：传递帧缓冲区
                 );
             }
         }
@@ -103,6 +107,7 @@ impl ParallelRasterizer {
         depth_buffer: &[AtomicF32],
         color_buffer: &[AtomicU8],
         settings: &RenderSettings,
+        frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
     ) {
         triangles.par_iter().for_each(|triangle| {
             Self::rasterize_triangle_pixel_parallel(
@@ -112,6 +117,7 @@ impl ParallelRasterizer {
                 depth_buffer,
                 color_buffer,
                 settings,
+                frame_buffer, // 新增：传递帧缓冲区
             );
         });
     }
@@ -124,20 +130,23 @@ impl ParallelRasterizer {
         depth_buffer: &[AtomicF32],
         color_buffer: &[AtomicU8],
         settings: &RenderSettings,
+        frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
     ) {
         triangles.par_iter().for_each(|triangle| {
-            crate::core::rasterizer::rasterize_triangle(
+            crate::core::rasterizer::pixel_processor::rasterize_triangle(
+                // 修改：使用正确的模块路径
                 triangle,
                 width,
                 height,
                 depth_buffer,
                 color_buffer,
                 settings,
+                frame_buffer, // 新增：传递帧缓冲区
             );
         });
     }
 
-    /// 混合策略 - 分别处理大小三角形 (修复类型不匹配问题)
+    /// 混合策略 - 分别处理大小三角形
     fn rasterize_mixed_strategy(
         triangles: &[TriangleData],
         width: usize,
@@ -145,6 +154,7 @@ impl ParallelRasterizer {
         depth_buffer: &[AtomicF32],
         color_buffer: &[AtomicU8],
         settings: &RenderSettings,
+        frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
     ) {
         let screen_area = (width * height) as f32;
         let large_threshold = screen_area * 0.001;
@@ -166,18 +176,21 @@ impl ParallelRasterizer {
                         depth_buffer,
                         color_buffer,
                         settings,
+                        frame_buffer, // 新增：传递帧缓冲区
                     );
                 });
             },
             || {
                 small_indices.par_iter().for_each(|(idx, _)| {
-                    crate::core::rasterizer::rasterize_triangle(
+                    crate::core::rasterizer::pixel_processor::rasterize_triangle(
+                        // 修改：使用正确的模块路径
                         &triangles[*idx],
                         width,
                         height,
                         depth_buffer,
                         color_buffer,
                         settings,
+                        frame_buffer, // 新增：传递帧缓冲区
                     );
                 });
             },
@@ -192,6 +205,7 @@ impl ParallelRasterizer {
         depth_buffer: &[AtomicF32],
         color_buffer: &[AtomicU8],
         settings: &RenderSettings,
+        frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
     ) {
         let v0 = &triangle.vertices[0].pix;
         let v1 = &triangle.vertices[1].pix;
@@ -212,13 +226,17 @@ impl ParallelRasterizer {
                 let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
                 let pixel_index = y * width + x;
 
-                crate::core::rasterizer::rasterize_pixel(
+                crate::core::rasterizer::pixel_processor::rasterize_pixel(
+                    // 修改：使用正确的模块路径
                     triangle,
                     pixel_center,
                     pixel_index,
+                    x, // 新增：传递像素X坐标
+                    y, // 新增：传递像素Y坐标
                     depth_buffer,
                     color_buffer,
                     settings,
+                    frame_buffer, // 新增：传递帧缓冲区
                 );
             }
         });

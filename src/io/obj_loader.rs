@@ -186,6 +186,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                             albedo: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8])),
                             ambient_factor: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8]))
                                 * 0.3,
+                            alpha: 1.0,
 
                             // --- Blinn-Phong渲染专用属性 ---
                             specular: Vector3::from(mat.specular.unwrap_or([0.5, 0.5, 0.5])),

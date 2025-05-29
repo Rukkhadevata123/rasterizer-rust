@@ -56,6 +56,7 @@ impl Renderer {
             &self.frame_buffer.depth_buffer,
             &self.frame_buffer.color_buffer,
             settings,
+            &self.frame_buffer,
         );
 
         // 简化的性能统计

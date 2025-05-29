@@ -15,12 +15,57 @@ pub fn calculate_pixel_color(
     use_phong_or_pbr: bool,
     use_texture: bool,
     ambient_contribution: &Color,
+    pixel_x: usize,                                        // 新增：像素X坐标
+    pixel_y: usize,                                        // 新增：像素Y坐标
+    frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
 ) -> Color {
-    if use_phong_or_pbr {
+    let base_color = if use_phong_or_pbr {
         calculate_advanced_shading(triangle, bary, settings, use_texture, ambient_contribution)
     } else {
         calculate_basic_shading(triangle, bary, settings, use_texture, ambient_contribution)
+    };
+
+    // 新增：真实Alpha混合处理
+    apply_real_alpha_blending(&base_color, triangle, pixel_x, pixel_y, frame_buffer)
+}
+
+// 新增：真实Alpha混合函数 - 使用缓冲区中的真实背景色
+fn apply_real_alpha_blending(
+    material_color: &Color,
+    triangle: &TriangleData,
+    pixel_x: usize,
+    pixel_y: usize,
+    frame_buffer: &crate::core::frame_buffer::FrameBuffer,
+) -> Color {
+    // 获取材质的alpha值
+    let alpha = if let Some(material_view) = &triangle.material_view {
+        match material_view {
+            crate::material_system::materials::MaterialView::BlinnPhong(material) => material.alpha,
+            crate::material_system::materials::MaterialView::PBR(material) => material.alpha,
+        }
+    } else {
+        1.0 // 没有材质时默认不透明
+    };
+
+    if alpha >= 1.0 {
+        // 完全不透明，直接返回材质颜色
+        return *material_color;
     }
+
+    if alpha <= 0.0 {
+        // 完全透明，返回背景颜色
+        return frame_buffer.get_pixel_color_as_color(pixel_x, pixel_y);
+    }
+
+    // 获取该像素位置的真实背景颜色
+    let background_color = frame_buffer.get_pixel_color_as_color(pixel_x, pixel_y);
+
+    // 真实Alpha混合：result = src * alpha + dst * (1 - alpha)
+    Color::new(
+        material_color.x * alpha + background_color.x * (1.0 - alpha),
+        material_color.y * alpha + background_color.y * (1.0 - alpha),
+        material_color.z * alpha + background_color.z * (1.0 - alpha),
+    )
 }
 
 fn calculate_advanced_shading(

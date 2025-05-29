@@ -10,7 +10,7 @@ use atomic_float::AtomicF32;
 use nalgebra::{Point2, Vector3};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// 光栅化单个三角形 - 简化，直接计算需要的值
+/// 光栅化单个三角形 - 需要传递帧缓冲区用于alpha混合
 pub fn rasterize_triangle(
     triangle: &TriangleData,
     width: usize,
@@ -18,6 +18,7 @@ pub fn rasterize_triangle(
     depth_buffer: &[AtomicF32],
     color_buffer: &[AtomicU8],
     settings: &RenderSettings,
+    frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
 ) {
     if !triangle.is_valid() {
         return;
@@ -49,24 +50,30 @@ pub fn rasterize_triangle(
             triangle,
             pixel_center,
             pixel_index,
+            x, // 新增：传递x坐标
+            y, // 新增：传递y坐标
             use_phong_or_pbr,
             use_texture,
             &ambient_contribution,
             depth_buffer,
             color_buffer,
             settings,
+            frame_buffer, // 新增：传递帧缓冲区
         );
     });
 }
 
-/// 处理单个像素 - 简化接口
+/// 处理单个像素 - 需要传递帧缓冲区用于alpha混合
 pub fn rasterize_pixel(
     triangle: &TriangleData,
     pixel_center: Point2<f32>,
     pixel_index: usize,
+    pixel_x: usize, // 新增：像素X坐标
+    pixel_y: usize, // 新增：像素Y坐标
     depth_buffer: &[AtomicF32],
     color_buffer: &[AtomicU8],
     settings: &RenderSettings,
+    frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
 ) {
     let use_phong_or_pbr = (settings.use_pbr || settings.use_phong)
         && triangle.vertices[0].normal_view.is_some()
@@ -84,27 +91,33 @@ pub fn rasterize_pixel(
         triangle,
         pixel_center,
         pixel_index,
+        pixel_x, // 新增：传递x坐标
+        pixel_y, // 新增：传递y坐标
         use_phong_or_pbr,
         use_texture,
         &ambient_contribution,
         depth_buffer,
         color_buffer,
         settings,
+        frame_buffer, // 新增：传递帧缓冲区
     );
 }
 
-/// 核心像素处理 - 简化参数
+/// 核心像素处理 - 修改参数以支持alpha混合
 #[allow(clippy::too_many_arguments)]
 fn process_pixel(
     triangle: &TriangleData,
     pixel_center: Point2<f32>,
     pixel_index: usize,
+    pixel_x: usize, // 新增：像素X坐标
+    pixel_y: usize, // 新增：像素Y坐标
     use_phong_or_pbr: bool,
     use_texture: bool,
     ambient_contribution: &Color,
     depth_buffer: &[AtomicF32],
     color_buffer: &[AtomicU8],
     settings: &RenderSettings,
+    frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
 ) {
     let v0 = &triangle.vertices[0].pix;
     let v1 = &triangle.vertices[1].pix;
@@ -117,6 +130,10 @@ fn process_pixel(
 
     if !is_inside_triangle(bary) {
         return;
+    }
+
+    if settings.alpha <= 0.01 {
+        return; // 完全不处理这个像素
     }
 
     if settings.wireframe && !is_on_triangle_edge(pixel_center, *v0, *v1, *v2, 1.0) {
@@ -143,6 +160,7 @@ fn process_pixel(
         }
     }
 
+    // 修改：传递所有必需的参数给calculate_pixel_color
     let final_color = calculate_pixel_color(
         triangle,
         bary,
@@ -150,6 +168,9 @@ fn process_pixel(
         use_phong_or_pbr,
         use_texture,
         ambient_contribution,
+        pixel_x,      // 新增：传递像素X坐标
+        pixel_y,      // 新增：传递像素Y坐标
+        frame_buffer, // 新增：传递帧缓冲区引用
     );
 
     write_pixel_color(pixel_index, &final_color, color_buffer, settings.use_gamma);

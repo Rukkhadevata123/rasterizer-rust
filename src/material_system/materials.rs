@@ -16,41 +16,77 @@ pub struct Vertex {
 
 #[derive(Debug, Clone)]
 pub struct Material {
+    // ===== 纹理资源 =====
+    /// 主纹理（漫反射/基础颜色纹理）
     pub texture: Option<Texture>,
+    /// 法线贴图纹理
     pub normal_map: Option<Texture>,
+
+    // ===== 通用材质属性 =====
+    /// 自发光颜色（不受光照影响）
     pub emissive: Vector3<f32>,
+    /// 透明度 (0.0=完全透明, 1.0=完全不透明)
+    pub alpha: f32,
+    /// 基础颜色/反照率（PBR中的base color，Phong中的diffuse color）
     pub albedo: Vector3<f32>,
+    /// 环境光因子
     pub ambient_factor: Vector3<f32>,
+
+    // ===== Phong着色模型专用属性 =====
+    /// 镜面反射颜色
     pub specular: Vector3<f32>,
+    /// 光泽度/硬度（Phong指数）
     pub shininess: f32,
+    /// 漫反射强度系数 (0.0-2.0)
     pub diffuse_intensity: f32,
+    /// 镜面反射强度系数 (0.0-2.0)
     pub specular_intensity: f32,
+
+    // ===== PBR渲染专用属性 =====
+    /// 金属度 (0.0=非金属, 1.0=纯金属)
     pub metallic: f32,
+    /// 粗糙度 (0.0=完全光滑, 1.0=完全粗糙)
     pub roughness: f32,
+    /// 环境光遮蔽 (0.0=完全遮蔽, 1.0=无遮蔽)
     pub ambient_occlusion: f32,
+
+    // ===== PBR高级属性 =====
+    /// 次表面散射强度 (0.0-1.0)
     pub subsurface: f32,
+    /// 各向异性 (-1.0到1.0)
     pub anisotropy: f32,
+    /// 法线强度系数 (0.0-2.0)
     pub normal_intensity: f32,
 }
 
 impl Material {
     pub fn default() -> Self {
         Material {
+            // ===== 纹理资源 =====
+            texture: None,
+            normal_map: None,
+
+            // ===== 通用材质属性 =====
+            emissive: Vector3::zeros(),
+            alpha: 1.0, // 默认完全不透明
             albedo: Vector3::new(0.8, 0.8, 0.8),
+            ambient_factor: Vector3::new(1.0, 1.0, 1.0),
+
+            // ===== Phong着色模型专用属性 =====
             specular: Vector3::new(0.5, 0.5, 0.5),
             shininess: 32.0,
             diffuse_intensity: 1.0,
             specular_intensity: 1.0,
-            texture: None,
-            normal_map: None,
-            emissive: Vector3::zeros(),
+
+            // ===== PBR渲染专用属性 =====
             metallic: 0.0,
             roughness: 0.5,
             ambient_occlusion: 1.0,
-            subsurface: 0.0,
-            anisotropy: 0.0,
-            normal_intensity: 1.0,
-            ambient_factor: Vector3::new(1.0, 1.0, 1.0),
+
+            // ===== PBR高级属性 =====
+            subsurface: 0.0,       // 默认无次表面散射
+            anisotropy: 0.0,       // 默认各向同性
+            normal_intensity: 1.0, // 默认法线强度
         }
     }
 
@@ -156,25 +192,40 @@ impl MaterialView<'_> {
                     return material.emissive;
                 }
 
+                // Phong着色计算
                 let diffuse = material.diffuse() * material.diffuse_intensity * n_dot_l;
                 let halfway_dir = (light_dir + view_dir).normalize();
                 let n_dot_h = effective_normal.dot(&halfway_dir).max(0.0);
                 let spec_intensity = n_dot_h.powf(material.shininess);
                 let specular = material.specular * material.specular_intensity * spec_intensity;
 
-                diffuse + specular + material.emissive
+                // 🔥 Phong模式下的简化次表面散射（考虑透明度）
+                let n_dot_v = effective_normal.dot(view_dir).max(0.0);
+                let phong_subsurface = if material.subsurface > 0.0 {
+                    pbr::calculate_subsurface_scattering(
+                        n_dot_l,
+                        n_dot_v,
+                        material.subsurface * 0.6, // Phong模式下减弱强度
+                        material.diffuse(),
+                        material.alpha, // 🌟 传入透明度
+                    )
+                } else {
+                    Vector3::zeros()
+                };
+
+                diffuse + specular + phong_subsurface + material.emissive
             }
             MaterialView::PBR(material) => {
                 let base_color = material.base_color();
                 let metallic = material.metallic;
                 let roughness = material.roughness;
                 let ao = material.ambient_occlusion;
-                let subsurface = material.subsurface; // 确保使用
-                let anisotropy = material.anisotropy; // 确保使用
+                let subsurface = material.subsurface;
+                let anisotropy = material.anisotropy;
+                let alpha = material.alpha; // 🌟 获取透明度
 
-                // 1. 计算有效法线（支持法线贴图和程序化法线强度）
+                // 1. 计算有效法线
                 let (n_final, tbn_matrix_option) = if let Some(normal_map) = &material.normal_map {
-                    // 构建标准化TBN矩阵
                     let n = surface_normal.normalize();
                     let t = (*surface_tangent - n * surface_tangent.dot(&n))
                         .try_normalize(1e-6)
@@ -182,15 +233,13 @@ impl MaterialView<'_> {
                     let b = n.cross(&t).normalize();
                     let tbn = Matrix3::from_columns(&[t, b, n]);
 
-                    // 采样并处理法线贴图
                     let normal_sample = normal_map.sample_normal(surface_uv.x, surface_uv.y);
                     let mut tangent_space_normal = Vector3::new(
                         normal_sample[0],
                         normal_sample[1],
-                        normal_sample[2].max(0.1), // 确保Z分量不为零
+                        normal_sample[2].max(0.1),
                     );
 
-                    // 应用法线强度
                     if material.normal_intensity != 1.0 {
                         tangent_space_normal.x *= material.normal_intensity;
                         tangent_space_normal.y *= material.normal_intensity;
@@ -206,7 +255,6 @@ impl MaterialView<'_> {
                     let world_normal = (tbn * normalized_tangent_normal).normalize();
                     (world_normal, Some(tbn))
                 } else {
-                    // 无法线贴图时的程序化法线强度
                     let processed_normal = if material.normal_intensity != 1.0 {
                         pbr::apply_procedural_normal_intensity(
                             *surface_normal,
@@ -217,7 +265,6 @@ impl MaterialView<'_> {
                         *surface_normal
                     };
 
-                    // 为各向异性构建近似TBN
                     let tbn_opt = if anisotropy.abs() > 0.001 {
                         let n = processed_normal.normalize();
                         let t = pbr::compute_fallback_tangent(&n);
@@ -244,9 +291,12 @@ impl MaterialView<'_> {
                     return material.emissive;
                 }
 
-                // 3. F0计算
+                // 3. F0计算 - 🌟 透明度影响F0
                 let f0_dielectric = Vector3::new(0.04, 0.04, 0.04);
-                let f0 = f0_dielectric.lerp(&base_color, metallic);
+                // 透明材质通常有稍低的F0值
+                let transparency_factor = 1.0 - alpha;
+                let adjusted_f0_dielectric = f0_dielectric * (1.0 - transparency_factor * 0.3);
+                let f0 = adjusted_f0_dielectric.lerp(&base_color, metallic);
 
                 // 4. 分布函数选择（各向异性支持）
                 let d = if anisotropy.abs() > 0.01 && tbn_matrix_option.is_some() {
@@ -276,24 +326,40 @@ impl MaterialView<'_> {
                 let k_d = (Vector3::new(1.0, 1.0, 1.0) - k_s) * (1.0 - metallic);
                 let diffuse = k_d.component_mul(&base_color) / std::f32::consts::PI;
 
-                // 7. 次表面散射计算（确保参与计算）
+                // 7. 🔥 次表面散射计算（集成透明度）
                 let subsurface_contrib = if subsurface > 0.0 && metallic < 0.5 {
-                    pbr::calculate_subsurface_scattering(n_dot_l, n_dot_v, subsurface, base_color)
+                    pbr::calculate_subsurface_scattering(
+                        n_dot_l, n_dot_v, subsurface, base_color,
+                        alpha, // 🌟 传入透明度参数
+                    )
                 } else {
                     Vector3::zeros()
                 };
 
-                // 8. 金属增强效果
+                // 8. 🌟 透明度影响的金属增强效果
                 let metallic_enhancement = if metallic > 0.3 {
                     let enhancement_factor = (metallic - 0.3) / 0.7;
-                    specular * enhancement_factor * 0.6
+                    // 透明金属有不同的视觉效果
+                    let transparency_mod = if alpha < 0.8 {
+                        1.2 // 透明金属增强反射
+                    } else {
+                        1.0
+                    };
+                    specular * enhancement_factor * 0.6 * transparency_mod
                 } else {
                     Vector3::zeros()
                 };
 
-                // 9. 最终组合（确保所有参数都参与）
+                // 9. 🌟 透明度影响环境光遮蔽
+                // 透明材质的AO效果应该减弱
+                let transparency_factor = 1.0 - alpha;
+                let adjusted_ao = ao + transparency_factor * (1.0 - ao) * 0.4;
+
+                // 10. 最终组合
                 let brdf_result =
-                    (diffuse + specular + metallic_enhancement) * n_dot_l * ao + subsurface_contrib;
+                    (diffuse + specular + metallic_enhancement) * n_dot_l * adjusted_ao
+                        + subsurface_contrib;
+
                 brdf_result + material.emissive
             }
         }
@@ -410,24 +476,56 @@ pub mod pbr {
     }
 
     /// 次表面散射计算
+    /// 次表面散射计算 - 集成Alpha透明度混合
     pub fn calculate_subsurface_scattering(
         n_dot_l: f32,
         n_dot_v: f32,
         strength: f32,
         base_color: Vector3<f32>,
+        alpha: f32, // 新增：透明度参数
     ) -> Vector3<f32> {
         if strength <= 0.0 {
             return Vector3::zeros();
         }
 
+        // 1. 基础散射计算
         let view_scatter = (1.0 - n_dot_v).powi(2);
         let light_scatter = (1.0 - n_dot_l).powi(2);
         let scatter = (view_scatter + light_scatter) * 0.5 * strength;
 
-        let warmth_factor = Vector3::new(1.1, 0.9, 0.8);
+        // 2. 透明度对次表面散射的影响
+        // 透明度越高，散射效果越强（光线更容易穿透）
+        let transparency_factor = 1.0 - alpha; // alpha=0时完全透明，transparency_factor=1
+        let enhanced_scatter = scatter * (1.0 + transparency_factor * 0.8); // 透明时增强散射
+
+        // 3. 透明度影响散射颜色的传播深度
+        // 透明材质允许更深的光线穿透，产生更丰富的散射色彩
+        let depth_factor = alpha + transparency_factor * 0.5; // 混合不透明和透明的散射深度
+
+        // 4. 暖色调处理 - 透明度影响色温
+        let base_warmth = Vector3::new(1.1, 0.9, 0.8);
+        let transparency_warmth = Vector3::new(1.05, 0.95, 0.85); // 透明时稍微冷色调
+        let warmth_factor = base_warmth.lerp(&transparency_warmth, transparency_factor);
+
+        // 5. 散射颜色计算
         let subsurface_color = base_color.component_mul(&warmth_factor);
 
-        subsurface_color * scatter * 0.7
+        // 6. 透明度调制最终强度
+        // 完全不透明时：正常散射强度
+        // 半透明时：增强散射模拟光线穿透
+        // 完全透明时：轻微散射避免过度效果
+        let final_intensity = if alpha > 0.8 {
+            // 高不透明度：标准散射
+            0.7 * depth_factor
+        } else if alpha > 0.3 {
+            // 中等透明度：增强散射
+            0.9 * depth_factor
+        } else {
+            // 高透明度：适度散射避免过亮
+            0.5 * depth_factor
+        };
+
+        subsurface_color * enhanced_scatter * final_intensity
     }
 
     pub fn compute_fallback_tangent(normal: &Vector3<f32>) -> Vector3<f32> {
@@ -644,6 +742,7 @@ pub mod material_applicator {
             material.subsurface = args.subsurface.clamp(0.0, 1.0);
             material.anisotropy = args.anisotropy.clamp(-1.0, 1.0);
             material.normal_intensity = args.normal_intensity.clamp(0.0, 2.0);
+            material.alpha = args.alpha.clamp(0.0, 1.0); // 新增：应用透明度
 
             if let Ok(base_color) = parse_vec3(&args.base_color) {
                 material.albedo = base_color;
@@ -672,6 +771,7 @@ pub mod material_applicator {
             material.shininess = args.shininess.max(1.0);
             material.diffuse_intensity = args.diffuse_intensity.clamp(0.0, 2.0);
             material.specular_intensity = args.specular_intensity.clamp(0.0, 2.0);
+            material.alpha = args.alpha.clamp(0.0, 1.0); // 新增：应用透明度
 
             if let Ok(diffuse_color) = parse_vec3(&args.diffuse_color) {
                 material.albedo = diffuse_color;

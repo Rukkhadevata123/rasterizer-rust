@@ -71,6 +71,9 @@ quadratic_attenuation = 0.07
 use_phong = false  # 修改：改为使用PBR渲染
 use_pbr = true
 
+# === 通用材质属性 ===
+alpha = 0.75
+
 # === Phong材质参数 ===
 diffuse_color = "0.7,0.5,0.3"
 diffuse_intensity = 1.2      # 新增：漫反射强度
