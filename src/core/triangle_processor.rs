@@ -133,7 +133,7 @@ impl TriangleProcessor {
                 &vertices[i0],
                 global_i0,
                 &texture_source,
-                &geometry_result.view_normals,
+                geometry_result,
             ),
             Self::create_vertex_render_data(
                 &pix1,
@@ -141,7 +141,7 @@ impl TriangleProcessor {
                 &vertices[i1],
                 global_i1,
                 &texture_source,
-                &geometry_result.view_normals,
+                geometry_result,
             ),
             Self::create_vertex_render_data(
                 &pix2,
@@ -149,7 +149,7 @@ impl TriangleProcessor {
                 &vertices[i2],
                 global_i2,
                 &texture_source,
-                &geometry_result.view_normals,
+                geometry_result,
             ),
         ];
 
@@ -178,9 +178,14 @@ impl TriangleProcessor {
             };
         }
 
-        // 优先级：PNG材质 > 面随机颜色 > 固体颜色
+        // 修复：正确处理面颜色纹理
         if let Some(tex) = material_opt.and_then(|m| m.texture.as_ref()) {
-            TextureSource::Image(tex)
+            // 使用 is_face_color() 方法检查纹理类型！
+            if tex.is_face_color() {
+                TextureSource::FaceColor(global_face_index)
+            } else {
+                TextureSource::Image(tex)
+            }
         } else if settings.colorize {
             TextureSource::FaceColor(global_face_index)
         } else {
@@ -206,7 +211,7 @@ impl TriangleProcessor {
         vertex: &Vertex,
         global_index: usize,
         texture_source: &TextureSource,
-        all_view_normals: &[Vector3<f32>],
+        geometry_result: &GeometryResult,
     ) -> VertexRenderData {
         VertexRenderData {
             pix: Point2::new(pix.x, pix.y),
@@ -216,8 +221,10 @@ impl TriangleProcessor {
             } else {
                 None
             },
-            normal_view: Some(all_view_normals[global_index]),
+            normal_view: Some(geometry_result.view_normals[global_index]),
             position_view: Some(view_pos),
+            tangent_view: Some(geometry_result.view_tangents[global_index]),
+            bitangent_view: Some(geometry_result.view_bitangents[global_index]),
         }
     }
 }

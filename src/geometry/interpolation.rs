@@ -216,3 +216,55 @@ pub fn interpolate_position(
 
     Point3::from(result)
 }
+
+/// 使用重心坐标插值切线向量，带透视校正
+/// 采用视空间Z值进行校正
+#[allow(clippy::too_many_arguments)]
+pub fn interpolate_tangent(
+    bary: Vector3<f32>,
+    t1: Vector3<f32>,
+    t2: Vector3<f32>,
+    t3: Vector3<f32>,
+    is_perspective: bool,
+    z1_view: f32,
+    z2_view: f32,
+    z3_view: f32,
+) -> Vector3<f32> {
+    let result = perspective_correct_interpolate(
+        bary,
+        t1,
+        t2,
+        t3,
+        z1_view,
+        z2_view,
+        z3_view,
+        is_perspective,
+    );
+    result.try_normalize(1e-6).unwrap_or_else(Vector3::x)
+}
+
+/// 使用重心坐标插值副切线向量，带透视校正
+/// 采用视空间Z值进行校正
+#[allow(clippy::too_many_arguments)]
+pub fn interpolate_bitangent(
+    bary: Vector3<f32>,
+    b1: Vector3<f32>,
+    b2: Vector3<f32>,
+    b3: Vector3<f32>,
+    is_perspective: bool,
+    z1_view: f32,
+    z2_view: f32,
+    z3_view: f32,
+) -> Vector3<f32> {
+    let result = perspective_correct_interpolate(
+        bary,
+        b1,
+        b2,
+        b3,
+        z1_view,
+        z2_view,
+        z3_view,
+        is_perspective,
+    );
+    result.try_normalize(1e-6).unwrap_or_else(Vector3::y)
+}

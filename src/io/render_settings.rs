@@ -100,8 +100,12 @@ pub struct RenderSettings {
     // ===== Phong着色模型参数 =====
     /// 漫反射颜色，格式为"r,g,b"
     pub diffuse_color: String,
-    /// 镜面反射强度(0.0-1.0)
-    pub specular: f32,
+    /// 新增：漫反射强度(0.0-2.0)
+    pub diffuse_intensity: f32,
+    /// 修复：镜面反射颜色，格式为"r,g,b" (之前是单一数值)
+    pub specular_color: String,
+    /// 新增：镜面反射强度(0.0-2.0)
+    pub specular_intensity: f32,
     /// 材质的光泽度(硬度)参数
     pub shininess: f32,
 
@@ -114,6 +118,12 @@ pub struct RenderSettings {
     pub roughness: f32,
     /// 环境光遮蔽系数(0.0-1.0)
     pub ambient_occlusion: f32,
+    /// 新增：次表面散射强度(0.0-1.0)
+    pub subsurface: f32,
+    /// 新增：各向异性(-1.0到1.0)
+    pub anisotropy: f32,
+    /// 新增：法线强度(0.0-2.0)
+    pub normal_intensity: f32,
     /// 材质的自发光颜色，格式为"r,g,b"
     pub emissive: String,
 
@@ -254,7 +264,9 @@ impl Default for RenderSettings {
 
             // ===== Phong着色模型参数 =====
             diffuse_color: "0.8,0.8,0.8".to_string(),
-            specular: 0.5,
+            diffuse_intensity: 1.0,
+            specular_color: "0.5,0.5,0.5".to_string(),
+            specular_intensity: 1.0,
             shininess: 32.0,
 
             // ===== PBR材质参数 =====
@@ -262,6 +274,9 @@ impl Default for RenderSettings {
             metallic: 0.0,
             roughness: 0.5,
             ambient_occlusion: 1.0,
+            subsurface: 0.0,       // 新增：默认无次表面散射
+            anisotropy: 0.0,       // 新增：默认各向同性
+            normal_intensity: 1.0, // 新增：默认法线强度
             emissive: "0.0,0.0,0.0".to_string(),
 
             // ===== 阴影设置 =====

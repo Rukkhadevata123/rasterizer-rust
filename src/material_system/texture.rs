@@ -122,6 +122,45 @@ impl Texture {
         }
     }
 
+    /// 采样法线贴图，返回法线向量
+    /// 专门用于法线贴图采样，将RGB值转换为法线向量
+    pub fn sample_normal(&self, u: f32, v: f32) -> [f32; 3] {
+        match &self.data {
+            TextureData::Image(img) => {
+                // 规范化UV坐标到[0,1]范围
+                let u = u.fract().abs();
+                let v = v.fract().abs();
+
+                // 计算图像坐标
+                let x = (u * self.width as f32) as u32;
+                // 翻转Y坐标 - 将v从纹理坐标系(下为0)转换为图像坐标系(上为0)
+                let y = ((1.0 - v) * self.height as f32) as u32;
+
+                // 处理环绕（防止越界）
+                let x = x % self.width;
+                let y = y % self.height;
+
+                // 采样像素颜色，直接使用原始RGB值（不进行sRGB转换）
+                let pixel = img.get_pixel(x, y);
+
+                // 将[0,255]映射到[-1,1]
+                let normal_x = (pixel[0] as f32 / 255.0) * 2.0 - 1.0;
+                let normal_y = (pixel[1] as f32 / 255.0) * 2.0 - 1.0;
+                let normal_z = (pixel[2] as f32 / 255.0) * 2.0 - 1.0;
+
+                [normal_x, normal_y, normal_z]
+            }
+            TextureData::SolidColor(_) => {
+                // 单色纹理作为法线贴图时返回默认法线(0,0,1)
+                [0.0, 0.0, 1.0]
+            }
+            TextureData::FaceColor(_) => {
+                // 面颜色纹理作为法线贴图时返回默认法线(0,0,1)
+                [0.0, 0.0, 1.0]
+            }
+        }
+    }
+
     /// 检查是否为面颜色纹理
     pub fn is_face_color(&self) -> bool {
         matches!(&self.data, TextureData::FaceColor(_))

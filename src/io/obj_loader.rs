@@ -1,5 +1,7 @@
 use crate::io::render_settings::RenderSettings;
-use crate::material_system::materials::{Material, Mesh, ModelData, TextureOptions, Vertex};
+use crate::material_system::materials::{
+    Material, Mesh, ModelData, TextureOptions, Vertex, tbn_utils,
+};
 use crate::material_system::texture::{Texture, load_texture};
 use log::{debug, info, warn};
 use nalgebra::{Point3, Vector2, Vector3};
@@ -151,21 +153,48 @@ pub fn load_obj_model<P: AsRef<Path>>(
                             })
                         };
 
-                        Material {
-                            albedo: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8])),
-                            specular: Vector3::from(mat.specular.unwrap_or([0.0, 0.0, 0.0])),
-                            shininess: mat.shininess.unwrap_or(10.0),
-                            texture,
+                        // 加载法线贴图 (如果MTL文件中定义了)
+                        let normal_map = mat.normal_texture.map(|tex_name| {
+                            let texture_path = base_path.join(&tex_name);
+                            let default_color = Vector3::new(0.5, 0.5, 1.0); // 法线贴图默认颜色 (0.5, 0.5, 1.0) 对应 (0, 0, 1) 的法线
+                            let normal_texture = load_texture(&texture_path, default_color);
 
-                            // 添加PBR参数
-                            metallic: 0.0,          // 默认为非金属材质
-                            roughness: 0.5,         // 中等粗糙度
-                            ambient_occlusion: 1.0, // 默认无AO
+                            debug!(
+                                "法线贴图 '{}': 类型={}, 尺寸={}x{}",
+                                tex_name,
+                                normal_texture.get_type_description(),
+                                normal_texture.width,
+                                normal_texture.height
+                            );
+
+                            normal_texture
+                        });
+
+                        // 修复：创建包含所有字段的Material结构
+                        Material {
+                            // --- 通用属性 ---
+                            texture,
+                            normal_map, // 设置法线贴图
                             emissive: Vector3::zeros(),
 
-                            // 添加环境光响应系数，对于默认材质，设为漫反射颜色的30%
+                            // --- 着色模型共享属性 ---
+                            albedo: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8])),
                             ambient_factor: Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8]))
                                 * 0.3,
+
+                            // --- 修复：完整的Blinn-Phong渲染专用属性 ---
+                            specular: Vector3::from(mat.specular.unwrap_or([0.5, 0.5, 0.5])),
+                            shininess: mat.shininess.unwrap_or(32.0),
+                            diffuse_intensity: 1.0,  // 新增：默认漫反射强度
+                            specular_intensity: 1.0, // 新增：默认镜面反射强度
+
+                            // --- PBR渲染专用属性 ---
+                            metallic: 0.0,
+                            roughness: 0.5,
+                            ambient_occlusion: 1.0,
+                            subsurface: 0.0,       // 新增：默认无次表面散射
+                            anisotropy: 0.0,       // 新增：默认各向同性
+                            normal_intensity: 1.0, // 新增：默认法线强度
                         }
                     })
                     .collect()
@@ -182,44 +211,33 @@ pub fn load_obj_model<P: AsRef<Path>>(
 
     // 处理无材质的情况
     if loaded_materials.is_empty() {
-        if let Some(texture) = cli_texture {
+        // 修复：优先检查colorize模式
+        if settings.colorize {
+            debug!("无 MTL 材质且启用colorize，创建面颜色纹理材质");
+
+            let mut default_mat = Material::default();
+            default_mat.configure_texture("face_color", None);
+
+            debug!("创建面颜色纹理材质用于colorize模式");
+            loaded_materials.push(default_mat);
+        } else if let Some(texture) = cli_texture {
             debug!("未找到 MTL 材质，创建带命令行纹理的默认材质");
 
-            // 使用configure_texture方法配置默认材质
             let mut default_mat = Material::default();
-
-            // 获取命令行纹理的信息
             debug!(
                 "应用命令行纹理: 类型={}, 尺寸={}x{}",
                 texture.get_type_description(),
                 texture.width,
                 texture.height
             );
-
-            // 使用configure_texture方法附加纹理
-            let texture_type = if texture.is_face_color() {
-                "face_color"
-            } else {
-                "image"
-            };
-            default_mat.configure_texture(
-                texture_type,
-                Some(TextureOptions {
-                    path: None,
-                    color: None,
-                }),
-            );
-            default_mat.texture = Some(texture); // 直接设置纹理
-
+            default_mat.texture = Some(texture);
             loaded_materials.push(default_mat);
         } else {
             debug!("无 MTL 材质且无指定纹理，使用纯色默认材质");
 
-            // 创建并配置纯色默认材质
             let mut default_mat = Material::default();
-            let default_color = Vector3::new(0.8, 0.8, 0.8); // 默认灰色
+            let default_color = Vector3::new(0.8, 0.8, 0.8);
 
-            // 使用configure_texture方法配置纯色纹理
             default_mat.configure_texture(
                 "solid_color",
                 Some(TextureOptions {
@@ -232,7 +250,6 @@ pub fn load_obj_model<P: AsRef<Path>>(
                 "创建默认纯色纹理: RGB({:.2}, {:.2}, {:.2})",
                 default_color.x, default_color.y, default_color.z
             );
-
             loaded_materials.push(default_mat);
         }
     }
@@ -374,12 +391,46 @@ pub fn load_obj_model<P: AsRef<Path>>(
                     position,
                     normal,
                     texcoord,
+                    tangent: Vector3::zeros(),   // 稍后计算
+                    bitangent: Vector3::zeros(), // 稍后计算
                 };
                 let new_final_idx = vertices.len() as u32;
                 vertices.push(new_vertex);
                 index_map.insert(key, new_final_idx);
                 final_indices.push(new_final_idx);
             }
+        }
+
+        // 计算TBN向量（切线和副切线）
+        if !vertices.is_empty() && !final_indices.is_empty() {
+            let tbn_positions: Vec<Point3<f32>> = vertices.iter().map(|v| v.position).collect();
+            let tbn_texcoords: Vec<Vector2<f32>> = vertices.iter().map(|v| v.texcoord).collect();
+            let tbn_normals: Vec<Vector3<f32>> = vertices.iter().map(|v| v.normal).collect();
+
+            match tbn_utils::calculate_tangents_and_bitangents(
+                &tbn_positions,
+                &tbn_texcoords,
+                Some(&tbn_normals),
+                &final_indices,
+            ) {
+                Ok((tangents, bitangents)) => {
+                    for i in 0..vertices.len() {
+                        vertices[i].tangent = tangents[i];
+                        vertices[i].bitangent = bitangents[i];
+                    }
+                    debug!("为网格 '{}' 计算TBN向量成功", mesh_name);
+                }
+                Err(e) => {
+                    warn!(
+                        "为网格 '{}' 计算TBN向量失败: {}。法线贴图可能无法正常工作。",
+                        mesh_name, e
+                    );
+                    // 保留 T 和 B 为零向量，后续会被validate_and_fix_tbn修复
+                }
+            }
+
+            // 验证并修复TBN向量
+            tbn_utils::validate_and_fix_tbn(&mut vertices);
         }
 
         // 确定最终的材质 ID

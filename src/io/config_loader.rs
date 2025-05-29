@@ -333,9 +333,25 @@ impl TomlConfigLoader {
         if let Some(diffuse_color) = material.get("diffuse_color").and_then(|v| v.as_str()) {
             settings.diffuse_color = diffuse_color.to_string();
         }
-        if let Some(specular) = material.get("specular").and_then(|v| v.as_float()) {
-            settings.specular = specular as f32;
+        // 新增：漫反射强度
+        if let Some(diffuse_intensity) =
+            material.get("diffuse_intensity").and_then(|v| v.as_float())
+        {
+            settings.diffuse_intensity = diffuse_intensity as f32;
         }
+
+        // 修复：镜面反射颜色
+        if let Some(specular_color) = material.get("specular_color").and_then(|v| v.as_str()) {
+            settings.specular_color = specular_color.to_string();
+        }
+        // 新增：镜面反射强度
+        if let Some(specular_intensity) = material
+            .get("specular_intensity")
+            .and_then(|v| v.as_float())
+        {
+            settings.specular_intensity = specular_intensity as f32;
+        }
+
         if let Some(shininess) = material.get("shininess").and_then(|v| v.as_float()) {
             settings.shininess = shininess as f32;
         }
@@ -352,6 +368,17 @@ impl TomlConfigLoader {
             material.get("ambient_occlusion").and_then(|v| v.as_float())
         {
             settings.ambient_occlusion = ambient_occlusion as f32;
+        }
+        // 新增：扩展PBR参数解析
+        if let Some(subsurface) = material.get("subsurface").and_then(|v| v.as_float()) {
+            settings.subsurface = subsurface as f32;
+        }
+        if let Some(anisotropy) = material.get("anisotropy").and_then(|v| v.as_float()) {
+            settings.anisotropy = anisotropy as f32;
+        }
+        if let Some(normal_intensity) = material.get("normal_intensity").and_then(|v| v.as_float())
+        {
+            settings.normal_intensity = normal_intensity as f32;
         }
         if let Some(emissive) = material.get("emissive").and_then(|v| v.as_str()) {
             settings.emissive = emissive.to_string();
@@ -594,7 +621,18 @@ impl TomlConfigLoader {
         content.push_str(&format!("use_phong = {}\n", settings.use_phong));
         content.push_str(&format!("use_pbr = {}\n", settings.use_pbr));
         content.push_str(&format!("diffuse_color = \"{}\"\n", settings.diffuse_color));
-        content.push_str(&format!("specular = {}\n", settings.specular));
+        content.push_str(&format!(
+            "diffuse_intensity = {}\n",
+            settings.diffuse_intensity
+        )); // 新增
+        content.push_str(&format!(
+            "specular_color = \"{}\"\n",
+            settings.specular_color
+        )); // 修复
+        content.push_str(&format!(
+            "specular_intensity = {}\n",
+            settings.specular_intensity
+        )); // 新增
         content.push_str(&format!("shininess = {}\n", settings.shininess));
         content.push_str(&format!("base_color = \"{}\"\n", settings.base_color));
         content.push_str(&format!("metallic = {}\n", settings.metallic));
@@ -602,6 +640,13 @@ impl TomlConfigLoader {
         content.push_str(&format!(
             "ambient_occlusion = {}\n",
             settings.ambient_occlusion
+        ));
+        // 新增：扩展PBR参数输出
+        content.push_str(&format!("subsurface = {}\n", settings.subsurface));
+        content.push_str(&format!("anisotropy = {}\n", settings.anisotropy));
+        content.push_str(&format!(
+            "normal_intensity = {}\n",
+            settings.normal_intensity
         ));
         content.push_str(&format!("emissive = \"{}\"\n", settings.emissive));
         content.push_str(&format!("enhanced_ao = {}\n", settings.enhanced_ao));
