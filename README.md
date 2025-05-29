@@ -1,14 +1,22 @@
-# Rust 高性能光栅化渲染器 v2.0 🎨
+# Rust 高性能光栅化渲染器 v2.2 🎨
 
-一个功能完备的软件光栅化渲染器，采用**TOML驱动配置**和**现代化GUI界面**。支持从基础几何渲染到高级PBR材质、多光源系统、实时相机交互、配置文件管理等专业级渲染功能。
+一个功能完备的软件光栅化渲染器，采用**TOML驱动配置**和**现代化GUI界面**。支持从基础几何渲染到**高级PBR材质系统**、**增强次表面散射**、多光源系统、实时相机交互、配置文件管理等专业级渲染功能。
 
 [![Rust Version](https://img.shields.io/badge/rust-1.81%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/Rukkhadevata123/Rasterizer_rust)
+[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)](https://github.com/Rukkhadevata123/Rasterizer_rust)
 
-## 🔥 v2.0 核心特性
+## 🔥 v2.2 核心特性
 
-### 📝 **TOML 配置驱动**
+### 🎨 **增强的材质系统**
+
+- **� 扩展PBR参数** - 次表面散射、各向异性、法线强度控制
+- **✨ 次表面散射** - 皮肤、蜡烛、大理石等半透明材质效果
+- **🌟 各向异性反射** - 金属拉丝、织物等方向性材质
+- **📐 可调法线强度** - 精细控制表面细节和凹凸效果
+- **💎 Phong增强** - 独立漫反射和镜面反射强度控制
+
+### �📝 **TOML 配置驱动**
 
 - **完整的TOML配置支持** - 所有渲染参数均可通过配置文件设置
 - **配置文件管理** - 一键加载/保存配置，示例配置生成
@@ -41,6 +49,7 @@
 - [安装与构建](#安装与构建)
 - [快速开始](#快速开始)
 - [配置文件详解](#配置文件详解)
+- [材质系统详解](#材质系统详解)
 - [GUI使用指南](#gui使用指南)
 - [命令行模式](#命令行模式)
 - [渲染管线](#渲染管线)
@@ -186,21 +195,33 @@ linear_attenuation = 0.09
 quadratic_attenuation = 0.032
 
 [material]
-use_phong = true                                      # Phong着色
-use_pbr = false                                       # PBR着色
-# Phong参数
-diffuse_color = "0.7,0.5,0.3"
-specular = 0.8
-shininess = 64.0
-# PBR参数
-base_color = "0.8,0.6,0.4"
-metallic = 0.1
-roughness = 0.3
-# 增强效果参数
+use_phong = false                                     # Phong着色
+use_pbr = true                                        # 🔥 推荐使用PBR
+
+# === 🎨 Phong 增强参数 ===
+diffuse_color = "0.7,0.5,0.3"                       # 漫反射颜色
+diffuse_intensity = 1.2                             # 🔥 漫反射强度 (0.0-2.0)
+specular_color = "0.9,0.8,0.7"                      # 🔥 镜面反射颜色 (RGB)
+specular_intensity = 0.8                            # 🔥 镜面反射强度 (0.0-2.0)
+shininess = 64.0                                     # 光泽度
+
+# === 🔬 高级 PBR 参数 ===
+base_color = "0.85,0.7,0.6"                         # 基础颜色
+metallic = 0.0                                       # 金属度 (0.0-1.0)
+roughness = 0.6                                      # 粗糙度 (0.0-1.0)
+ambient_occlusion = 0.8                              # 环境光遮蔽
+
+# 🔥 v2.2 新增高级效果
+subsurface = 0.7                                     # ✨ 次表面散射强度 (0.0-1.0)
+anisotropy = 0.0                                     # 🌟 各向异性 (-1.0 到 1.0)
+normal_intensity = 0.8                               # 📐 法线强度 (0.0-2.0)
+emissive = "0.0,0.0,0.0"                            # 自发光颜色
+
+# === 阴影和环境光遮蔽设置 ===
 enhanced_ao = true
-ao_strength = 0.6                                     # AO强度
+ao_strength = 0.6
 soft_shadows = true
-shadow_strength = 0.8                                 # 阴影强度
+shadow_strength = 0.8
 
 [background]
 use_background_image = false
@@ -221,17 +242,186 @@ rotation_axis = "Y"                                  # "X" | "Y" | "Z" | "Custom
 custom_rotation_axis = "0.2,1,0.3"                  # 自定义轴(当rotation_axis="Custom")
 ```
 
-### 快速配置模板
+## 材质系统详解
 
-```bash
-# 生成基础配置模板
-cargo run --release -- --use-example-config
+### 🎨 Phong 增强着色模型
 
-# 编辑配置文件
-# 根据需要修改 temp_example_config.toml
+v2.2版本大幅增强了Phong着色模型，提供更精细的控制：
 
-# 使用配置文件启动
-cargo run --release -- --config temp_example_config.toml
+```toml
+[material]
+use_phong = true
+
+# 🔥 独立强度控制
+diffuse_color = "0.8,0.6,0.4"                       # 漫反射基色
+diffuse_intensity = 1.5                             # 漫反射增强 50%
+
+specular_color = "1.0,0.9,0.8"                      # 镜面反射色调
+specular_intensity = 0.6                            # 降低镜面反射 40%
+
+shininess = 128.0                                    # 高光泽度（锐利高光）
+```
+
+**Phong参数详解**：
+
+| 参数 | 范围 | 效果描述 |
+|------|------|----------|
+| `diffuse_intensity` | 0.0-2.0 | **漫反射强度**，控制表面亮度 |
+| `specular_intensity` | 0.0-2.0 | **镜面反射强度**，控制高光亮度 |
+| `shininess` | 1.0-512.0 | **光泽度**，值越高高光越锐利 |
+| `diffuse_color` | RGB | **漫反射颜色**，物体主要颜色 |
+| `specular_color` | RGB | **🔥 镜面反射颜色**，高光色调 |
+
+### 🔬 高级 PBR 材质系统
+
+v2.2版本引入了业界领先的PBR参数：
+
+```toml
+[material]
+use_pbr = true
+
+# 基础PBR三要素
+base_color = "0.8,0.6,0.4"                          # 基础反射率
+metallic = 0.2                                       # 轻微金属感
+roughness = 0.3                                      # 中等粗糙度
+
+# 🔥 v2.2 高级效果
+subsurface = 0.8                                     # ✨ 强次表面散射
+anisotropy = 0.4                                     # 🌟 方向性反射
+normal_intensity = 1.2                               # 📐 增强表面细节
+```
+
+#### ✨ 次表面散射 (Subsurface Scattering)
+
+模拟光线在材质内部的散射效果，适用于：
+
+```toml
+# 🧑 人体皮肤效果
+subsurface = 0.7
+base_color = "0.9,0.7,0.6"
+metallic = 0.0
+roughness = 0.4
+
+# 🕯️ 蜡烛材质
+subsurface = 0.9
+base_color = "0.95,0.9,0.8"
+metallic = 0.0
+roughness = 0.6
+
+# 🏛️ 大理石效果
+subsurface = 0.5
+base_color = "0.9,0.9,0.85"
+metallic = 0.1
+roughness = 0.2
+```
+
+#### 🌟 各向异性 (Anisotropy)
+
+控制表面反射的方向性特征：
+
+```toml
+# 🔧 拉丝金属效果
+anisotropy = 0.8                                     # 强方向性
+metallic = 0.9
+roughness = 0.3
+base_color = "0.8,0.8,0.9"
+
+# 🧵 织物材质
+anisotropy = -0.4                                    # 垂直方向
+metallic = 0.0
+roughness = 0.7
+base_color = "0.6,0.4,0.3"
+
+# 💿 CD光盘效果
+anisotropy = 0.95                                    # 极强径向反射
+metallic = 0.8
+roughness = 0.1
+```
+
+#### 📐 法线强度 (Normal Intensity)
+
+精细控制表面细节的强度：
+
+```toml
+# 🏔️ 粗糙岩石
+normal_intensity = 1.8                               # 增强凹凸感
+roughness = 0.9
+
+# 🪞 光滑表面
+normal_intensity = 0.3                               # 减弱表面变化
+roughness = 0.1
+
+# 🎭 程序化细节
+normal_intensity = 1.5                               # 适中细节
+# 当没有法线贴图时，会生成程序化表面变化
+```
+
+### 🎯 材质预设示例
+
+#### 金属材质
+
+```toml
+# 🥇 抛光金属
+[material]
+use_pbr = true
+base_color = "1.0,0.8,0.4"                          # 金色
+metallic = 0.9                                       # 高金属度
+roughness = 0.1                                      # 镜面光滑
+anisotropy = 0.0                                     # 各向同性
+subsurface = 0.0                                     # 无次表面散射
+
+# 🔩 拉丝不锈钢
+[material]
+use_pbr = true
+base_color = "0.8,0.8,0.9"                          # 冷色金属
+metallic = 0.8
+roughness = 0.3
+anisotropy = 0.6                                     # 拉丝效果
+normal_intensity = 1.2                               # 增强纹理
+```
+
+#### 有机材质
+
+```toml
+# 🍎 水果皮肤
+[material]
+use_pbr = true
+base_color = "0.8,0.2,0.1"                          # 苹果红
+metallic = 0.0                                       # 非金属
+roughness = 0.4                                      # 半光滑
+subsurface = 0.6                                     # 明显次表面散射
+normal_intensity = 0.8                               # 适中表面纹理
+
+# 🧑 人体皮肤
+[material]
+use_pbr = true
+base_color = "0.9,0.7,0.6"                          # 肤色
+metallic = 0.0
+roughness = 0.5
+subsurface = 0.8                                     # 强次表面散射
+anisotropy = 0.0                                     # 各向同性
+```
+
+#### 特殊效果
+
+```toml
+# ✨ 发光材质
+[material]
+use_pbr = true
+base_color = "0.2,0.4,0.8"                          # 基础蓝色
+emissive = "0.1,0.3,0.6"                            # 蓝色发光
+metallic = 0.0
+roughness = 0.3
+subsurface = 0.4                                     # 轻微内部发光
+
+# 🌟 全息材质
+[material]
+use_pbr = true
+base_color = "0.8,0.9,1.0"                          # 冷色基调
+metallic = 0.6                                       # 部分金属性
+roughness = 0.2                                      # 光滑
+anisotropy = 0.8                                     # 强方向性
+normal_intensity = 1.5                               # 增强细节
 ```
 
 ## GUI使用指南
@@ -250,13 +440,44 @@ cargo run --release -- --config temp_example_config.toml
 │ 🔧 物体变换     │           右下角: 交互提示面板               │
 │ 📷 相机设置     │                                              │
 │ 💡 光照设置     │                                              │
-│ 🎭 材质设置     │                                              │
+│ 🎭 材质设置     │  ← 🔥 增强的材质面板                        │
 │ 🎬 动画设置     │                                              │
 │ 🔴 渲染按钮     │                                              │
 └──────────────┴──────────────────────────────────────────────┘
 ```
 
-### 🔥 配置文件管理
+### 🎭 增强的材质设置面板
+
+v2.2版本的材质面板提供直观的参数控制：
+
+```
+┌─────────────────────────────────────────┐
+│ 🎭 材质与光照设置                        │
+├─────────────────────────────────────────┤
+│ 着色模型: ○ Phong  ● PBR               │
+│ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│ � PBR 高级参数                         │
+│ 基础颜色: [■] [0.85, 0.70, 0.60]       │
+│ 金属度:   [████████░░] 0.0             │
+│ 粗糙度:   [██████░░░░] 0.6             │
+│ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│ ✨ 次表面散射: [███████░░░] 0.7         │
+│ 🌟 各向异性:   [█████░░░░░] 0.0         │
+│ 📐 法线强度:   [████████░░] 0.8         │
+│ 💡 自发光:     [■] [0.0, 0.0, 0.0]     │
+│ ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│ 💡 提示: 次表面散射适用于皮肤、蜡烛等   │
+└─────────────────────────────────────────┘
+```
+
+**材质参数实时预览**：
+
+- 🎚️ **滑块调节** - 拖动滑块实时看到效果变化
+- 🎨 **颜色选择器** - 点击色块打开颜色选择面板
+- 💡 **参数提示** - 鼠标悬停显示参数详细说明
+- 🔄 **实时更新** - 参数变化立即反映到渲染结果
+
+### �🔥 配置文件管理
 
 在"文件与输出设置"面板中：
 
@@ -361,17 +582,6 @@ for config in configs/*.toml; do
 done
 ```
 
-#### 🐳 容器化部署
-
-```dockerfile
-# Dockerfile示例
-FROM rust:1.81
-COPY . /app
-WORKDIR /app
-RUN cargo build --release
-CMD ["./target/release/rasterizer", "--config", "production.toml", "--headless"]
-```
-
 ## 渲染管线
 
 ```mermaid
@@ -405,16 +615,19 @@ graph TD
     
     subgraph 高级光照
         J4 --> K1{着色模型}
-        K1 -->|Phong| K2[Blinn-Phong着色]
-        K1 -->|PBR| K3[基于物理渲染]
+        K1 -->|Phong| K2[🔥增强Blinn-Phong]
+        K1 -->|PBR| K3[🔬高级物理渲染]
         K2 --> K4[多光源计算]
-        K3 --> K4
-        K4 --> K5[🔥 增强AO]
-        K5 --> K6[🔥 软阴影]
-        K6 --> K7[Gamma校正]
+        K3 --> K5[✨次表面散射]
+        K5 --> K6[🌟各向异性反射]
+        K6 --> K7[📐法线强度处理]
+        K4 --> K8[🔥 增强AO]
+        K7 --> K8
+        K8 --> K9[🔥 软阴影]
+        K9 --> K10[Gamma校正]
     end
     
-    K7 --> L[帧缓冲输出]
+    K10 --> L[帧缓冲输出]
     L --> M[图像保存/显示]
     
     subgraph 动画系统
@@ -457,10 +670,10 @@ src/
 │   ├── config_loader.rs       # TOML配置管理器
 │   ├── simple_cli.rs          # 极简CLI处理
 │   ├── render_settings.rs     # 统一配置数据结构
-│   └── model_loader.rs        # 模型资源加载
-├── 💡 material_system/         # 材质与光照
+│   └── obj_loader.rs          # 模型资源加载
+├── 💡 material_system/         # 🔬 增强材质与光照
 │   ├── light.rs               # 多光源系统
-│   ├── materials.rs           # Phong/PBR材质
+│   ├── materials.rs           # 🔥 Phong/PBR增强材质
 │   ├── texture.rs             # 纹理管理
 │   └── color.rs               # 颜色处理
 ├── 🎬 scene/                   # 场景管理
@@ -479,158 +692,181 @@ src/
 └── main.rs                    # 程序入口点
 ```
 
-### 🔥 v2.0 架构亮点
+### 🔥 v2.2 架构亮点
 
 - **🎯 配置驱动架构**: `RenderSettings`作为单一数据源，CLI/GUI/TOML三者统一
-- **📦 模块化设计**: 光栅化器拆分为多个专职模块，便于维护和扩展
+- **� 增强材质系统**: 次表面散射、各向异性、法线强度等高级PBR特性
+- **�📦 模块化设计**: 光栅化器拆分为多个专职模块，便于维护和扩展
 - **⚡ 智能并行渲染**: 自动选择最优并行策略，无需手动配置
 - **🔄 实时交互**: GUI参数变化立即反映到渲染结果
 - **💾 状态管理**: 统一的错误处理、进度监控、资源清理
 
 ## 示例与教程
 
-### 📚 基础渲染示例
+### 📚 材质效果示例
 
-#### 简单模型渲染
+#### 次表面散射演示
 
 ```bash
-# 1. 创建基础配置
+# 1. 创建皮肤材质配置
 cargo run --release -- --use-example-config
 
-# 2. 编辑配置 - 设置自己的模型
-[files]
-obj = "path/to/your/model.obj"
-output = "my_first_render"
+# 2. 编辑配置实现皮肤效果
+[material]
+use_pbr = true
+base_color = "0.9,0.7,0.6"      # 肤色
+metallic = 0.0                   # 非金属
+roughness = 0.4                  # 半光滑
+subsurface = 0.8                 # 🔥 强次表面散射
+normal_intensity = 0.8           # 适中表面细节
 
-# 3. GUI模式渲染
+# 3. GUI模式查看效果
 cargo run --release -- --config temp_example_config.toml
 ```
 
-#### PBR材质展示
+#### 各向异性金属效果
 
 ```toml
 [material]
 use_pbr = true
-base_color = "0.9,0.7,0.5"      # 金属基色
-metallic = 0.8                   # 高金属度
-roughness = 0.2                  # 低粗糙度(光滑)
-enhanced_ao = true
-ao_strength = 0.7
+base_color = "0.8,0.8,0.9"       # 不锈钢色
+metallic = 0.85                  # 高金属度
+roughness = 0.3                  # 中等粗糙度
+anisotropy = 0.7                 # 🔥 强方向性（拉丝效果）
+normal_intensity = 1.2           # 增强表面纹理
 
 [[light]]
 type = "directional"
-direction = "0.2,-1.0,-0.3"
-color = "1.0,0.9,0.8"            # 暖色调主光
-intensity = 1.2
+direction = "0.3,-0.8,-0.5"
+intensity = 1.0
 
 [[light]]
-type = "point"
-position = "3.0,2.0,3.0"
-color = "0.6,0.8,1.0"            # 冷色调补光
-intensity = 0.8
+type = "point"                   # 添加侧光展示各向异性
+position = "2.0,1.0,0.0"
+intensity = 0.6
+```
+
+#### 发光材质演示
+
+```toml
+[material]
+use_pbr = true
+base_color = "0.1,0.3,0.8"       # 深蓝基色
+emissive = "0.2,0.4,1.0"         # 🔥 蓝色发光
+metallic = 0.0
+roughness = 0.2
+subsurface = 0.3                 # 轻微内部散射增强发光感
+
+# 调暗环境光突出发光效果
+[lighting]
+ambient = 0.1
+ambient_color = "0.1,0.1,0.2"
 ```
 
 ### 🎬 动画制作工作流
 
-#### 相机轨道动画
+#### 材质动画展示
 
 ```toml
 [animation]
 animation_type = "CameraOrbit"
 rotation_axis = "Y"
-rotation_cycles = 1.0            # 完整一圈
-fps = 30                         # 30fps视频
+rotation_cycles = 2.0            # 两圈展示
+fps = 30
 
-[camera]
-from = "3.0,1.0,3.0"            # 起始位置
-at = "0,0.5,0"                  # 观察中心
+# 使用高对比度光照展示材质效果
+[[light]]
+type = "directional"
+direction = "0.5,-1.0,-0.3"
+color = "1.0,0.9,0.8"            # 暖色主光
+intensity = 1.2
+
+[[light]]
+type = "point"
+position = "3.0,2.0,3.0"
+color = "0.6,0.8,1.0"            # 冷色补光
+intensity = 0.8
 ```
 
 **操作流程**:
 
-1. 在GUI中点击"开始动画渲染"预览效果
-2. 调整相机位置和旋转速度
-3. 启用预渲染模式进行高质量预览
-4. 满意后点击"生成视频"导出MP4
-
-#### 物体旋转展示
-
-```toml
-[animation]
-animation_type = "ObjectLocalRotation"
-rotation_axis = "Custom"
-custom_rotation_axis = "0.3,1.0,0.2"  # 倾斜轴旋转
-rotation_cycles = 2.0                   # 两圈展示
-
-[object]
-position = "0,0,0"
-scale = 1.5                            # 放大展示
-```
+1. 在GUI中设置材质参数
+2. 点击"开始动画渲染"预览旋转效果
+3. 观察光照条件下的材质表现
+4. 调整参数获得最佳效果
+5. 生成高质量视频展示
 
 ### 🏭 生产环境配置
 
-#### 高质量静态渲染
+#### 高质量材质渲染
 
 ```toml
 [render]
-width = 3840                     # 4K分辨率
-height = 2160
+width = 2560                     # 2.5K分辨率
+height = 1440
 enhanced_ao = true
 ao_strength = 0.8
 soft_shadows = true
 shadow_strength = 0.6
 
-[lighting]
-ambient = 0.15                   # 适中环境光
+[material]
+use_pbr = true
+# 高质量次表面散射设置
+subsurface = 0.7
+normal_intensity = 1.0           # 保持适中避免过度
+ambient_occlusion = 0.9          # 高环境光遮蔽
 
-# 三点布光设置
+# 专业三点布光
 [[light]]
 type = "directional"             # 主光源
 direction = "0.3,-0.8,-0.5"
 intensity = 1.0
+color = "1.0,0.95,0.9"
 
 [[light]]
 type = "point"                   # 补光源
 position = "-2.0,1.5,2.0"
 intensity = 0.6
+color = "0.9,0.95,1.0"
 
 [[light]]
 type = "point"                   # 轮廓光
 position = "1.5,0.5,-2.0"
 intensity = 0.4
+color = "1.0,0.9,0.8"
 ```
 
-#### 批量渲染脚本
+#### 批量材质测试
 
 ```bash
 #!/bin/bash
-# batch_render.sh
+# material_test.sh - 批量测试不同材质效果
 
-models_dir="assets/models"
-output_dir="rendered_images"
-config_template="templates/high_quality.toml"
+materials=("metal" "skin" "plastic" "fabric")
+subsurface_values=(0.0 0.3 0.6 0.9)
+anisotropy_values=(0.0 0.4 0.8)
 
-for model_file in "$models_dir"/*.obj; do
-    model_name=$(basename "$model_file" .obj)
-    
-    # 复制配置模板
-    config_file="temp_${model_name}_config.toml"
-    cp "$config_template" "$config_file"
-    
-    # 修改配置中的模型路径
-    sed -i "s|PLACEHOLDER_MODEL|$model_file|g" "$config_file"
-    sed -i "s|PLACEHOLDER_OUTPUT|$model_name|g" "$config_file"
-    
-    # 无头渲染
-    cargo run --release -- --config "$config_file" --headless
-    
-    # 清理临时配置
-    rm "$config_file"
-    
-    echo "✅ 完成渲染: $model_name"
+for material in "${materials[@]}"; do
+    for subsurface in "${subsurface_values[@]}"; do
+        for anisotropy in "${anisotropy_values[@]}"; do
+            config_file="test_${material}_s${subsurface}_a${anisotropy}.toml"
+            
+            # 生成配置文件
+            cat > "$config_file" << EOF
+[material]
+use_pbr = true
+subsurface = $subsurface
+anisotropy = $anisotropy
+# ... 其他材质参数
+EOF
+            
+            # 渲染
+            cargo run --release -- --config "$config_file" --headless
+            
+            echo "✅ 完成: $material (subsurface=$subsurface, anisotropy=$anisotropy)"
+        done
+    done
 done
-
-echo "🎉 批量渲染完成！"
 ```
 
 ## 性能优化建议
@@ -638,7 +874,7 @@ echo "🎉 批量渲染完成！"
 ### 💻 硬件配置
 
 - **CPU**: 推荐8核心以上，受益于多线程光栅化
-- **内存**: 16GB+，支持大模型和预渲染缓存
+- **内存**: 16GB+，支持大模型和复杂材质计算
 - **存储**: SSD优先，加速纹理和模型加载
 
 ### ⚙️ 渲染设置优化
@@ -650,6 +886,12 @@ echo "🎉 批量渲染完成！"
 cull_small_triangles = true      # 剔除小三角形
 min_triangle_area = 0.001       # 剔除阈值
 backface_culling = true         # 背面剔除
+
+[material]
+# 简化材质计算
+subsurface = 0.0                # 禁用次表面散射
+anisotropy = 0.0                # 禁用各向异性
+normal_intensity = 1.0          # 标准法线强度
 ```
 
 #### 高质量设置
@@ -660,7 +902,12 @@ enhanced_ao = true
 ao_strength = 0.8
 soft_shadows = true
 shadow_strength = 0.6
-use_gamma = true                # Gamma校正
+
+[material]
+# 全功能材质
+subsurface = 0.6                # 启用次表面散射
+anisotropy = 0.4                # 适度各向异性
+normal_intensity = 1.2          # 增强细节
 ```
 
 #### 平衡设置
@@ -671,7 +918,11 @@ enhanced_ao = true
 ao_strength = 0.5               # 适中AO强度
 soft_shadows = true  
 shadow_strength = 0.4           # 适中阴影强度
-cull_small_triangles = true
+
+[material]
+subsurface = 0.3                # 轻微次表面散射
+anisotropy = 0.0                # 禁用各向异性（节省计算）
+normal_intensity = 1.0          # 标准细节
 ```
 
 ## 故障排除
@@ -687,6 +938,21 @@ rustc --version  # 应为1.81+
 # 清理重新构建
 cargo clean
 cargo build --release
+```
+
+#### 🎨 材质效果不明显
+
+```bash
+# 检查光照设置
+# 次表面散射需要适当的光照才能显现
+[[light]]
+type = "directional"
+intensity = 1.0                 # 确保足够亮度
+
+# 各向异性需要侧光源
+[[light]]
+type = "point"
+position = "2.0,0.0,0.0"        # 侧面光源
 ```
 
 #### 📁 文件加载问题
@@ -713,32 +979,32 @@ choco install ffmpeg
 ls -la output_directory/
 ```
 
-#### 🖱️ 相机交互无响应
-
-- 确保在**中央渲染区域**操作，不是左侧面板
-- 首先进行一次渲染，生成图像后才能交互
-- 检查鼠标是否在图像区域内
-
 ### 📊 性能分析
 
-#### 内存使用
-
-```bash
-# 查看内存占用
-top -p $(pgrep rasterizer)    # Linux
-# 或在任务管理器中查看        # Windows
-```
-
-#### 渲染性能
+#### 材质计算性能
 
 ```toml
-# 在GUI中启用FPS显示
-# 实时动画渲染时查看右上角FPS统计
-# 目标: 
-# - 简单场景: 30+ FPS
-# - 复杂场景: 15+ FPS  
-# - 高质量渲染: 5+ FPS
+# 性能测试配置
+[material]
+# 测试1: 基础PBR
+use_pbr = true
+subsurface = 0.0
+anisotropy = 0.0
+
+# 测试2: 次表面散射
+subsurface = 0.5
+anisotropy = 0.0
+
+# 测试3: 各向异性
+subsurface = 0.0
+anisotropy = 0.5
+
+# 测试4: 全功能
+subsurface = 0.5
+anisotropy = 0.5
 ```
+
+在GUI中对比FPS差异，选择合适的质量/性能平衡点。
 
 ## 贡献指南
 
@@ -750,7 +1016,7 @@ git clone https://github.com/Rukkhadevata123/Rasterizer_rust
 cd Rasterizer_rust
 
 # 2. 创建开发分支
-git checkout -b feature/your-feature-name
+git checkout -b feature/material-enhancement
 
 # 3. 安装开发依赖
 cargo install cargo-clippy cargo-fmt
@@ -768,22 +1034,42 @@ cargo fmt
 - **提交信息**: 使用约定式提交格式
 - **测试覆盖**: 新功能需要相应测试
 
-### 🔍 测试配置
+### 🎨 材质系统扩展
 
-```toml
-# tests/test_config.toml - 单元测试配置
-[files]
-obj = "tests/assets/cube.obj"
-output = "test_output"
+贡献新材质效果时，请遵循以下结构：
 
-[render]
-width = 256
-height = 256
+```rust
+// src/material_system/materials.rs
+
+pub mod pbr_functions {
+    // 新增材质函数应放在这里
+    pub fn your_new_effect(/* 参数 */) -> Vector3<f32> {
+        // 实现新效果
+    }
+}
+
+// 在 MaterialView::compute_response 中集成
+// 在 RenderSettings 中添加对应参数
+// 在 GUI 中添加控制滑块
 ```
 
 ## 版本历史
 
-### 🎉 v2.0.0 (Current)
+### 🎉 v2.2.0 (Current)
+
+- ✨ **增强PBR材质系统**
+  - 🔥 次表面散射效果
+  - 🌟 各向异性反射
+  - 📐 可调法线强度
+- 🎨 **Phong着色增强**
+  - 独立漫反射/镜面反射强度控制
+  - 镜面反射颜色支持
+- 🖥️ **材质GUI优化**
+  - 直观的参数滑块
+  - 实时效果预览
+  - 材质预设支持
+
+### 🎉 v2.0.0
 
 - ✨ **全新TOML配置系统**
 - 🖥️ **现代化GUI界面重构**  
@@ -796,7 +1082,7 @@ height = 256
 
 - 基础光栅化渲染器
 - CLI参数配置
-- Phong/PBR着色模型
+- 基础Phong/PBR着色模型
 - 多线程渲染支持
 
 ## 许可证
@@ -816,6 +1102,8 @@ height = 256
 <div align="center">
 
 **🎨 用Rust重新定义软件光栅化渲染 🎨**
+
+**🔬 v2.2: 业界领先的材质系统，专业级渲染效果 🔬**
 
 [🔗 GitHub仓库](https://github.com/Rukkhadevata123/Rasterizer_rust) | [📚 文档](README.md) | [🐛 问题反馈](https://github.com/Rukkhadevata123/Rasterizer_rust/issues)
 
