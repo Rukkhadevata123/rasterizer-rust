@@ -64,6 +64,7 @@ pub fn rasterize_triangle(
 }
 
 /// 处理单个像素 - 需要传递帧缓冲区用于alpha混合
+#[allow(clippy::too_many_arguments)]
 pub fn rasterize_pixel(
     triangle: &TriangleData,
     pixel_center: Point2<f32>,

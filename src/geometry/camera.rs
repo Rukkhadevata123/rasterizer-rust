@@ -171,15 +171,16 @@ impl Camera {
         self.update_matrices();
     }
 
-    // ============ GUI 交互方法 ============
+    // ============ GUI 交互方法 - 新增返回值指示缓存失效 ============
 
     /// 屏幕拖拽转换为世界坐标平移（GUI专用）
+    /// 返回值：是否需要清除地面缓存
     pub fn pan_from_screen_delta(
         &mut self,
         screen_delta: egui::Vec2,
         screen_size: egui::Vec2,
         sensitivity: f32,
-    ) {
+    ) -> bool {
         // 计算世界坐标增量
         let distance_to_target = (self.params.position - self.params.target).magnitude();
 
@@ -209,10 +210,14 @@ impl Camera {
         self.params.target += translation;
 
         self.update_matrices();
+
+        // 相机位置变化，需要清除地面缓存
+        true
     }
 
     /// 滚轮缩放转换为相机推拉（GUI专用）
-    pub fn dolly_from_scroll(&mut self, scroll_delta: f32, sensitivity: f32) {
+    /// 返回值：是否需要清除地面缓存
+    pub fn dolly_from_scroll(&mut self, scroll_delta: f32, sensitivity: f32) -> bool {
         let distance_to_target = (self.params.position - self.params.target).magnitude();
 
         // 基础敏感度：距离的 10%
@@ -231,10 +236,14 @@ impl Camera {
             self.params.position = self.params.target + direction * min_distance;
             self.update_matrices();
         }
+
+        // 相机位置变化，需要清除地面缓存
+        true
     }
 
     /// 屏幕拖拽转换为轨道旋转（GUI专用）
-    pub fn orbit_from_screen_delta(&mut self, screen_delta: egui::Vec2, sensitivity: f32) {
+    /// 返回值：是否需要清除地面缓存
+    pub fn orbit_from_screen_delta(&mut self, screen_delta: egui::Vec2, sensitivity: f32) -> bool {
         // 基础旋转敏感度
         let base_rotation_sensitivity = 0.01;
         let adjusted_sensitivity = base_rotation_sensitivity * sensitivity;
@@ -266,18 +275,26 @@ impl Camera {
                 self.orbit(&right, angle_x);
             }
         }
+
+        // 相机位置变化，需要清除地面缓存
+        true
     }
 
     /// 重置相机到默认视角（GUI专用）
-    pub fn reset_to_default_view(&mut self) {
+    /// 返回值：是否需要清除地面缓存
+    pub fn reset_to_default_view(&mut self) -> bool {
         self.params.position = Point3::new(0.0, 0.0, 3.0);
         self.params.target = Point3::new(0.0, 0.0, 0.0);
         self.params.up = Vector3::new(0.0, 1.0, 0.0);
         self.update_matrices();
+
+        // 相机位置变化，需要清除地面缓存
+        true
     }
 
     /// 聚焦到物体（自动调整距离）（GUI专用）
-    pub fn focus_on_object(&mut self, object_center: Point3<f32>, object_radius: f32) {
+    /// 返回值：是否需要清除地面缓存
+    pub fn focus_on_object(&mut self, object_center: Point3<f32>, object_radius: f32) -> bool {
         // 计算合适的距离（确保物体完全可见）
         let optimal_distance = match &self.params.projection {
             ProjectionType::Perspective { fov_y_degrees, .. } => {
@@ -296,6 +313,9 @@ impl Camera {
         self.params.position = object_center + current_direction * optimal_distance;
 
         self.update_matrices();
+
+        // 相机位置变化，需要清除地面缓存
+        true
     }
 
     // ============ 内部实现方法 ============

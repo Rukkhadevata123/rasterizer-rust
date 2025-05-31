@@ -26,7 +26,7 @@ pub trait CoreMethods {
     /// 在UI中显示渲染结果
     fn display_render_result(&mut self, ctx: &Context);
 
-    /// 如果相机发生变化，执行重新渲染
+    /// 如果任何事情发生变化，执行重新渲染
     fn render_if_anything_changed(&mut self, ctx: &Context);
 
     /// 保存当前渲染结果为截图
@@ -207,6 +207,22 @@ impl CoreMethods for RasterizerApp {
     fn render_if_anything_changed(&mut self, ctx: &Context) {
         if self.interface_interaction.anything_changed && self.scene.is_some() {
             if let Some(scene) = &mut self.scene {
+                // 检测需要清除缓存的变化
+                let mut need_invalidate_cache = false;
+
+                // 检测渲染尺寸变化
+                if self.renderer.frame_buffer.width != self.settings.width
+                    || self.renderer.frame_buffer.height != self.settings.height
+                {
+                    need_invalidate_cache = true;
+                }
+
+                // 智能缓存失效 - 只在必要时清除
+                if need_invalidate_cache {
+                    debug!("检测到需要清除缓存的变化");
+                    self.renderer.invalidate_background_cache();
+                }
+
                 // 统一同步所有状态 - 消除不对称性
 
                 // 1. 光源同步
@@ -263,7 +279,7 @@ impl CoreMethods for RasterizerApp {
                     scene.object.model_data = model_data.clone();
                 }
 
-                // 5. 执行渲染
+                // 5. 🚀 执行渲染（现在背景和地面已缓存，速度很快）
                 self.renderer.render_scene(scene, &self.settings);
             }
 

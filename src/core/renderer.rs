@@ -22,11 +22,28 @@ impl Renderer {
         }
     }
 
+    /// 重设渲染器尺寸（会清除缓存）
+    pub fn resize(&mut self, width: usize, height: usize) {
+        if self.frame_buffer.width != width || self.frame_buffer.height != height {
+            debug!(
+                "渲染器尺寸变化: {}x{} -> {}x{}",
+                self.frame_buffer.width, self.frame_buffer.height, width, height
+            );
+            self.frame_buffer = FrameBuffer::new(width, height);
+        }
+    }
+
     /// 核心渲染接口 - 简化流程
     pub fn render_scene(&mut self, scene: &mut Scene, settings: &RenderSettings) {
         let frame_start = Instant::now();
 
-        // 1. 清空帧缓冲区
+        // 检查尺寸变化并处理
+        if self.frame_buffer.width != settings.width || self.frame_buffer.height != settings.height
+        {
+            self.resize(settings.width, settings.height);
+        }
+
+        // 1. 清空帧缓冲区（现在使用缓存，第一次计算后非常快）
         self.frame_buffer.clear(settings, &scene.active_camera);
 
         // 2. 几何变换阶段
@@ -71,5 +88,10 @@ impl Renderer {
                 frame_time
             );
         }
+    }
+
+    /// 手动清除缓存（在背景/地面设置改变时调用）
+    pub fn invalidate_background_cache(&mut self) {
+        self.frame_buffer.invalidate_caches();
     }
 }

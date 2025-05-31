@@ -197,10 +197,12 @@ impl AnimationMethods for RasterizerApp {
             }
         }
 
+        // 检查渲染器尺寸，但避免不必要的缓存清除
         if self.renderer.frame_buffer.width != self.settings.width
             || self.renderer.frame_buffer.height != self.settings.height
         {
-            self.renderer = Renderer::new(self.settings.width, self.settings.height);
+            self.renderer
+                .resize(self.settings.width, self.settings.height);
             self.rendered_image = None;
             debug!(
                 "重新创建渲染器，尺寸: {}x{}",
@@ -227,6 +229,9 @@ impl AnimationMethods for RasterizerApp {
         self.animation_time += dt;
 
         if let Some(scene) = &mut self.scene {
+            // 关键优化：动画过程中不清除缓存
+            // 物体动画不影响背景和地面（相机不动），所以缓存仍然有效
+
             // 使用通用函数计算旋转增量
             let rotation_delta_rad = calculate_rotation_delta(self.settings.rotation_speed, dt);
             let rotation_axis_vec = get_animation_axis_vector(&self.settings);
@@ -250,6 +255,7 @@ impl AnimationMethods for RasterizerApp {
                 self.settings.use_phong
             );
 
+            // 渲染（背景/地面缓存让这里变得非常快）
             self.renderer.render_scene(scene, &self.settings);
             self.display_render_result(ctx);
             ctx.request_repaint();

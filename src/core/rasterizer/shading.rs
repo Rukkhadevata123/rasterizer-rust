@@ -8,6 +8,7 @@ use crate::material_system::color::Color;
 use nalgebra::{Point3, Vector2, Vector3};
 
 /// 统一的像素颜色计算 - 合并原来的三个文件功能
+#[allow(clippy::too_many_arguments)]
 pub fn calculate_pixel_color(
     triangle: &TriangleData,
     bary: Vector3<f32>,

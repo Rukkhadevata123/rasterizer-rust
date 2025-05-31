@@ -230,6 +230,7 @@ impl RasterizerApp {
     fn handle_camera_interaction(&mut self, image_response: &egui::Response, ctx: &egui::Context) {
         if let Some(scene) = &mut self.scene {
             let mut camera_changed = false;
+            let mut need_clear_ground_cache = false;
 
             let screen_size = egui::Vec2::new(
                 self.renderer.frame_buffer.width as f32,
@@ -258,12 +259,12 @@ impl RasterizerApp {
                     }
 
                     if self.interface_interaction.camera_is_orbiting && is_shift_pressed {
-                        scene
+                        need_clear_ground_cache = scene
                             .active_camera
                             .orbit_from_screen_delta(delta, self.camera_orbit_sensitivity);
                         camera_changed = true;
                     } else if self.interface_interaction.camera_is_dragging && !is_shift_pressed {
-                        scene.active_camera.pan_from_screen_delta(
+                        need_clear_ground_cache = scene.active_camera.pan_from_screen_delta(
                             delta,
                             screen_size,
                             self.camera_pan_sensitivity,
@@ -284,7 +285,7 @@ impl RasterizerApp {
                 let scroll_delta = ctx.input(|i| i.smooth_scroll_delta.y);
                 if scroll_delta.abs() > 0.1 {
                     let zoom_delta = scroll_delta * 0.01;
-                    scene
+                    need_clear_ground_cache = scene
                         .active_camera
                         .dolly_from_scroll(zoom_delta, self.camera_dolly_sensitivity);
                     camera_changed = true;
@@ -294,14 +295,14 @@ impl RasterizerApp {
             // 处理快捷键
             ctx.input(|i| {
                 if i.key_pressed(egui::Key::R) {
-                    scene.active_camera.reset_to_default_view();
+                    need_clear_ground_cache = scene.active_camera.reset_to_default_view();
                     camera_changed = true;
                 }
 
                 if i.key_pressed(egui::Key::F) {
                     let object_center = nalgebra::Point3::new(0.0, 0.0, 0.0);
                     let object_radius = 2.0;
-                    scene
+                    need_clear_ground_cache = scene
                         .active_camera
                         .focus_on_object(object_center, object_radius);
                     camera_changed = true;
@@ -310,6 +311,12 @@ impl RasterizerApp {
 
             // 如果相机发生变化，直接更新settings并标记
             if camera_changed {
+                // 如果相机变化，清除地面缓存（但保留背景缓存）
+                if need_clear_ground_cache {
+                    // 只清除地面缓存，背景缓存保留
+                    self.renderer.frame_buffer.ground_cache = None;
+                }
+
                 // 直接更新settings字符串
                 let pos = scene.active_camera.position();
                 let target = scene.active_camera.params.target;

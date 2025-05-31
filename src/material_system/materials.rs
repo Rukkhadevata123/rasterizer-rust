@@ -163,6 +163,7 @@ pub struct ModelData {
 #[derive(Debug, Clone)]
 pub enum MaterialView<'a> {
     BlinnPhong(&'a Material),
+    #[allow(clippy::upper_case_acronyms)]
     PBR(&'a Material),
 }
 
@@ -602,6 +603,7 @@ pub mod tbn {
     }
 
     /// 计算切线和副切线
+    #[allow(clippy::type_complexity)]
     pub fn calculate_tangents_and_bitangents(
         positions: &[Point3<f32>],
         texcoords: &[Vector2<f32>],
