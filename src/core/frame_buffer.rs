@@ -1,3 +1,4 @@
+use crate::core::simple_shadow_map::SimpleShadowMap;
 use crate::geometry::camera::Camera;
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::{color, texture::Texture};
@@ -20,13 +21,15 @@ struct BackgroundCache {
     height: usize,
 }
 
-/// 缓存的地面状态 - 使用Arc避免克隆
+/// 缓存的地面状态
 #[derive(Debug, Clone)]
 pub struct GroundCache {
     /// 缓存的地面因子数据 - 使用Arc共享
     ground_factors: Arc<Vec<f32>>,
     /// 缓存的地面颜色数据 - 使用Arc共享
     ground_colors: Arc<Vec<Vector3<f32>>>,
+    /// 缓存的阴影因子数据
+    shadow_factors: Arc<Vec<f32>>,
     /// 相机状态哈希值
     camera_hash: u64,
     /// 地面设置哈希值
@@ -74,8 +77,13 @@ impl FrameBuffer {
         }
     }
 
-    /// 优化的清除方法 - 消除大数据克隆
-    pub fn clear(&mut self, settings: &RenderSettings, camera: &Camera) {
+    /// 修改：支持阴影的清除方法 - 增加物体变换哈希
+    pub fn clear_with_shadow_map(
+        &mut self,
+        settings: &RenderSettings,
+        camera: &Camera,
+        shadow_map: Option<&SimpleShadowMap>,
+    ) {
         // 重置深度缓冲区
         self.depth_buffer.par_iter().for_each(|atomic_depth| {
             atomic_depth.store(f32::INFINITY, Ordering::Relaxed);
@@ -84,145 +92,192 @@ impl FrameBuffer {
         let width = self.width;
         let height = self.height;
 
-        // 1. 背景缓存逻辑 - 返回Arc引用而非克隆
-        let background_pixels_ref = {
-            let current_hash = self.compute_background_settings_hash(settings);
+        // 1. 背景缓存逻辑
+        let background_pixels_ref = self.get_or_compute_background_cache(settings, width, height);
 
-            let cache_valid = if let Some(ref cache) = self.background_cache {
-                cache.settings_hash == current_hash
-                    && cache.width == width
-                    && cache.height == height
+        // 2. 修改：地面缓存逻辑 - 增加物体变换哈希
+        let (ground_factors_ref, ground_colors_ref, shadow_factors_ref) =
+            if settings.enable_ground_plane {
+                self.get_or_compute_ground_cache(settings, camera, shadow_map, width, height)
             } else {
-                false
+                // 为未启用地面的情况提供默认值
+                (
+                    Arc::new(vec![0.0; width * height]),
+                    Arc::new(vec![Vector3::zeros(); width * height]),
+                    Arc::new(vec![1.0; width * height]),
+                )
             };
 
-            if !cache_valid {
-                debug!("计算背景缓存...");
+        // 3. 并行合成最终颜色
+        self.compose_final_colors(
+            settings,
+            &background_pixels_ref,
+            &ground_factors_ref,
+            &ground_colors_ref,
+            &shadow_factors_ref,
+        );
+    }
 
-                let background_texture =
-                    if settings.use_background_image && settings.background_image_path.is_some() {
-                        self.get_background_image(settings).cloned()
-                    } else {
-                        None
-                    };
+    /// 提取：获取或计算背景缓存
+    fn get_or_compute_background_cache(
+        &mut self,
+        settings: &RenderSettings,
+        width: usize,
+        height: usize,
+    ) -> Arc<Vec<Vector3<f32>>> {
+        let current_hash = self.compute_background_settings_hash(settings);
 
-                let mut background_pixels = vec![Vector3::zeros(); width * height];
-
-                background_pixels
-                    .par_iter_mut()
-                    .enumerate()
-                    .for_each(|(buffer_index, pixel)| {
-                        let y = buffer_index / width;
-                        let x = buffer_index % width;
-                        let t_y = y as f32 / (height - 1) as f32;
-                        let t_x = x as f32 / (width - 1) as f32;
-
-                        *pixel = compute_background_only(
-                            settings,
-                            background_texture.as_ref(),
-                            t_x,
-                            t_y,
-                        );
-                    });
-
-                self.background_cache = Some(BackgroundCache {
-                    pixels: Arc::new(background_pixels),
-                    settings_hash: current_hash,
-                    width,
-                    height,
-                });
-
-                debug!("背景缓存计算完成 ({}x{})", width, height);
-            }
-
-            // 返回Arc引用，避免克隆
-            self.background_cache.as_ref().unwrap().pixels.clone()
-        };
-
-        // 2. 地面缓存逻辑 - 返回Arc引用而非克隆
-        let (ground_factors_ref, ground_colors_ref) = if settings.enable_ground_plane {
-            let camera_hash = self.compute_camera_hash_stable(camera);
-            let ground_hash = self.compute_ground_settings_hash_stable(settings);
-
-            let cache_valid = if let Some(ref cache) = self.ground_cache {
-                cache.camera_hash == camera_hash
-                    && cache.ground_settings_hash == ground_hash
-                    && cache.width == width
-                    && cache.height == height
-            } else {
-                false
-            };
-
-            if !cache_valid {
-                debug!("重新计算地面缓存...");
-
-                let mut ground_factors = vec![0.0; width * height];
-                let mut ground_colors = vec![Vector3::zeros(); width * height];
-
-                ground_factors
-                    .par_iter_mut()
-                    .zip(ground_colors.par_iter_mut())
-                    .enumerate()
-                    .for_each(|(buffer_index, (factor, color))| {
-                        let y = buffer_index / width;
-                        let x = buffer_index % width;
-                        let t_y = y as f32 / (height - 1) as f32;
-                        let t_x = x as f32 / (width - 1) as f32;
-
-                        *factor = compute_ground_factor(settings, camera, t_x, t_y);
-                        if *factor > 0.0 {
-                            *color = compute_ground_color(settings, camera, t_x, t_y);
-                        }
-                    });
-
-                self.ground_cache = Some(GroundCache {
-                    ground_factors: Arc::new(ground_factors),
-                    ground_colors: Arc::new(ground_colors),
-                    camera_hash,
-                    ground_settings_hash: ground_hash,
-                    width,
-                    height,
-                });
-
-                debug!("地面缓存计算完成");
-            }
-
-            let cache = self.ground_cache.as_ref().unwrap();
-            (cache.ground_factors.clone(), cache.ground_colors.clone())
+        let cache_valid = if let Some(ref cache) = self.background_cache {
+            cache.settings_hash == current_hash && cache.width == width && cache.height == height
         } else {
-            // 为未启用地面的情况提供默认值
-            (
-                Arc::new(vec![0.0; width * height]),
-                Arc::new(vec![Vector3::zeros(); width * height]),
-            )
+            false
         };
 
-        // 3. 并行合成最终颜色 - 直接使用Arc引用，无克隆开销
+        if !cache_valid {
+            debug!("计算背景缓存...");
+
+            let background_texture =
+                if settings.use_background_image && settings.background_image_path.is_some() {
+                    self.get_background_image(settings).cloned()
+                } else {
+                    None
+                };
+
+            let mut background_pixels = vec![Vector3::zeros(); width * height];
+
+            background_pixels
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(buffer_index, pixel)| {
+                    let y = buffer_index / width;
+                    let x = buffer_index % width;
+                    let t_y = y as f32 / (height - 1) as f32;
+                    let t_x = x as f32 / (width - 1) as f32;
+
+                    *pixel =
+                        compute_background_only(settings, background_texture.as_ref(), t_x, t_y);
+                });
+
+            self.background_cache = Some(BackgroundCache {
+                pixels: Arc::new(background_pixels),
+                settings_hash: current_hash,
+                width,
+                height,
+            });
+
+            debug!("背景缓存计算完成 ({}x{})", width, height);
+        }
+
+        self.background_cache.as_ref().unwrap().pixels.clone()
+    }
+
+    /// 提取：获取或计算地面缓存
+    #[allow(clippy::type_complexity)]
+    fn get_or_compute_ground_cache(
+        &mut self,
+        settings: &RenderSettings,
+        camera: &Camera,
+        shadow_map: Option<&SimpleShadowMap>,
+        width: usize,
+        height: usize,
+    ) -> (Arc<Vec<f32>>, Arc<Vec<Vector3<f32>>>, Arc<Vec<f32>>) {
+        let camera_hash = self.compute_camera_hash_stable(camera);
+        let ground_hash = self.compute_ground_settings_hash_stable(settings);
+
+        let cache_valid = if let Some(ref cache) = self.ground_cache {
+            cache.camera_hash == camera_hash
+                && cache.ground_settings_hash == ground_hash
+                && cache.width == width
+                && cache.height == height
+        } else {
+            false
+        };
+
+        if !cache_valid {
+            debug!("重新计算地面+阴影缓存...");
+
+            let mut ground_factors = vec![0.0; width * height];
+            let mut ground_colors = vec![Vector3::zeros(); width * height];
+            let mut shadow_factors = vec![1.0; width * height];
+
+            ground_factors
+                .par_iter_mut()
+                .zip(ground_colors.par_iter_mut())
+                .zip(shadow_factors.par_iter_mut())
+                .enumerate()
+                .for_each(|(buffer_index, ((factor, color), shadow_factor))| {
+                    let y = buffer_index / width;
+                    let x = buffer_index % width;
+                    let t_y = y as f32 / (height - 1) as f32;
+                    let t_x = x as f32 / (width - 1) as f32;
+
+                    *factor = compute_ground_factor(settings, camera, t_x, t_y);
+                    if *factor > 0.0 {
+                        *color = compute_ground_color(settings, camera, t_x, t_y);
+
+                        // 计算阴影因子
+                        *shadow_factor =
+                            compute_ground_shadow_factor(settings, camera, t_x, t_y, shadow_map);
+                    }
+                });
+
+            self.ground_cache = Some(GroundCache {
+                ground_factors: Arc::new(ground_factors),
+                ground_colors: Arc::new(ground_colors),
+                shadow_factors: Arc::new(shadow_factors),
+                camera_hash,
+                ground_settings_hash: ground_hash,
+                width,
+                height,
+            });
+
+            debug!("地面+阴影缓存计算完成");
+        }
+
+        let cache = self.ground_cache.as_ref().unwrap();
+        (
+            cache.ground_factors.clone(),
+            cache.ground_colors.clone(),
+            cache.shadow_factors.clone(),
+        )
+    }
+
+    /// 提取：合成最终颜色
+    fn compose_final_colors(
+        &self,
+        settings: &RenderSettings,
+        background_pixels_ref: &[Vector3<f32>],
+        ground_factors_ref: &[f32],
+        ground_colors_ref: &[Vector3<f32>],
+        shadow_factors_ref: &[f32],
+    ) {
+        let width = self.width;
+        let height = self.height;
+
         (0..height).into_par_iter().for_each(|y| {
             for x in 0..width {
                 let buffer_index = y * width + x;
                 let color_index = buffer_index * 3;
 
-                // 直接访问Arc数据，无克隆开销
                 let mut final_color = background_pixels_ref[buffer_index];
 
-                // 如果启用地面，应用地面效果
                 if settings.enable_ground_plane {
                     let ground_factor = ground_factors_ref[buffer_index];
                     if ground_factor > 0.0 {
                         let ground_color = ground_colors_ref[buffer_index];
+                        let shadow_factor = shadow_factors_ref[buffer_index];
 
-                        // 地面混合计算
+                        let shadowed_ground_color = ground_color * shadow_factor;
+
                         let enhanced_ground_factor = ground_factor.powf(0.65) * 2.0;
                         let final_ground_factor = enhanced_ground_factor.min(0.95);
                         let darkened_background =
                             final_color * (0.8 - final_ground_factor * 0.5).max(0.1);
                         final_color = darkened_background * (1.0 - final_ground_factor)
-                            + ground_color * final_ground_factor;
+                            + shadowed_ground_color * final_ground_factor;
                     }
                 }
 
-                // 转换为u8颜色并保存到缓冲区
                 let color_u8 = color::linear_rgb_to_u8(&final_color, settings.use_gamma);
                 self.color_buffer[color_index].store(color_u8[0], Ordering::Relaxed);
                 self.color_buffer[color_index + 1].store(color_u8[1], Ordering::Relaxed);
@@ -597,4 +652,81 @@ pub fn compute_ground_color(
 
     // 确保地面颜色不会过暗
     ground_color.map(|x| x.max(0.15))
+}
+
+/// 计算地面阴影因子
+pub fn compute_ground_shadow_factor(
+    settings: &RenderSettings,
+    camera: &Camera,
+    t_x: f32,
+    t_y: f32,
+    shadow_map: Option<&SimpleShadowMap>,
+) -> f32 {
+    if !settings.enable_shadow_mapping {
+        return 1.0;
+    }
+
+    let shadow_map = match shadow_map {
+        Some(sm) if sm.is_valid => sm,
+        _ => return 1.0,
+    };
+
+    // 重复使用地面交点计算逻辑
+    if let Some(ground_intersection) = compute_ground_intersection(settings, camera, t_x, t_y) {
+        // 🔧 关键修复：直接使用地面交点进行阴影测试，不使用物体变换矩阵
+        // 阴影贴图本身已经是在正确的光源空间中生成的，包含了物体的变换信息
+        shadow_map.compute_shadow_factor(
+            &ground_intersection,
+            &Matrix4::identity(), // 🔧 使用单位矩阵，因为地面交点已经在世界空间中
+            settings.shadow_bias,
+        )
+    } else {
+        1.0
+    }
+}
+
+/// 提取：计算地面交点（复用射线求交逻辑）
+fn compute_ground_intersection(
+    settings: &RenderSettings,
+    camera: &Camera,
+    t_x: f32,
+    t_y: f32,
+) -> Option<Point3<f32>> {
+    // 复用 compute_ground_factor 中的射线与地面求交逻辑
+    let fov_y_rad = match &camera.params.projection {
+        crate::geometry::camera::ProjectionType::Perspective { fov_y_degrees, .. } => {
+            fov_y_degrees.to_radians()
+        }
+        crate::geometry::camera::ProjectionType::Orthographic { .. } => 45.0_f32.to_radians(),
+    };
+
+    let aspect_ratio = camera.aspect_ratio();
+    let camera_position = camera.position();
+    let view_matrix = camera.view_matrix();
+
+    let ndc_x = t_x * 2.0 - 1.0;
+    let ndc_y = 1.0 - t_y * 2.0;
+
+    let view_x = ndc_x * aspect_ratio * (fov_y_rad / 2.0).tan();
+    let view_y = ndc_y * (fov_y_rad / 2.0).tan();
+    let view_dir = Vector3::new(view_x, view_y, -1.0).normalize();
+
+    let view_to_world = view_matrix.try_inverse().unwrap_or_else(Matrix4::identity);
+    let world_ray_dir = view_to_world.transform_vector(&view_dir).normalize();
+
+    let ground_y = settings.ground_plane_height;
+    let ground_normal = Vector3::y();
+    let plane_point = Point3::new(0.0, ground_y, 0.0);
+
+    let denominator = ground_normal.dot(&world_ray_dir);
+    if denominator.abs() <= 1e-4 {
+        return None;
+    }
+
+    let t = (plane_point - camera_position).dot(&ground_normal) / denominator;
+    if t < camera.near() {
+        return None;
+    }
+
+    Some(camera_position + t * world_ray_dir)
 }

@@ -443,46 +443,131 @@ impl WidgetMethods for RasterizerApp {
 
         ui.separator();
 
-        let old_enhanced_ao = app.settings.enhanced_ao;
-        let resp1 = ui.checkbox(&mut app.settings.enhanced_ao, "增强环境光遮蔽");
-        if app.settings.enhanced_ao != old_enhanced_ao {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(resp1, ctx, "基于几何特征增强环境光遮蔽效果，让凹陷区域更暗");
+        // 修改原有的增强光照效果组，添加阴影映射
+        ui.group(|ui| {
+            ui.label(RichText::new("增强光照效果").size(14.0).strong());
 
-        if app.settings.enhanced_ao {
-            ui.horizontal(|ui| {
-                let old_ao = app.settings.ao_strength;
-                let resp = ui.add(
-                    egui::Slider::new(&mut app.settings.ao_strength, 0.0..=1.0).text("AO强度"),
-                );
-                if (app.settings.ao_strength - old_ao).abs() > f32::EPSILON {
-                    app.interface_interaction.anything_changed = true;
+            let old_enhanced_ao = app.settings.enhanced_ao;
+            let resp1 = ui.checkbox(&mut app.settings.enhanced_ao, "增强环境光遮蔽");
+            if app.settings.enhanced_ao != old_enhanced_ao {
+                app.interface_interaction.anything_changed = true;
+            }
+            Self::add_tooltip(resp1, ctx, "基于几何特征增强环境光遮蔽效果，让凹陷区域更暗");
+
+            if app.settings.enhanced_ao {
+                ui.horizontal(|ui| {
+                    let old_ao = app.settings.ao_strength;
+                    let resp = ui.add(
+                        egui::Slider::new(&mut app.settings.ao_strength, 0.0..=1.0).text("AO强度"),
+                    );
+                    if (app.settings.ao_strength - old_ao).abs() > f32::EPSILON {
+                        app.interface_interaction.anything_changed = true;
+                    }
+                    Self::add_tooltip(resp, ctx, "控制环境光遮蔽的强度，值越大阴影越明显");
+                });
+            }
+
+            let old_soft_shadows = app.settings.soft_shadows;
+            let resp2 = ui.checkbox(&mut app.settings.soft_shadows, "软阴影");
+            if app.settings.soft_shadows != old_soft_shadows {
+                app.interface_interaction.anything_changed = true;
+            }
+            Self::add_tooltip(resp2, ctx, "为多光源计算软阴影效果，让光照过渡更自然");
+
+            if app.settings.soft_shadows {
+                ui.horizontal(|ui| {
+                    let old_shadow = app.settings.shadow_strength;
+                    let resp = ui.add(
+                        egui::Slider::new(&mut app.settings.shadow_strength, 0.0..=1.0)
+                            .text("阴影强度"),
+                    );
+                    if (app.settings.shadow_strength - old_shadow).abs() > f32::EPSILON {
+                        app.interface_interaction.anything_changed = true;
+                    }
+                    Self::add_tooltip(resp, ctx, "控制软阴影的强度，值越大阴影对比越强");
+                });
+            }
+
+            ui.separator();
+
+            // 新增：阴影映射设置
+            let old_shadow_mapping = app.settings.enable_shadow_mapping;
+            let resp = ui.checkbox(&mut app.settings.enable_shadow_mapping, "地面阴影映射");
+            if app.settings.enable_shadow_mapping != old_shadow_mapping {
+                app.interface_interaction.anything_changed = true;
+            }
+            Self::add_tooltip(
+                resp,
+                ctx,
+                "启用简单阴影映射，在地面显示物体阴影\n需要至少一个方向光源\n相比软阴影更真实但需要更多计算"
+            );
+
+            if app.settings.enable_shadow_mapping {
+                ui.group(|ui| {
+                    ui.label(RichText::new("阴影映射参数").size(12.0).strong());
+
+                    ui.horizontal(|ui| {
+                        ui.label("阴影贴图尺寸:");
+                        let old_size = app.settings.shadow_map_size;
+
+                        egui::ComboBox::from_id_salt("shadow_map_size_combo")
+                            .selected_text(format!("{}x{}", app.settings.shadow_map_size, app.settings.shadow_map_size))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut app.settings.shadow_map_size, 128, "128x128 (快速)");
+                                ui.selectable_value(&mut app.settings.shadow_map_size, 256, "256x256 (推荐)");
+                                ui.selectable_value(&mut app.settings.shadow_map_size, 512, "512x512 (高质量)");
+                                ui.selectable_value(&mut app.settings.shadow_map_size, 1024, "1024x1024 (极高质量)");
+                                ui.selectable_value(&mut app.settings.shadow_map_size, 2048, "2048x2048 (超高质量)");
+                                ui.selectable_value(&mut app.settings.shadow_map_size, 4096, "4096x4096 (专业级)");
+                            });
+
+                        if app.settings.shadow_map_size != old_size {
+                            app.interface_interaction.anything_changed = true;
+                        }
+
+                        Self::add_tooltip(
+                            ui.label("ℹ️"),
+                            ctx,
+                            "阴影贴图分辨率\n• 128: 快速渲染，阴影较粗糙\n• 256: 推荐设置，平衡质量和性能\n• 512: 高质量阴影，适中性能影响\n• 1024: 极高质量，显著性能影响\n• 2048: 超高质量，仅适合高端硬件\n• 4096: 专业级质量，需要强大硬件支持"
+                        );
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("阴影偏移:");
+                        let old_bias = app.settings.shadow_bias;
+                        let resp = ui.add(
+                            egui::Slider::new(&mut app.settings.shadow_bias, 0.0001..=0.01)
+                                .step_by(0.0001)
+                                .custom_formatter(|n, _| format!("{:.4}", n))
+                        );
+                        if (app.settings.shadow_bias - old_bias).abs() > f32::EPSILON {
+                            app.interface_interaction.anything_changed = true;
+                        }
+                        Self::add_tooltip(resp, ctx, "防止阴影痤疮的偏移值\n值太小会出现自阴影，值太大会使阴影分离");
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("阴影距离:");
+                        let old_distance = app.settings.shadow_distance;
+                        let resp = ui.add(
+                            egui::Slider::new(&mut app.settings.shadow_distance, 1.0..=100.0)
+                                .suffix(" 单位")
+                        );
+                        if (app.settings.shadow_distance - old_distance).abs() > f32::EPSILON {
+                            app.interface_interaction.anything_changed = true;
+                        }
+                        Self::add_tooltip(resp, ctx, "阴影渲染的最大距离\n距离越大覆盖范围越广，但阴影精度可能降低");
+                    });
+                });
+
+                // 阴影映射状态提示
+                if app.settings.lights.iter().any(|light| matches!(light, crate::material_system::light::Light::Directional { enabled: true, .. })) {
+                    ui.label(RichText::new("✅ 检测到方向光源，阴影映射可用").color(Color32::LIGHT_GREEN).size(12.0));
+                } else {
+                    ui.label(RichText::new("⚠️ 需要至少一个启用的方向光源").color(Color32::YELLOW).size(12.0));
                 }
-                Self::add_tooltip(resp, ctx, "控制环境光遮蔽的强度，值越大阴影越明显");
-            });
-        }
-
-        let old_soft_shadows = app.settings.soft_shadows;
-        let resp2 = ui.checkbox(&mut app.settings.soft_shadows, "软阴影");
-        if app.settings.soft_shadows != old_soft_shadows {
-            app.interface_interaction.anything_changed = true;
-        }
-        Self::add_tooltip(resp2, ctx, "为多光源计算软阴影效果，让光照过渡更自然");
-
-        if app.settings.soft_shadows {
-            ui.horizontal(|ui| {
-                let old_shadow = app.settings.shadow_strength;
-                let resp = ui.add(
-                    egui::Slider::new(&mut app.settings.shadow_strength, 0.0..=1.0)
-                        .text("阴影强度"),
-                );
-                if (app.settings.shadow_strength - old_shadow).abs() > f32::EPSILON {
-                    app.interface_interaction.anything_changed = true;
-                }
-                Self::add_tooltip(resp, ctx, "控制软阴影的强度，值越大阴影对比越强");
-            });
-        }
+            }
+        });
 
         ui.separator();
         let old_gamma = app.settings.use_gamma;
@@ -855,15 +940,29 @@ impl WidgetMethods for RasterizerApp {
             }
             ui.label("地面颜色");
 
-            if ui
-                .add(
-                    egui::Slider::new(&mut app.settings.ground_plane_height, -3.0..=0.0)
-                        .text("地面高度"),
-                )
-                .changed()
-            {
-                app.interface_interaction.anything_changed = true;
-            }
+            ui.horizontal(|ui| {
+                if ui
+                    .add(
+                        egui::Slider::new(&mut app.settings.ground_plane_height, -10.0..=5.0)
+                            .text("地面高度")
+                            .step_by(0.1),
+                    )
+                    .changed()
+                {
+                    app.interface_interaction.anything_changed = true;
+                }
+
+                // 🔧 自动适配按钮
+                if ui.button("自动适配").clicked() {
+                    if let Some(optimal_height) = app.calculate_optimal_ground_height() {
+                        app.settings.ground_plane_height = optimal_height;
+                        app.interface_interaction.anything_changed = true;
+                        app.status_message = format!("地面高度已自动调整为 {:.2}", optimal_height);
+                    } else {
+                        app.status_message = "无法计算地面高度：请先加载模型".to_string();
+                    }
+                }
+            });
         }
     }
 

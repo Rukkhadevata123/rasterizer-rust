@@ -141,6 +141,15 @@ pub struct RenderSettings {
     /// 软阴影强度 (0.0-1.0)
     pub shadow_strength: f32,
 
+    /// 启用简单阴影映射（仅地面）
+    pub enable_shadow_mapping: bool,
+    /// 阴影贴图尺寸
+    pub shadow_map_size: usize,
+    /// 阴影偏移，避免阴影痤疮
+    pub shadow_bias: f32,
+    /// 阴影渲染距离
+    pub shadow_distance: f32,
+
     // ===== 背景与环境设置 =====
     /// 启用渐变背景
     pub enable_gradient_background: bool,
@@ -290,6 +299,12 @@ impl Default for RenderSettings {
             ao_strength: 0.5,
             soft_shadows: true,
             shadow_strength: 0.7,
+
+            // 新增：简单阴影映射配置
+            enable_shadow_mapping: false, // 启用地面阴影映射
+            shadow_map_size: 256,         // 阴影贴图尺寸（较小，只用于地面）
+            shadow_bias: 0.001,           // 阴影偏移
+            shadow_distance: 20.0,
 
             // ===== 背景与环境设置 =====
             enable_gradient_background: false,

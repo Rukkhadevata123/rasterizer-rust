@@ -92,6 +92,11 @@ impl TomlConfigLoader {
             Self::parse_animation_section(&mut settings, animation)?;
         }
 
+        // 新增：[shadow] 部分
+        if let Some(shadow) = toml.get("shadow").and_then(|v| v.as_table()) {
+            Self::parse_shadow_section(&mut settings, shadow)?;
+        }
+
         Ok(settings)
     }
 
@@ -396,18 +401,7 @@ impl TomlConfigLoader {
         if let Some(emissive) = material.get("emissive").and_then(|v| v.as_str()) {
             settings.emissive = emissive.to_string();
         }
-        if let Some(enhanced_ao) = material.get("enhanced_ao").and_then(|v| v.as_bool()) {
-            settings.enhanced_ao = enhanced_ao;
-        }
-        if let Some(ao_strength) = material.get("ao_strength").and_then(|v| v.as_float()) {
-            settings.ao_strength = ao_strength as f32;
-        }
-        if let Some(soft_shadows) = material.get("soft_shadows").and_then(|v| v.as_bool()) {
-            settings.soft_shadows = soft_shadows;
-        }
-        if let Some(shadow_strength) = material.get("shadow_strength").and_then(|v| v.as_float()) {
-            settings.shadow_strength = shadow_strength as f32;
-        }
+        // 🔧 移除阴影相关配置，转移到 [shadow] 段
         Ok(())
     }
 
@@ -498,6 +492,54 @@ impl TomlConfigLoader {
             .and_then(|v| v.as_str())
         {
             settings.custom_rotation_axis = custom_rotation_axis.to_string();
+        }
+        Ok(())
+    }
+
+    /// 增强：阴影配置解析 - 合并所有阴影相关参数
+    fn parse_shadow_section(
+        settings: &mut RenderSettings,
+        shadow: &toml::Table,
+    ) -> Result<(), String> {
+        // === 环境光遮蔽 ===
+        if let Some(enhanced_ao) = shadow.get("enhanced_ao").and_then(|v| v.as_bool()) {
+            settings.enhanced_ao = enhanced_ao;
+        }
+        if let Some(ao_strength) = shadow.get("ao_strength").and_then(|v| v.as_float()) {
+            settings.ao_strength = ao_strength as f32;
+        }
+
+        // === 软阴影 ===
+        if let Some(soft_shadows) = shadow.get("soft_shadows").and_then(|v| v.as_bool()) {
+            settings.soft_shadows = soft_shadows;
+        }
+        if let Some(shadow_strength) = shadow.get("shadow_strength").and_then(|v| v.as_float()) {
+            settings.shadow_strength = shadow_strength as f32;
+        }
+
+        // === 阴影映射 ===
+        if let Some(enable_shadow_mapping) = shadow
+            .get("enable_shadow_mapping")
+            .and_then(|v| v.as_bool())
+        {
+            settings.enable_shadow_mapping = enable_shadow_mapping;
+        }
+        if let Some(shadow_map_size) = shadow.get("shadow_map_size").and_then(|v| v.as_integer()) {
+            let size = shadow_map_size as usize;
+            if (64..=4096).contains(&size) && size.is_power_of_two() {
+                settings.shadow_map_size = size;
+            } else {
+                warn!(
+                    "无效的阴影贴图尺寸 {}, 必须是64-4096之间的2的幂，使用默认值256",
+                    size
+                );
+            }
+        }
+        if let Some(shadow_bias) = shadow.get("shadow_bias").and_then(|v| v.as_float()) {
+            settings.shadow_bias = (shadow_bias as f32).clamp(0.0001, 0.1);
+        }
+        if let Some(shadow_distance) = shadow.get("shadow_distance").and_then(|v| v.as_float()) {
+            settings.shadow_distance = (shadow_distance as f32).clamp(1.0, 100.0);
         }
         Ok(())
     }
@@ -630,7 +672,7 @@ impl TomlConfigLoader {
             }
         }
 
-        // [material] 部分
+        // [material] 部分 - 移除阴影相关配置
         content.push_str("[material]\n");
         content.push_str(&format!("use_phong = {}\n", settings.use_phong));
         content.push_str(&format!("use_pbr = {}\n", settings.use_pbr));
@@ -638,16 +680,16 @@ impl TomlConfigLoader {
         content.push_str(&format!(
             "diffuse_intensity = {}\n",
             settings.diffuse_intensity
-        )); // 新增
+        ));
         content.push_str(&format!("alpha = {}\n", settings.alpha));
         content.push_str(&format!(
             "specular_color = \"{}\"\n",
             settings.specular_color
-        )); // 修复
+        ));
         content.push_str(&format!(
             "specular_intensity = {}\n",
             settings.specular_intensity
-        )); // 新增
+        ));
         content.push_str(&format!("shininess = {}\n", settings.shininess));
         content.push_str(&format!("base_color = \"{}\"\n", settings.base_color));
         content.push_str(&format!("metallic = {}\n", settings.metallic));
@@ -656,7 +698,6 @@ impl TomlConfigLoader {
             "ambient_occlusion = {}\n",
             settings.ambient_occlusion
         ));
-        // 新增：扩展PBR参数输出
         content.push_str(&format!("subsurface = {}\n", settings.subsurface));
         content.push_str(&format!("anisotropy = {}\n", settings.anisotropy));
         content.push_str(&format!(
@@ -664,10 +705,6 @@ impl TomlConfigLoader {
             settings.normal_intensity
         ));
         content.push_str(&format!("emissive = \"{}\"\n", settings.emissive));
-        content.push_str(&format!("enhanced_ao = {}\n", settings.enhanced_ao));
-        content.push_str(&format!("ao_strength = {}\n", settings.ao_strength));
-        content.push_str(&format!("soft_shadows = {}\n", settings.soft_shadows));
-        content.push_str(&format!("shadow_strength = {}\n", settings.shadow_strength));
         content.push('\n');
 
         // [background] 部分
@@ -720,6 +757,34 @@ impl TomlConfigLoader {
             "custom_rotation_axis = \"{}\"\n",
             settings.custom_rotation_axis
         ));
+
+        content.push('\n');
+
+        // 🔧 增强：[shadow] 部分 - 合并所有阴影相关配置
+        content.push_str("# 🌒 阴影与环境光遮蔽配置\n");
+        content.push_str("[shadow]\n");
+        content.push_str("# === 环境光遮蔽 ===\n");
+        content.push_str(&format!("enhanced_ao = {}\n", settings.enhanced_ao));
+        content.push_str(&format!("ao_strength = {}\n", settings.ao_strength));
+        content.push_str("# === 软阴影 ===\n");
+        content.push_str(&format!("soft_shadows = {}\n", settings.soft_shadows));
+        content.push_str(&format!("shadow_strength = {}\n", settings.shadow_strength));
+        content.push_str("# === 阴影映射 (地面阴影) ===\n");
+        content.push_str(&format!(
+            "enable_shadow_mapping = {}\n",
+            settings.enable_shadow_mapping
+        ));
+        content.push_str(&format!("shadow_map_size = {}\n", settings.shadow_map_size));
+        content.push_str(&format!("shadow_bias = {}\n", settings.shadow_bias));
+        content.push_str(&format!("shadow_distance = {}\n", settings.shadow_distance));
+        content.push_str("# enhanced_ao: 启用增强环境光遮蔽\n");
+        content.push_str("# ao_strength: AO强度 (0.0-1.0)\n");
+        content.push_str("# soft_shadows: 启用软阴影\n");
+        content.push_str("# shadow_strength: 软阴影强度 (0.0-1.0)\n");
+        content.push_str("# enable_shadow_mapping: 启用简单阴影映射（仅地面阴影）\n");
+        content.push_str("# shadow_map_size: 阴影贴图尺寸，推荐256或512\n");
+        content.push_str("# shadow_bias: 阴影偏移，避免阴影痤疮\n");
+        content.push_str("# shadow_distance: 阴影渲染距离\n");
 
         Ok(content)
     }

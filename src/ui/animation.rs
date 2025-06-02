@@ -255,6 +255,16 @@ impl AnimationMethods for RasterizerApp {
                 self.settings.use_phong
             );
 
+            // 修复：物体变换后清除地面缓存，确保阴影同步更新
+            if matches!(
+                self.settings.animation_type,
+                crate::io::render_settings::AnimationType::ObjectLocalRotation
+            ) {
+                // 物体局部变换会影响阴影，需要清除地面缓存
+                self.renderer.frame_buffer.ground_cache = None;
+            }
+            // 相机轨道运动不影响阴影，所以不需要清除缓存
+
             // 渲染（背景/地面缓存让这里变得非常快）
             self.renderer.render_scene(scene, &self.settings);
             self.display_render_result(ctx);

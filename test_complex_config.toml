@@ -92,11 +92,21 @@ anisotropy = 0.0            # 各向同性
 normal_intensity = 0.8      # 柔和的表面细节
 emissive = "0.0,0.0,0.0"
 
-# === 阴影和环境光遮蔽设置 ===
+# 🔧 合并：阴影与环境光遮蔽配置
+[shadow]
+# === 环境光遮蔽 ===
 enhanced_ao = true
 ao_strength = 0.6
+
+# === 软阴影 ===
 soft_shadows = true
 shadow_strength = 0.8
+
+# === 阴影映射 (地面阴影) ===
+enable_shadow_mapping = true
+shadow_map_size = 256
+shadow_bias = 0.001
+shadow_distance = 20.0
 
 [background]
 use_background_image = true

@@ -11,7 +11,6 @@ use atomic_float::AtomicF32;
 use nalgebra::{Point2, Vector3};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// 光栅化单个三角形
 /// 光栅化单个三角形 - 添加MSAA支持
 pub fn rasterize_triangle(
     triangle: &TriangleData,
@@ -153,6 +152,7 @@ fn process_pixel_msaa(
 }
 
 /// 新增：处理单个采样点
+#[allow(clippy::too_many_arguments)]
 fn process_sample_point(
     triangle: &TriangleData,
     sample_point: Point2<f32>,

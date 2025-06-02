@@ -32,6 +32,9 @@ pub trait CoreMethods {
     /// 保存当前渲染结果为截图
     fn take_screenshot(&mut self) -> Result<String, String>;
 
+    /// 智能计算地面平面的最佳高度
+    fn calculate_optimal_ground_height(&self) -> Option<f32>;
+
     // === 状态管理 ===
 
     /// 设置错误信息
@@ -207,23 +210,17 @@ impl CoreMethods for RasterizerApp {
     fn render_if_anything_changed(&mut self, ctx: &Context) {
         if self.interface_interaction.anything_changed && self.scene.is_some() {
             if let Some(scene) = &mut self.scene {
-                // 检测需要清除缓存的变化
-                let mut need_invalidate_cache = false;
-
                 // 检测渲染尺寸变化
                 if self.renderer.frame_buffer.width != self.settings.width
                     || self.renderer.frame_buffer.height != self.settings.height
                 {
-                    need_invalidate_cache = true;
-                }
-
-                // 智能缓存失效 - 只在必要时清除
-                if need_invalidate_cache {
-                    debug!("检测到需要清除缓存的变化");
                     self.renderer.invalidate_background_cache();
                 }
 
-                // 统一同步所有状态 - 消除不对称性
+                // 强制清除阴影相关缓存
+                self.renderer.frame_buffer.ground_cache = None;
+
+                // 统一同步所有状态
 
                 // 1. 光源同步
                 scene.lights = self.settings.lights.clone();
@@ -255,31 +252,26 @@ impl CoreMethods for RasterizerApp {
                 // 3. 物体变换同步
                 scene.update_object_transform(&self.settings);
 
-                // 4. 材质参数同步 - 新增的关键逻辑！
+                // 4. 材质参数同步
                 if let Some(model_data) = &mut self.model_data {
-                    // 同步PBR材质参数
                     if self.settings.use_pbr {
-                        // 使用现有的 apply_pbr_parameters 函数
                         crate::material_system::materials::material_applicator::apply_pbr_parameters(
                             model_data,
                             &self.settings
                         );
                     }
 
-                    // 同步Phong材质参数
                     if self.settings.use_phong {
-                        // 使用现有的 apply_phong_parameters 函数
                         crate::material_system::materials::material_applicator::apply_phong_parameters(
                             model_data,
                             &self.settings
                         );
                     }
 
-                    // 重要：将更新后的材质同步到场景对象
                     scene.object.model_data = model_data.clone();
                 }
 
-                // 5. 🚀 执行渲染（现在背景和地面已缓存，速度很快）
+                // 5. 执行渲染
                 self.renderer.render_scene(scene, &self.settings);
             }
 
@@ -315,6 +307,38 @@ impl CoreMethods for RasterizerApp {
         let color_path =
             Path::new(&self.settings.output_dir).join(format!("{}_color.png", snapshot_name));
         Ok(color_path.to_string_lossy().to_string())
+    }
+
+    fn calculate_optimal_ground_height(&self) -> Option<f32> {
+        let scene = self.scene.as_ref()?;
+        let model_data = self.model_data.as_ref()?;
+
+        let mut min_y = f32::INFINITY;
+        let mut has_vertices = false;
+
+        // 计算模型在当前变换下的最低点
+        for mesh in &model_data.meshes {
+            for vertex in &mesh.vertices {
+                let world_pos = scene.object.transform.transform_point(&vertex.position);
+                min_y = min_y.min(world_pos.y);
+                has_vertices = true;
+            }
+        }
+
+        if !has_vertices {
+            return None;
+        }
+
+        // 智能策略：让物体贴地，避免浮空
+        let ground_height = if self.settings.enable_shadow_mapping {
+            // 阴影映射时：让物体稍微"嵌入"地面，确保阴影可见但物体不浮空
+            min_y - 0.01 // 非常小的负偏移，让物体微微贴地
+        } else {
+            // 无阴影时：让物体完全贴地
+            min_y
+        };
+
+        Some(ground_height)
     }
 
     // === 状态管理实现 ===
