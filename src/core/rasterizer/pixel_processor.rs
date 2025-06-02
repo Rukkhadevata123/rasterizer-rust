@@ -10,7 +10,7 @@ use atomic_float::AtomicF32;
 use nalgebra::{Point2, Vector3};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// 光栅化单个三角形 - 需要传递帧缓冲区用于alpha混合
+/// 光栅化单个三角形
 pub fn rasterize_triangle(
     triangle: &TriangleData,
     width: usize,
@@ -18,7 +18,7 @@ pub fn rasterize_triangle(
     depth_buffer: &[AtomicF32],
     color_buffer: &[AtomicU8],
     settings: &RenderSettings,
-    frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
+    frame_buffer: &crate::core::frame_buffer::FrameBuffer,
 ) {
     if !triangle.is_valid() {
         return;
@@ -29,7 +29,6 @@ pub fn rasterize_triangle(
         None => return,
     };
 
-    // 预计算一次，避免重复计算
     let use_phong_or_pbr = (settings.use_pbr || settings.use_phong)
         && triangle.vertices[0].normal_view.is_some()
         && triangle.vertices[0].position_view.is_some()
@@ -50,31 +49,31 @@ pub fn rasterize_triangle(
             triangle,
             pixel_center,
             pixel_index,
-            x, // 新增：传递x坐标
-            y, // 新增：传递y坐标
+            x,
+            y,
             use_phong_or_pbr,
             use_texture,
             &ambient_contribution,
             depth_buffer,
             color_buffer,
             settings,
-            frame_buffer, // 新增：传递帧缓冲区
+            frame_buffer,
         );
     });
 }
 
-/// 处理单个像素 - 需要传递帧缓冲区用于alpha混合
+/// 处理单个像素
 #[allow(clippy::too_many_arguments)]
 pub fn rasterize_pixel(
     triangle: &TriangleData,
     pixel_center: Point2<f32>,
     pixel_index: usize,
-    pixel_x: usize, // 新增：像素X坐标
-    pixel_y: usize, // 新增：像素Y坐标
+    pixel_x: usize,
+    pixel_y: usize,
     depth_buffer: &[AtomicF32],
     color_buffer: &[AtomicU8],
     settings: &RenderSettings,
-    frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
+    frame_buffer: &crate::core::frame_buffer::FrameBuffer,
 ) {
     let use_phong_or_pbr = (settings.use_pbr || settings.use_phong)
         && triangle.vertices[0].normal_view.is_some()
@@ -92,33 +91,33 @@ pub fn rasterize_pixel(
         triangle,
         pixel_center,
         pixel_index,
-        pixel_x, // 新增：传递x坐标
-        pixel_y, // 新增：传递y坐标
+        pixel_x,
+        pixel_y,
         use_phong_or_pbr,
         use_texture,
         &ambient_contribution,
         depth_buffer,
         color_buffer,
         settings,
-        frame_buffer, // 新增：传递帧缓冲区
+        frame_buffer,
     );
 }
 
-/// 核心像素处理 - 修改参数以支持alpha混合
+/// 核心像素处理 - 优化Alpha处理
 #[allow(clippy::too_many_arguments)]
 fn process_pixel(
     triangle: &TriangleData,
     pixel_center: Point2<f32>,
     pixel_index: usize,
-    pixel_x: usize, // 新增：像素X坐标
-    pixel_y: usize, // 新增：像素Y坐标
+    pixel_x: usize,
+    pixel_y: usize,
     use_phong_or_pbr: bool,
     use_texture: bool,
     ambient_contribution: &Color,
     depth_buffer: &[AtomicF32],
     color_buffer: &[AtomicU8],
     settings: &RenderSettings,
-    frame_buffer: &crate::core::frame_buffer::FrameBuffer, // 新增：帧缓冲区引用
+    frame_buffer: &crate::core::frame_buffer::FrameBuffer,
 ) {
     let v0 = &triangle.vertices[0].pix;
     let v1 = &triangle.vertices[1].pix;
@@ -133,8 +132,10 @@ fn process_pixel(
         return;
     }
 
-    if settings.alpha <= 0.01 {
-        return; // 完全不处理这个像素
+    // 统一的Alpha检查 - 合并全局和材质Alpha
+    let final_alpha = get_effective_alpha(triangle, settings);
+    if final_alpha <= 0.01 {
+        return; // 完全透明，跳过处理
     }
 
     if settings.wireframe && !is_on_triangle_edge(pixel_center, *v0, *v1, *v2, 1.0) {
@@ -161,20 +162,65 @@ fn process_pixel(
         }
     }
 
-    // 修改：传递所有必需的参数给calculate_pixel_color
-    let final_color = calculate_pixel_color(
+    let material_color = calculate_pixel_color(
         triangle,
         bary,
         settings,
         use_phong_or_pbr,
         use_texture,
         ambient_contribution,
-        pixel_x,      // 新增：传递像素X坐标
-        pixel_y,      // 新增：传递像素Y坐标
-        frame_buffer, // 新增：传递帧缓冲区引用
     );
 
+    // Alpha混合处理 - 你的实现是正确的！
+    let final_color =
+        apply_alpha_blending(&material_color, final_alpha, pixel_x, pixel_y, frame_buffer);
+
     write_pixel_color(pixel_index, &final_color, color_buffer, settings.use_gamma);
+}
+
+/// 统一的Alpha获取函数 - 消除代码重复
+fn get_effective_alpha(triangle: &TriangleData, settings: &RenderSettings) -> f32 {
+    let material_alpha = if let Some(material_view) = &triangle.material_view {
+        match material_view {
+            crate::material_system::materials::MaterialView::BlinnPhong(material) => material.alpha,
+            crate::material_system::materials::MaterialView::PBR(material) => material.alpha,
+        }
+    } else {
+        1.0
+    };
+
+    // 合并全局Alpha和材质Alpha
+    (material_alpha * settings.alpha).clamp(0.0, 1.0)
+}
+
+/// 优化的Alpha混合 - 简化参数
+fn apply_alpha_blending(
+    material_color: &Color,
+    alpha: f32,
+    pixel_x: usize,
+    pixel_y: usize,
+    frame_buffer: &crate::core::frame_buffer::FrameBuffer,
+) -> Vector3<f32> {
+    if alpha >= 1.0 {
+        return Vector3::new(material_color.x, material_color.y, material_color.z);
+    }
+
+    if alpha <= 0.0 {
+        if let Some(bg_color) = frame_buffer.get_pixel_color(pixel_x, pixel_y) {
+            return bg_color;
+        } else {
+            return Vector3::new(0.0, 0.0, 0.0);
+        }
+    }
+
+    // 标准Alpha混合：result = source * alpha + background * (1 - alpha)
+    let background_color = frame_buffer.get_pixel_color_as_color(pixel_x, pixel_y);
+
+    Vector3::new(
+        material_color.x * alpha + background_color.x * (1.0 - alpha),
+        material_color.y * alpha + background_color.y * (1.0 - alpha),
+        material_color.z * alpha + background_color.z * (1.0 - alpha),
+    )
 }
 
 #[inline]

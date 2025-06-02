@@ -99,14 +99,31 @@ impl Texture {
 
                 let pixel = img.get_pixel(x, y);
 
-                // 修复：正确的法线贴图解码 [0,255] -> [0,1] -> [-1,1]
+                // 修复：正确解码法线贴图
                 let normal_x = (pixel[0] as f32 / 255.0) * 2.0 - 1.0;
                 let normal_y = (pixel[1] as f32 / 255.0) * 2.0 - 1.0;
-                let normal_z = (pixel[2] as f32 / 255.0).max(0.5); // 确保Z为正且有意义
+                let normal_z = (pixel[2] as f32 / 255.0) * 2.0 - 1.0; // 修复：也要解码
 
-                [normal_x, normal_y, normal_z]
+                // 确保法线向量有效，但允许所有方向
+                let length_sq = normal_x * normal_x + normal_y * normal_y + normal_z * normal_z;
+                if length_sq < 0.01 {
+                    // 处理压缩法线贴图（只有XY通道）
+                    let xy_length_sq = normal_x * normal_x + normal_y * normal_y;
+                    if xy_length_sq <= 1.0 {
+                        let z = (1.0 - xy_length_sq).sqrt().max(0.01);
+                        [normal_x, normal_y, z]
+                    } else {
+                        // 归一化XY，保持Z为正
+                        let xy_length = xy_length_sq.sqrt();
+                        [normal_x / xy_length, normal_y / xy_length, 0.01]
+                    }
+                } else {
+                    // 标准法线贴图，归一化但保持原始方向
+                    let length = length_sq.sqrt().max(0.001);
+                    [normal_x / length, normal_y / length, normal_z / length]
+                }
             }
-            _ => [0.0, 0.0, 1.0], // 默认法线
+            _ => [0.0, 0.0, 1.0], // 默认切线空间法线
         }
     }
 

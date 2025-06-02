@@ -43,7 +43,7 @@ impl Renderer {
             self.resize(settings.width, settings.height);
         }
 
-        // 1. 清空帧缓冲区（现在使用缓存，第一次计算后非常快）
+        // 1. 清空帧缓冲区
         self.frame_buffer.clear(settings, &scene.active_camera);
 
         // 2. 几何变换阶段
@@ -65,7 +65,7 @@ impl Renderer {
             scene.ambient_color,
         );
 
-        // 4. 光栅化阶段
+        // 4. 光栅化阶段 - 保持帧缓冲区参数用于Alpha混合
         ParallelRasterizer::rasterize_triangles(
             &triangles,
             self.frame_buffer.width,
@@ -73,10 +73,10 @@ impl Renderer {
             &self.frame_buffer.depth_buffer,
             &self.frame_buffer.color_buffer,
             settings,
-            &self.frame_buffer,
+            &self.frame_buffer, // 传递帧缓冲区用于Alpha混合
         );
 
-        // 简化的性能统计
+        // 性能统计
         let frame_time = frame_start.elapsed();
         self.last_frame_time = Some(frame_time);
 
