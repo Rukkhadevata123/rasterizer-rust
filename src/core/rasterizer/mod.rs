@@ -1,4 +1,5 @@
 // 重新导出主要组件
+pub mod msaa;
 pub mod pixel_processor;
 pub mod shading;
 pub mod triangle_data;

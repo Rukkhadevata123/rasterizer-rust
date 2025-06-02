@@ -315,6 +315,44 @@ impl WidgetMethods for RasterizerApp {
 
         ui.separator();
 
+        // 新增：MSAA抗锯齿设置
+        ui.group(|ui| {
+            ui.label(RichText::new("抗锯齿设置").size(14.0).strong());
+
+            ui.horizontal(|ui| {
+                ui.label("MSAA采样:");
+                let old_msaa = app.settings.msaa_samples;
+
+                // 使用ComboBox提供预设选项
+                egui::ComboBox::from_id_salt("msaa_samples_combo")
+                    .selected_text(match app.settings.msaa_samples {
+                        1 => "关闭 (1x)",
+                        2 => "2x MSAA",
+                        4 => "4x MSAA",
+                        8 => "8x MSAA",
+                        _ => "自定义",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut app.settings.msaa_samples, 1, "关闭 (1x)");
+                        ui.selectable_value(&mut app.settings.msaa_samples, 2, "2x MSAA");
+                        ui.selectable_value(&mut app.settings.msaa_samples, 4, "4x MSAA (推荐)");
+                        ui.selectable_value(&mut app.settings.msaa_samples, 8, "8x MSAA (高质量)");
+                    });
+
+                if app.settings.msaa_samples != old_msaa {
+                    settings_changed = true;
+                }
+
+                Self::add_tooltip(
+                    ui.label(""),
+                    ctx,
+                    "多重采样抗锯齿 (MSAA)\n• 1x: 关闭抗锯齿，最快渲染速度\n• 2x: 基础抗锯齿，轻微性能影响\n• 4x: 高质量抗锯齿，推荐设置\n• 8x: 极高质量，显著性能影响\n\n主要改善物体边缘的锯齿现象"
+                );
+            });
+        });
+
+        ui.separator();
+
         // 深度缓冲
         let old_zbuffer = app.settings.use_zbuffer;
         let resp1 = ui.checkbox(&mut app.settings.use_zbuffer, "深度缓冲");

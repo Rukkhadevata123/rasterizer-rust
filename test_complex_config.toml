@@ -21,6 +21,7 @@ wireframe = false
 cull_small_triangles = true
 min_triangle_area = 0.001
 save_depth = true
+msaa_samples = 4
 
 [camera]
 from = "2.5,1.5,4.0"

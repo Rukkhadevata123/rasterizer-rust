@@ -1,5 +1,6 @@
 use crate::io::render_settings::{AnimationType, RenderSettings, RotationAxis};
 use crate::material_system::light::Light;
+use log::warn;
 use std::path::Path;
 use toml::Value;
 
@@ -160,6 +161,14 @@ impl TomlConfigLoader {
         }
         if let Some(save_depth) = render.get("save_depth").and_then(|v| v.as_bool()) {
             settings.save_depth = save_depth;
+        }
+        if let Some(msaa_samples) = render.get("msaa_samples").and_then(|v| v.as_integer()) {
+            let samples = msaa_samples as u32;
+            if [1, 2, 4, 8].contains(&samples) {
+                settings.msaa_samples = samples;
+            } else {
+                warn!("无效的MSAA采样数 {}, 使用默认值1", samples);
+            }
         }
         Ok(())
     }
@@ -546,6 +555,7 @@ impl TomlConfigLoader {
             settings.min_triangle_area
         ));
         content.push_str(&format!("save_depth = {}\n", settings.save_depth));
+        content.push_str(&format!("msaa_samples = {}\n", settings.msaa_samples)); // 新增
         content.push('\n');
 
         // [camera] 部分
