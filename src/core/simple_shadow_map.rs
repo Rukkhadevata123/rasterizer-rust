@@ -124,7 +124,7 @@ impl SimpleShadowMap {
         );
     }
 
-    /// 简化的三角形阴影光栅化 - 修复版本
+    /// 简化的三角形阴影光栅化
     fn rasterize_shadow_triangle(
         &mut self,
         v0: Point3<f32>,

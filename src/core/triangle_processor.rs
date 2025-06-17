@@ -178,7 +178,6 @@ impl TriangleProcessor {
             };
         }
 
-        // 修复：正确处理面颜色纹理
         if let Some(tex) = material_opt.and_then(|m| m.texture.as_ref()) {
             // 使用 is_face_color() 方法检查纹理类型！
             if tex.is_face_color() {

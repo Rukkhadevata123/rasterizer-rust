@@ -407,13 +407,12 @@ pub fn load_obj_model<P: AsRef<Path>>(
             }
         }
 
-        // 修复：计算TBN向量（切线和副切线）
+        // 计算TBN向量（切线和副切线）
         if !vertices.is_empty() && !final_indices.is_empty() {
             let tbn_positions: Vec<Point3<f32>> = vertices.iter().map(|v| v.position).collect();
             let tbn_texcoords: Vec<Vector2<f32>> = vertices.iter().map(|v| v.texcoord).collect();
             let tbn_normals: Vec<Vector3<f32>> = vertices.iter().map(|v| v.normal).collect();
 
-            // 修复：使用新的模块路径
             match tbn::calculate_tangents_and_bitangents(
                 &tbn_positions,
                 &tbn_texcoords,
@@ -436,7 +435,6 @@ pub fn load_obj_model<P: AsRef<Path>>(
                 }
             }
 
-            // 修复：验证并修复TBN向量
             tbn::validate_and_fix(&mut vertices);
         }
 

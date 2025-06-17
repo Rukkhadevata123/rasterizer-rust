@@ -88,7 +88,7 @@ impl Texture {
         }
     }
 
-    /// 修复：简化的法线贴图采样
+    /// 简化的法线贴图采样
     pub fn sample_normal(&self, u: f32, v: f32) -> [f32; 3] {
         match &self.data {
             TextureData::Image(img) => {
@@ -99,10 +99,10 @@ impl Texture {
 
                 let pixel = img.get_pixel(x, y);
 
-                // 修复：正确解码法线贴图
+                // 正确解码法线贴图
                 let normal_x = (pixel[0] as f32 / 255.0) * 2.0 - 1.0;
                 let normal_y = (pixel[1] as f32 / 255.0) * 2.0 - 1.0;
-                let normal_z = (pixel[2] as f32 / 255.0) * 2.0 - 1.0; // 修复：也要解码
+                let normal_z = (pixel[2] as f32 / 255.0) * 2.0 - 1.0; // 也要解码
 
                 // 确保法线向量有效，但允许所有方向
                 let length_sq = normal_x * normal_x + normal_y * normal_y + normal_z * normal_z;

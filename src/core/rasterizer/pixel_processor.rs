@@ -1,4 +1,4 @@
-use super::msaa::{MSAAPattern, MSAASample, generate_sample_points, resolve_msaa_samples}; // 新增导入
+use super::msaa::{MSAAPattern, MSAASample, generate_sample_points, resolve_msaa_samples};
 use super::shading::{calculate_ambient_contribution, calculate_pixel_color};
 use super::triangle_data::{BoundingBox, TriangleData};
 use crate::geometry::culling::is_on_triangle_edge;
@@ -11,7 +11,7 @@ use atomic_float::AtomicF32;
 use nalgebra::{Point2, Vector3};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// 光栅化单个三角形 - 添加MSAA支持
+/// 光栅化单个三角形
 pub fn rasterize_triangle(
     triangle: &TriangleData,
     width: usize,
@@ -42,7 +42,7 @@ pub fn rasterize_triangle(
 
     let ambient_contribution = calculate_ambient_contribution(triangle);
 
-    // 新增：MSAA模式检测
+    // MSAA模式检测
     let msaa_pattern = MSAAPattern::get_pattern(settings.msaa_samples);
     let use_msaa = settings.msaa_samples > 1;
 
@@ -86,7 +86,7 @@ pub fn rasterize_triangle(
     });
 }
 
-/// 改进：MSAA像素处理 - 修复深度测试逻辑
+/// MSAA像素处理
 #[allow(clippy::too_many_arguments)]
 fn process_pixel_msaa(
     triangle: &TriangleData,
@@ -138,7 +138,7 @@ fn process_pixel_msaa(
     // 解析MSAA结果
     let (final_color, final_depth) = resolve_msaa_samples(&samples, msaa_pattern);
 
-    // 修复：深度测试应该使用解析后的深度
+    // 深度测试应该使用解析后的深度
     if settings.use_zbuffer && final_depth < f32::INFINITY {
         let current_depth_atomic = &depth_buffer[pixel_index];
         let old_depth = current_depth_atomic.fetch_min(final_depth, Ordering::Relaxed);
@@ -151,7 +151,7 @@ fn process_pixel_msaa(
     write_pixel_color(pixel_index, &final_color, color_buffer, settings.use_gamma);
 }
 
-/// 新增：处理单个采样点
+/// 处理单个采样点
 #[allow(clippy::too_many_arguments)]
 fn process_sample_point(
     triangle: &TriangleData,

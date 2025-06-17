@@ -217,9 +217,9 @@ impl MaterialView<'_> {
                 let adjusted_f0_dielectric = f0_dielectric * (1.0 - transparency_factor * 0.3);
                 let f0 = adjusted_f0_dielectric.lerp(&base_color, metallic);
 
-                // 修复：各向异性支持 - 使用原始表面法线构建TBN
+                // 各向异性支持 - 使用原始表面法线构建TBN
                 let d = if anisotropy.abs() > 0.01 {
-                    // ✅ 修复：使用原始 surface_normal 而不是 effective_normal
+                    // 使用原始 surface_normal 而不是 effective_normal
                     let tbn = tbn::build_matrix(surface_normal, surface_tangent, surface_bitangent);
                     let t_surf = tbn.column(0).into_owned();
                     let b_surf = tbn.column(1).into_owned();
@@ -287,7 +287,7 @@ impl MaterialView<'_> {
             let mut tangent_normal = Vector3::new(
                 normal_sample[0],
                 normal_sample[1],
-                normal_sample[2], // 修复：不强制为正
+                normal_sample[2], // 不强制为正
             );
 
             // 应用法线强度

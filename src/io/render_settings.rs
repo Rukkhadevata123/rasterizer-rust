@@ -102,11 +102,11 @@ pub struct RenderSettings {
     // ===== Phong着色模型参数 =====
     /// 漫反射颜色，格式为"r,g,b"
     pub diffuse_color: String,
-    /// 新增：漫反射强度(0.0-2.0)
+    /// 漫反射强度(0.0-2.0)
     pub diffuse_intensity: f32,
-    /// 修复：镜面反射颜色，格式为"r,g,b" (之前是单一数值)
+    /// 镜面反射颜色，格式为"r,g,b" (之前是单一数值)
     pub specular_color: String,
-    /// 新增：镜面反射强度(0.0-2.0)
+    /// 镜面反射强度(0.0-2.0)
     pub specular_intensity: f32,
     /// 材质的光泽度(硬度)参数
     pub shininess: f32,
@@ -120,11 +120,11 @@ pub struct RenderSettings {
     pub roughness: f32,
     /// 环境光遮蔽系数(0.0-1.0)
     pub ambient_occlusion: f32,
-    /// 新增：次表面散射强度(0.0-1.0)
+    /// 次表面散射强度(0.0-1.0)
     pub subsurface: f32,
-    /// 新增：各向异性(-1.0到1.0)
+    /// 各向异性(-1.0到1.0)
     pub anisotropy: f32,
-    /// 新增：法线强度(0.0-2.0)
+    /// 法线强度(0.0-2.0)
     pub normal_intensity: f32,
     /// 材质透明度(0.0-1.0)，1.0为完全不透明
     pub alpha: f32,
@@ -288,10 +288,10 @@ impl Default for RenderSettings {
             metallic: 0.0,
             roughness: 0.5,
             ambient_occlusion: 1.0,
-            subsurface: 0.0,       // 新增：默认无次表面散射
-            anisotropy: 0.0,       // 新增：默认各向同性
-            normal_intensity: 1.0, // 新增：默认法线强度
-            alpha: 1.0,            // 新增：默认完全不透明
+            subsurface: 0.0,       // 默认无次表面散射
+            anisotropy: 0.0,       // 默认各向同性
+            normal_intensity: 1.0, // 默认法线强度
+            alpha: 1.0,            // 默认完全不透明
             emissive: "0.0,0.0,0.0".to_string(),
 
             // ===== 阴影设置 =====
@@ -300,7 +300,7 @@ impl Default for RenderSettings {
             soft_shadows: true,
             shadow_strength: 0.7,
 
-            // 新增：简单阴影映射配置
+            // 简单阴影映射配置
             enable_shadow_mapping: false, // 启用地面阴影映射
             shadow_map_size: 256,         // 阴影贴图尺寸（较小，只用于地面）
             shadow_bias: 0.001,           // 阴影偏移

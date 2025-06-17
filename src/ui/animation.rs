@@ -255,7 +255,7 @@ impl AnimationMethods for RasterizerApp {
                 self.settings.use_phong
             );
 
-            // 修复：物体变换后清除地面缓存，确保阴影同步更新
+            // 物体变换后清除地面缓存，确保阴影同步更新
             if matches!(
                 self.settings.animation_type,
                 crate::io::render_settings::AnimationType::ObjectLocalRotation

@@ -61,7 +61,6 @@ impl Default for MSAASample {
     }
 }
 
-/// 修复：正确的MSAA采样结果合并
 pub fn resolve_msaa_samples(samples: &[MSAASample], _pattern: &MSAAPattern) -> (Vector3<f32>, f32) {
     let hit_samples: Vec<_> = samples.iter().filter(|s| s.hit).collect();
 
@@ -69,7 +68,6 @@ pub fn resolve_msaa_samples(samples: &[MSAASample], _pattern: &MSAAPattern) -> (
         return (Vector3::zeros(), f32::INFINITY);
     }
 
-    // 修复：正确的颜色平均算法
     let total_color: Vector3<f32> = hit_samples.iter().map(|s| s.color).sum();
     let avg_color = total_color / hit_samples.len() as f32;
 

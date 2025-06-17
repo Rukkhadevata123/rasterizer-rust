@@ -6,17 +6,17 @@ use log::info;
 /// 极简CLI - 专注配置文件和GUI控制
 #[derive(Parser, Debug)]
 #[command(name = "rasterizer")]
-#[command(about = "🎨 TOML驱动的光栅化渲染器")]
+#[command(about = "TOML驱动的光栅化渲染器")]
 pub struct SimpleCli {
-    /// 📁 配置文件路径（TOML格式）
+    /// 配置文件路径（TOML格式）
     #[arg(short, long, value_name = "FILE")]
     pub config: Option<String>,
 
-    /// 🚀 无头模式（不启动GUI）
+    /// 无头模式（不启动GUI）
     #[arg(long)]
     pub headless: bool,
 
-    /// 📋 使用示例配置（临时创建并加载）
+    /// 使用示例配置（临时创建并加载）
     #[arg(long)]
     pub use_example_config: bool,
 }

@@ -49,7 +49,7 @@ impl RenderUIMethods for RasterizerApp {
                     self.settings.obj = Some(path_str.to_string());
                     self.status_message = format!("已选择模型: {}", path_str);
 
-                    // 新增：OBJ文件变化需要重新加载场景和重新渲染
+                    // OBJ文件变化需要重新加载场景和重新渲染
                     self.interface_interaction.anything_changed = true;
                     self.scene = None; // 清除现有场景，强制重新加载
                     self.rendered_image = None; // 清除渲染结果
@@ -91,7 +91,7 @@ impl RenderUIMethods for RasterizerApp {
         }
     }
 
-    /// 修复：选择背景图片 - 适配新的背景管理架构
+    /// 选择背景图片 - 适配新的背景管理架构
     fn select_background_image(&mut self) {
         let result = FileDialogBuilder::default()
             .set_title("选择背景图片")

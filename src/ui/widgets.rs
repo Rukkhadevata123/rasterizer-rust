@@ -4,8 +4,8 @@ use std::sync::atomic::Ordering;
 use super::animation::AnimationMethods;
 use super::app::RasterizerApp;
 use super::core::CoreMethods;
-use super::render_ui::RenderUIMethods; // 新增：导入RenderUIMethods
-use crate::io::config_loader::TomlConfigLoader; // 新增：导入配置加载器
+use super::render_ui::RenderUIMethods; // 导入RenderUIMethods
+use crate::io::config_loader::TomlConfigLoader; // 导入配置加载器
 use crate::io::render_settings::{AnimationType, RotationAxis, parse_vec3};
 
 /// UI组件和工具提示相关方法的特质
@@ -186,7 +186,7 @@ impl WidgetMethods for RasterizerApp {
                     app.settings.obj = Some(obj_text);
                 }
 
-                // 新增：OBJ路径变化需要重新加载场景
+                // OBJ路径变化需要重新加载场景
                 app.interface_interaction.anything_changed = true;
                 app.scene = None; // 清除现有场景，强制重新加载
                 app.rendered_image = None; // 清除渲染结果
@@ -197,7 +197,7 @@ impl WidgetMethods for RasterizerApp {
             }
         });
 
-        // 新增：配置文件管理 - 放在OBJ文件下方
+        // 配置文件管理 - 放在OBJ文件下方
         ui.separator();
         ui.horizontal(|ui| {
             ui.label("配置文件：");
@@ -315,7 +315,7 @@ impl WidgetMethods for RasterizerApp {
 
         ui.separator();
 
-        // 新增：MSAA抗锯齿设置
+        // MSAA抗锯齿设置
         ui.group(|ui| {
             ui.label(RichText::new("抗锯齿设置").size(14.0).strong());
 
@@ -490,7 +490,7 @@ impl WidgetMethods for RasterizerApp {
 
             ui.separator();
 
-            // 新增：阴影映射设置
+            // 阴影映射设置
             let old_shadow_mapping = app.settings.enable_shadow_mapping;
             let resp = ui.checkbox(&mut app.settings.enable_shadow_mapping, "地面阴影映射");
             if app.settings.enable_shadow_mapping != old_shadow_mapping {
@@ -631,7 +631,7 @@ impl WidgetMethods for RasterizerApp {
                     app.settings.texture = Some(texture_path_str);
                 }
 
-                // 修复：纹理变化应该立即触发重绘
+                // 纹理变化应该立即触发重绘
                 app.interface_interaction.anything_changed = true;
             }
 
@@ -687,7 +687,7 @@ impl WidgetMethods for RasterizerApp {
                 position_changed = true;
             }
 
-            // 修复：直接更新settings字符串并标记变化
+            // 直接更新settings字符串并标记变化
             if position_changed {
                 app.settings.object_position = format!(
                     "{},{},{}",
@@ -756,7 +756,7 @@ impl WidgetMethods for RasterizerApp {
                 }
             });
 
-            // 修复：直接更新settings字符串并标记变化
+            // 直接更新settings字符串并标记变化
             if rotation_changed {
                 // 转换回度数存储到settings
                 let rotation_degrees = nalgebra::Vector3::new(
@@ -832,7 +832,7 @@ impl WidgetMethods for RasterizerApp {
                 }
             });
 
-            // 修复：直接更新settings字符串并标记变化
+            // 直接更新settings字符串并标记变化
             if scale_changed {
                 app.settings.object_scale_xyz = format!(
                     "{},{},{}",
@@ -977,7 +977,7 @@ impl WidgetMethods for RasterizerApp {
                     if let Ok(from) =
                         crate::io::render_settings::parse_point3(&app.settings.camera_from)
                     {
-                        // 修复：直接设置参数而不是调用不存在的方法
+                        // 直接设置参数而不是调用不存在的方法
                         scene.active_camera.params.position = from;
                         scene.active_camera.update_matrices(); // 手动更新矩阵
                         app.interface_interaction.anything_changed = true;
@@ -1032,7 +1032,7 @@ impl WidgetMethods for RasterizerApp {
                 10.0..=120.0,
             ));
             if (app.settings.camera_fov - old_fov).abs() > 0.1 {
-                // 修复：使用 if let 替代 match
+                // 使用 if let 替代 match
                 if let Some(scene) = &mut app.scene {
                     if let crate::geometry::camera::ProjectionType::Perspective {
                         fov_y_degrees,
@@ -1175,7 +1175,7 @@ impl WidgetMethods for RasterizerApp {
         });
         ui.separator();
 
-        // 新增：统一的材质通用属性控制
+        // 统一的材质通用属性控制
         ui.group(|ui| {
     ui.label(RichText::new("🎨 材质通用属性").size(16.0).strong());
     ui.separator();

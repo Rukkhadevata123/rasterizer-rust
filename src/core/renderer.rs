@@ -13,7 +13,7 @@ pub struct Renderer {
     pub frame_buffer: FrameBuffer,
     // 简化性能追踪，只保留基本计时
     last_frame_time: Option<std::time::Duration>,
-    // 新增：阴影贴图
+    // 阴影贴图
     shadow_map: Option<SimpleShadowMap>,
 }
 
@@ -110,7 +110,6 @@ impl Renderer {
         }
     }
 
-    /// 新增：生成阴影贴图
     fn generate_shadow_map(&mut self, scene: &Scene, settings: &RenderSettings) {
         // 每次都重新生成阴影贴图，确保物体变换时阴影正确
 
@@ -150,7 +149,6 @@ impl Renderer {
         }
     }
 
-    /// 🔧 新增：计算场景的实际边界盒
     fn compute_scene_bounds(
         scene: &Scene,
         settings: &RenderSettings,

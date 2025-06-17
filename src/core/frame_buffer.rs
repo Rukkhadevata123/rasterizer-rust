@@ -46,11 +46,11 @@ pub struct FrameBuffer {
     pub depth_buffer: Vec<AtomicF32>,
     pub color_buffer: Vec<AtomicU8>,
 
-    // 简化：只保留缓存的背景纹理
+    // 只保留缓存的背景纹理
     cached_background: Option<Texture>,
     cached_path: Option<String>,
 
-    // 新增：背景和地面缓存
+    // 背景和地面缓存
     background_cache: Option<BackgroundCache>,
     pub ground_cache: Option<GroundCache>,
 }
@@ -77,7 +77,7 @@ impl FrameBuffer {
         }
     }
 
-    /// 修改：支持阴影的清除方法 - 增加物体变换哈希
+    /// 支持阴影的清除方法 - 增加物体变换哈希
     pub fn clear_with_shadow_map(
         &mut self,
         settings: &RenderSettings,
@@ -95,7 +95,7 @@ impl FrameBuffer {
         // 1. 背景缓存逻辑
         let background_pixels_ref = self.get_or_compute_background_cache(settings, width, height);
 
-        // 2. 修改：地面缓存逻辑 - 增加物体变换哈希
+        // 2. 地面缓存逻辑 - 增加物体变换哈希
         let (ground_factors_ref, ground_colors_ref, shadow_factors_ref) =
             if settings.enable_ground_plane {
                 self.get_or_compute_ground_cache(settings, camera, shadow_map, width, height)
@@ -673,11 +673,10 @@ pub fn compute_ground_shadow_factor(
 
     // 重复使用地面交点计算逻辑
     if let Some(ground_intersection) = compute_ground_intersection(settings, camera, t_x, t_y) {
-        // 🔧 关键修复：直接使用地面交点进行阴影测试，不使用物体变换矩阵
         // 阴影贴图本身已经是在正确的光源空间中生成的，包含了物体的变换信息
         shadow_map.compute_shadow_factor(
             &ground_intersection,
-            &Matrix4::identity(), // 🔧 使用单位矩阵，因为地面交点已经在世界空间中
+            &Matrix4::identity(), // 使用单位矩阵，因为地面交点已经在世界空间中
             settings.shadow_bias,
         )
     } else {

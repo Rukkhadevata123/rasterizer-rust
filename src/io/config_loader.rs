@@ -32,7 +32,6 @@ impl TomlConfigLoader {
 
     /// 直接生成示例配置文件 - 内联实现，不依赖额外方法
     pub fn create_example_config<P: AsRef<Path>>(path: P) -> Result<(), String> {
-        // 修复Clippy警告：在初始化时设置字段
         let settings = RenderSettings {
             obj: Some("obj/simple/bunny.obj".to_string()),
             texture: None,
@@ -92,7 +91,7 @@ impl TomlConfigLoader {
             Self::parse_animation_section(&mut settings, animation)?;
         }
 
-        // 新增：[shadow] 部分
+        // [shadow] 部分
         if let Some(shadow) = toml.get("shadow").and_then(|v| v.as_table()) {
             Self::parse_shadow_section(&mut settings, shadow)?;
         }
@@ -347,22 +346,19 @@ impl TomlConfigLoader {
         if let Some(diffuse_color) = material.get("diffuse_color").and_then(|v| v.as_str()) {
             settings.diffuse_color = diffuse_color.to_string();
         }
-        // 新增：透明度解析
         if let Some(alpha) = material.get("alpha").and_then(|v| v.as_float()) {
             settings.alpha = alpha as f32;
         }
-        // 新增：漫反射强度
+
         if let Some(diffuse_intensity) =
             material.get("diffuse_intensity").and_then(|v| v.as_float())
         {
             settings.diffuse_intensity = diffuse_intensity as f32;
         }
 
-        // 修复：镜面反射颜色
         if let Some(specular_color) = material.get("specular_color").and_then(|v| v.as_str()) {
             settings.specular_color = specular_color.to_string();
         }
-        // 新增：镜面反射强度
         if let Some(specular_intensity) = material
             .get("specular_intensity")
             .and_then(|v| v.as_float())
@@ -387,7 +383,7 @@ impl TomlConfigLoader {
         {
             settings.ambient_occlusion = ambient_occlusion as f32;
         }
-        // 新增：扩展PBR参数解析
+        // 扩展PBR参数解析
         if let Some(subsurface) = material.get("subsurface").and_then(|v| v.as_float()) {
             settings.subsurface = subsurface as f32;
         }
@@ -496,7 +492,7 @@ impl TomlConfigLoader {
         Ok(())
     }
 
-    /// 增强：阴影配置解析 - 合并所有阴影相关参数
+    /// 阴影配置解析 - 合并所有阴影相关参数
     fn parse_shadow_section(
         settings: &mut RenderSettings,
         shadow: &toml::Table,
@@ -597,7 +593,7 @@ impl TomlConfigLoader {
             settings.min_triangle_area
         ));
         content.push_str(&format!("save_depth = {}\n", settings.save_depth));
-        content.push_str(&format!("msaa_samples = {}\n", settings.msaa_samples)); // 新增
+        content.push_str(&format!("msaa_samples = {}\n", settings.msaa_samples));
         content.push('\n');
 
         // [camera] 部分
@@ -760,7 +756,7 @@ impl TomlConfigLoader {
 
         content.push('\n');
 
-        // 🔧 增强：[shadow] 部分 - 合并所有阴影相关配置
+        // [shadow] 部分 - 合并所有阴影相关配置
         content.push_str("# 🌒 阴影与环境光遮蔽配置\n");
         content.push_str("[shadow]\n");
         content.push_str("# === 环境光遮蔽 ===\n");
