@@ -132,7 +132,7 @@ impl Renderer {
                 crate::material_system::light::Light::Directional { enabled: true, .. }
             )
         }) {
-            // 🔧 改进：计算实际的场景边界盒
+            // 计算实际的场景边界盒
             let scene_bounds = Self::compute_scene_bounds(scene, settings);
 
             // 每次调用都重新生成阴影贴图

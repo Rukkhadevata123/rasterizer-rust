@@ -1,12 +1,5 @@
 use crate::io::render_settings::RenderSettings;
-use crate::material_system::materials::{
-    Material,
-    Mesh,
-    ModelData,
-    TextureOptions,
-    Vertex,
-    tbn, // 更新导入
-};
+use crate::material_system::materials::{Material, Mesh, ModelData, TextureOptions, Vertex};
 use crate::material_system::texture::{Texture, load_texture};
 use log::{debug, info, warn};
 use nalgebra::{Point3, Vector2, Vector3};
@@ -158,28 +151,10 @@ pub fn load_obj_model<P: AsRef<Path>>(
                             })
                         };
 
-                        // 加载法线贴图 (如果MTL文件中定义了)
-                        let normal_map = mat.normal_texture.map(|tex_name| {
-                            let texture_path = base_path.join(&tex_name);
-                            let default_color = Vector3::new(0.5, 0.5, 1.0); // 法线贴图默认颜色 (0.5, 0.5, 1.0) 对应 (0, 0, 1) 的法线
-                            let normal_texture = load_texture(&texture_path, default_color);
-
-                            debug!(
-                                "法线贴图 '{}': 类型={}, 尺寸={}x{}",
-                                tex_name,
-                                normal_texture.get_type_description(),
-                                normal_texture.width,
-                                normal_texture.height
-                            );
-
-                            normal_texture
-                        });
-
                         // 创建包含所有字段的Material结构
                         Material {
                             // --- 通用属性 ---
                             texture,
-                            normal_map, // 设置法线贴图
                             emissive: Vector3::zeros(),
 
                             // --- 着色模型共享属性 ---
@@ -198,9 +173,6 @@ pub fn load_obj_model<P: AsRef<Path>>(
                             metallic: 0.0,
                             roughness: 0.5,
                             ambient_occlusion: 1.0,
-                            subsurface: 0.0,       // 默认无次表面散射
-                            anisotropy: 0.0,       // 默认各向同性
-                            normal_intensity: 1.0, // 默认法线强度
                         }
                     })
                     .collect()
@@ -397,45 +369,12 @@ pub fn load_obj_model<P: AsRef<Path>>(
                     position,
                     normal,
                     texcoord,
-                    tangent: Vector3::zeros(),   // 稍后计算
-                    bitangent: Vector3::zeros(), // 稍后计算
                 };
                 let new_final_idx = vertices.len() as u32;
                 vertices.push(new_vertex);
                 index_map.insert(key, new_final_idx);
                 final_indices.push(new_final_idx);
             }
-        }
-
-        // 计算TBN向量（切线和副切线）
-        if !vertices.is_empty() && !final_indices.is_empty() {
-            let tbn_positions: Vec<Point3<f32>> = vertices.iter().map(|v| v.position).collect();
-            let tbn_texcoords: Vec<Vector2<f32>> = vertices.iter().map(|v| v.texcoord).collect();
-            let tbn_normals: Vec<Vector3<f32>> = vertices.iter().map(|v| v.normal).collect();
-
-            match tbn::calculate_tangents_and_bitangents(
-                &tbn_positions,
-                &tbn_texcoords,
-                Some(&tbn_normals),
-                &final_indices,
-            ) {
-                Ok((tangents, bitangents)) => {
-                    for i in 0..vertices.len() {
-                        vertices[i].tangent = tangents[i];
-                        vertices[i].bitangent = bitangents[i];
-                    }
-                    debug!("为网格 '{}' 计算TBN向量成功", mesh_name);
-                }
-                Err(e) => {
-                    warn!(
-                        "为网格 '{}' 计算TBN向量失败: {}。法线贴图可能无法正常工作。",
-                        mesh_name, e
-                    );
-                    // 保留 T 和 B 为零向量，后续会被validate_and_fix修复
-                }
-            }
-
-            tbn::validate_and_fix(&mut vertices);
         }
 
         // 确定最终的材质 ID

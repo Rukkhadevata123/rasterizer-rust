@@ -383,21 +383,9 @@ impl TomlConfigLoader {
         {
             settings.ambient_occlusion = ambient_occlusion as f32;
         }
-        // 扩展PBR参数解析
-        if let Some(subsurface) = material.get("subsurface").and_then(|v| v.as_float()) {
-            settings.subsurface = subsurface as f32;
-        }
-        if let Some(anisotropy) = material.get("anisotropy").and_then(|v| v.as_float()) {
-            settings.anisotropy = anisotropy as f32;
-        }
-        if let Some(normal_intensity) = material.get("normal_intensity").and_then(|v| v.as_float())
-        {
-            settings.normal_intensity = normal_intensity as f32;
-        }
         if let Some(emissive) = material.get("emissive").and_then(|v| v.as_str()) {
             settings.emissive = emissive.to_string();
         }
-        // 🔧 移除阴影相关配置，转移到 [shadow] 段
         Ok(())
     }
 
@@ -694,12 +682,7 @@ impl TomlConfigLoader {
             "ambient_occlusion = {}\n",
             settings.ambient_occlusion
         ));
-        content.push_str(&format!("subsurface = {}\n", settings.subsurface));
-        content.push_str(&format!("anisotropy = {}\n", settings.anisotropy));
-        content.push_str(&format!(
-            "normal_intensity = {}\n",
-            settings.normal_intensity
-        ));
+
         content.push_str(&format!("emissive = \"{}\"\n", settings.emissive));
         content.push('\n');
 

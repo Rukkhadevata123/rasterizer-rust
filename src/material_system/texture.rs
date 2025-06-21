@@ -88,45 +88,6 @@ impl Texture {
         }
     }
 
-    /// 简化的法线贴图采样
-    pub fn sample_normal(&self, u: f32, v: f32) -> [f32; 3] {
-        match &self.data {
-            TextureData::Image(img) => {
-                let u = u.fract().abs();
-                let v = v.fract().abs();
-                let x = (u * self.width as f32) as u32 % self.width;
-                let y = ((1.0 - v) * self.height as f32) as u32 % self.height;
-
-                let pixel = img.get_pixel(x, y);
-
-                // 正确解码法线贴图
-                let normal_x = (pixel[0] as f32 / 255.0) * 2.0 - 1.0;
-                let normal_y = (pixel[1] as f32 / 255.0) * 2.0 - 1.0;
-                let normal_z = (pixel[2] as f32 / 255.0) * 2.0 - 1.0; // 也要解码
-
-                // 确保法线向量有效，但允许所有方向
-                let length_sq = normal_x * normal_x + normal_y * normal_y + normal_z * normal_z;
-                if length_sq < 0.01 {
-                    // 处理压缩法线贴图（只有XY通道）
-                    let xy_length_sq = normal_x * normal_x + normal_y * normal_y;
-                    if xy_length_sq <= 1.0 {
-                        let z = (1.0 - xy_length_sq).sqrt().max(0.01);
-                        [normal_x, normal_y, z]
-                    } else {
-                        // 归一化XY，保持Z为正
-                        let xy_length = xy_length_sq.sqrt();
-                        [normal_x / xy_length, normal_y / xy_length, 0.01]
-                    }
-                } else {
-                    // 标准法线贴图，归一化但保持原始方向
-                    let length = length_sq.sqrt().max(0.001);
-                    [normal_x / length, normal_y / length, normal_z / length]
-                }
-            }
-            _ => [0.0, 0.0, 1.0], // 默认切线空间法线
-        }
-    }
-
     pub fn is_face_color(&self) -> bool {
         matches!(&self.data, TextureData::FaceColor(_))
     }

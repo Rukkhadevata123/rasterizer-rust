@@ -952,7 +952,7 @@ impl WidgetMethods for RasterizerApp {
                     app.interface_interaction.anything_changed = true;
                 }
 
-                // 🔧 自动适配按钮
+                // 自动适配按钮
                 if ui.button("自动适配").clicked() {
                     if let Some(optimal_height) = app.calculate_optimal_ground_height() {
                         app.settings.ground_plane_height = optimal_height;
@@ -1515,36 +1515,6 @@ impl WidgetMethods for RasterizerApp {
                 app.interface_interaction.anything_changed = true;
             }
             Self::add_tooltip(resp, ctx, "环境光遮蔽程度，模拟凹陷处的阴影");
-        });
-
-        ui.horizontal(|ui| {
-            ui.label("次表面散射：");
-            let resp = ui.add(egui::Slider::new(&mut app.settings.subsurface, 0.0..=1.0));
-            if resp.changed() {
-                app.interface_interaction.anything_changed = true;
-            }
-            Self::add_tooltip(resp, ctx, "光线在材质内部的散射，适用于皮肤、蜡等");
-        });
-
-        ui.horizontal(|ui| {
-            ui.label("各向异性：");
-            let resp = ui.add(egui::Slider::new(&mut app.settings.anisotropy, -1.0..=1.0));
-            if resp.changed() {
-                app.interface_interaction.anything_changed = true;
-            }
-            Self::add_tooltip(resp, ctx, "高光的方向性，适用于金属拉丝等材质");
-        });
-
-        ui.horizontal(|ui| {
-            ui.label("法线强度：");
-            let resp = ui.add(egui::Slider::new(
-                &mut app.settings.normal_intensity,
-                0.0..=2.0,
-            ));
-            if resp.changed() {
-                app.interface_interaction.anything_changed = true;
-            }
-            Self::add_tooltip(resp, ctx, "控制表面细节的强度");
         });
     }
 

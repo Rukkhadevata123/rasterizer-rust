@@ -120,12 +120,6 @@ pub struct RenderSettings {
     pub roughness: f32,
     /// 环境光遮蔽系数(0.0-1.0)
     pub ambient_occlusion: f32,
-    /// 次表面散射强度(0.0-1.0)
-    pub subsurface: f32,
-    /// 各向异性(-1.0到1.0)
-    pub anisotropy: f32,
-    /// 法线强度(0.0-2.0)
-    pub normal_intensity: f32,
     /// 材质透明度(0.0-1.0)，1.0为完全不透明
     pub alpha: f32,
     /// 材质的自发光颜色，格式为"r,g,b"
@@ -288,10 +282,7 @@ impl Default for RenderSettings {
             metallic: 0.0,
             roughness: 0.5,
             ambient_occlusion: 1.0,
-            subsurface: 0.0,       // 默认无次表面散射
-            anisotropy: 0.0,       // 默认各向同性
-            normal_intensity: 1.0, // 默认法线强度
-            alpha: 1.0,            // 默认完全不透明
+            alpha: 1.0, // 默认完全不透明
             emissive: "0.0,0.0,0.0".to_string(),
 
             // ===== 阴影设置 =====

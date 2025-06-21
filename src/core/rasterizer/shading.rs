@@ -1,11 +1,10 @@
 use super::triangle_data::{TextureSource, TriangleData};
 use crate::geometry::interpolation::{
-    interpolate_bitangent, interpolate_normal, interpolate_position, interpolate_tangent,
-    interpolate_texcoords,
+    interpolate_normal, interpolate_position, interpolate_texcoords,
 };
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::color::Color;
-use nalgebra::{Point3, Vector2, Vector3};
+use nalgebra::{Point3, Vector3};
 
 /// 统一的像素颜色计算
 #[allow(clippy::too_many_arguments)]
@@ -69,62 +68,6 @@ fn calculate_advanced_shading(
     let view_dir = (-interp_position.coords).normalize();
     let ao_factor = calculate_enhanced_ao(triangle, bary, &interp_normal, settings);
 
-    // 插值纹理坐标
-    let interp_texcoords = if let (Some(tc1), Some(tc2), Some(tc3)) = (
-        triangle.vertices[0].texcoord,
-        triangle.vertices[1].texcoord,
-        triangle.vertices[2].texcoord,
-    ) {
-        interpolate_texcoords(
-            bary,
-            tc1,
-            tc2,
-            tc3,
-            triangle.vertices[0].z_view,
-            triangle.vertices[1].z_view,
-            triangle.vertices[2].z_view,
-            triangle.is_perspective,
-        )
-    } else {
-        Vector2::new(0.0, 0.0)
-    };
-
-    // 插值切线和副切线（如果可用）
-    let (interp_tangent, interp_bitangent) =
-        if let (Some(t0), Some(t1), Some(t2), Some(b0), Some(b1), Some(b2)) = (
-            triangle.vertices[0].tangent_view,
-            triangle.vertices[1].tangent_view,
-            triangle.vertices[2].tangent_view,
-            triangle.vertices[0].bitangent_view,
-            triangle.vertices[1].bitangent_view,
-            triangle.vertices[2].bitangent_view,
-        ) {
-            let tangent = interpolate_tangent(
-                bary,
-                t0,
-                t1,
-                t2,
-                triangle.is_perspective,
-                triangle.vertices[0].z_view,
-                triangle.vertices[1].z_view,
-                triangle.vertices[2].z_view,
-            );
-            let bitangent = interpolate_bitangent(
-                bary,
-                b0,
-                b1,
-                b2,
-                triangle.is_perspective,
-                triangle.vertices[0].z_view,
-                triangle.vertices[1].z_view,
-                triangle.vertices[2].z_view,
-            );
-            (tangent, bitangent)
-        } else {
-            // 如果没有切线和副切线，使用默认值
-            (Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0))
-        };
-
     let mut total_direct_light = Vector3::zeros();
 
     for light in triangle.lights {
@@ -139,14 +82,7 @@ fn calculate_advanced_shading(
             settings,
         );
 
-        let response = material_view.compute_response(
-            &light_dir,
-            &view_dir,
-            &interp_normal,
-            &interp_tangent,
-            &interp_bitangent,
-            &interp_texcoords,
-        );
+        let response = material_view.compute_response(&light_dir, &view_dir, &interp_normal);
 
         total_direct_light += Vector3::new(
             response.x * light_intensity.x * shadow_factor,

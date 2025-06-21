@@ -222,8 +222,6 @@ impl TriangleProcessor {
             },
             normal_view: Some(geometry_result.view_normals[global_index]),
             position_view: Some(view_pos),
-            tangent_view: Some(geometry_result.view_tangents[global_index]),
-            bitangent_view: Some(geometry_result.view_bitangents[global_index]),
         }
     }
 }

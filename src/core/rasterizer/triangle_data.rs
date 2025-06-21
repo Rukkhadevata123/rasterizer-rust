@@ -12,9 +12,6 @@ pub struct VertexRenderData {
     pub texcoord: Option<Vector2<f32>>,
     pub normal_view: Option<Vector3<f32>>,
     pub position_view: Option<Point3<f32>>,
-    /// TBN矩阵相关向量，用于法线贴图
-    pub tangent_view: Option<Vector3<f32>>,
-    pub bitangent_view: Option<Vector3<f32>>,
 }
 
 /// 纹理来源枚举
