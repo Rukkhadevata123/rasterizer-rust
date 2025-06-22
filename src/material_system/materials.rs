@@ -162,7 +162,7 @@ impl MaterialView<'_> {
                     return material.emissive;
                 }
 
-                // 标准PBR F0计算 - 移除透明度影响
+                // 标准PBR F0计算
                 let f0_dielectric = Vector3::new(0.04, 0.04, 0.04);
                 let f0 = f0_dielectric.lerp(&base_color, metallic);
 
@@ -178,7 +178,7 @@ impl MaterialView<'_> {
                 let k_d = (Vector3::new(1.0, 1.0, 1.0) - k_s) * (1.0 - metallic);
                 let diffuse = k_d.component_mul(&base_color) / std::f32::consts::PI;
 
-                // 标准Cook-Torrance BRDF - 移除所有艺术性增强
+                // 标准Cook-Torrance BRDF
                 let brdf_result = (diffuse + specular) * n_dot_l * ao;
                 brdf_result + material.emissive
             }
