@@ -1753,17 +1753,18 @@ impl WidgetMethods for RasterizerApp {
         // === 第二行：动画渲染 + 截图 ===
         ui.horizontal(|ui| {
             // 动画渲染按钮
+            let realtime_button_text = if app.is_realtime_rendering {
+                "停止动画渲染"
+            } else if app.pre_render_mode {
+                "开始动画渲染 (预渲染模式)"
+            } else {
+                "开始动画渲染 (实时模式)"
+            };
+
             let realtime_button = ui.add_enabled(
                 app.can_render_animation(),
-                egui::Button::new(
-                    RichText::new(if app.is_realtime_rendering {
-                        "停止动画渲染"
-                    } else {
-                        "开始动画渲染"
-                    })
-                    .size(15.0),
-                )
-                .min_size(Vec2::new(button_width_row2, button_height)),
+                egui::Button::new(RichText::new(realtime_button_text).size(15.0))
+                    .min_size(Vec2::new(button_width_row2, button_height)),
             );
 
             if realtime_button.clicked() {
@@ -1784,7 +1785,14 @@ impl WidgetMethods for RasterizerApp {
                 }
             }
 
-            Self::add_tooltip(realtime_button, ctx, "启动连续动画渲染，实时显示旋转效果");
+            // 更新工具提示文本
+            let tooltip_text = if app.pre_render_mode {
+                "启动动画渲染（预渲染模式）\n• 首次启动会预先计算所有帧\n• 然后以目标帧率流畅播放\n• 需要更多内存但播放更流畅"
+            } else {
+                "启动动画渲染（实时模式）\n• 每帧实时计算和渲染\n• 帧率取决于硬件性能\n• 内存占用较少"
+            };
+
+            Self::add_tooltip(realtime_button, ctx, tooltip_text);
 
             // 截图按钮
             let screenshot_button = ui.add_enabled(

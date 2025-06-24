@@ -77,6 +77,14 @@ where
                 &rotation_axis_vec,
                 rotation_increment_rad_per_frame,
             );
+
+            // 物体变换后清除地面缓存，确保阴影同步更新
+            if matches!(settings.animation_type, AnimationType::ObjectLocalRotation) {
+                // 物体局部变换会影响阴影，需要清除地面缓存
+                thread_renderer.frame_buffer.ground_cache = None;
+                debug!("预渲染帧 {}: 物体局部旋转，清除地面阴影缓存", frame_num);
+            }
+            // 相机轨道运动不影响阴影，所以不需要清除缓存
         }
 
         // 渲染当前帧
@@ -122,7 +130,7 @@ pub trait AnimationMethods {
 impl AnimationMethods for RasterizerApp {
     /// 执行实时渲染循环
     fn perform_realtime_rendering(&mut self, ctx: &Context) {
-        // 确保安全地进入预渲染模式
+        // 如果启用了预渲染模式且没有预渲染帧，才进入预渲染
         if self.pre_render_mode
             && !self.is_pre_rendering
             && self.pre_rendered_frames.lock().unwrap().is_empty()
@@ -159,17 +167,21 @@ impl AnimationMethods for RasterizerApp {
             }
         }
 
+        // 如果正在预渲染，处理预渲染任务
         if self.is_pre_rendering {
             self.handle_pre_rendering_tasks(ctx);
             return;
         }
 
+        // 如果启用预渲染模式且有预渲染帧，播放预渲染帧
         if self.pre_render_mode && !self.pre_rendered_frames.lock().unwrap().is_empty() {
             self.play_pre_rendered_frames(ctx);
             return;
         }
 
-        // --- 常规实时渲染 ---
+        // === 常规实时渲染（未启用预渲染模式或预渲染复选框未勾选） ===
+
+        // 确保场景已加载
         if self.scene.is_none() {
             let obj_path = match &self.settings.obj {
                 Some(path) => path.clone(),
@@ -186,8 +198,8 @@ impl AnimationMethods for RasterizerApp {
                 Ok((scene, model_data)) => {
                     self.scene = Some(scene);
                     self.model_data = Some(model_data);
-                    self.start_pre_rendering(ctx);
-                    return;
+                    // 注意：这里不再自动跳转到预渲染，而是继续执行实时渲染
+                    self.status_message = "模型加载成功，开始实时渲染...".to_string();
                 }
                 Err(e) => {
                     self.set_error(format!("加载模型失败: {}", e));
