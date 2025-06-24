@@ -1,5 +1,5 @@
-use crate::core::simple_shadow_map::SimpleShadowMap;
-use crate::geometry::camera::Camera;
+use crate::core::shadow_map::ShadowMap;
+use crate::geometry::camera::{Camera, ProjectionType};
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::{color, texture::Texture};
 use atomic_float::AtomicF32;
@@ -9,10 +9,10 @@ use rayon::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// 缓存的背景状态 - 使用Arc避免克隆
+/// 缓存的背景状态
 #[derive(Debug, Clone)]
 struct BackgroundCache {
-    /// 缓存的背景像素数据 (RGB) - 使用Arc共享
+    /// 缓存的背景像素数据 (RGB)
     pixels: Arc<Vec<Vector3<f32>>>,
     /// 缓存时的设置哈希值，用于检测变化
     settings_hash: u64,
@@ -24,9 +24,9 @@ struct BackgroundCache {
 /// 缓存的地面状态
 #[derive(Debug, Clone)]
 pub struct GroundCache {
-    /// 缓存的地面因子数据 - 使用Arc共享
+    /// 缓存的地面因子数据
     ground_factors: Arc<Vec<f32>>,
-    /// 缓存的地面颜色数据 - 使用Arc共享
+    /// 缓存的地面颜色数据
     ground_colors: Arc<Vec<Vector3<f32>>>,
     /// 缓存的阴影因子数据
     shadow_factors: Arc<Vec<f32>>,
@@ -77,12 +77,12 @@ impl FrameBuffer {
         }
     }
 
-    /// 支持阴影的清除方法 - 增加物体变换哈希
-    pub fn clear_with_shadow_map(
+    /// 支持阴影的清除方法
+    pub fn clear(
         &mut self,
         settings: &RenderSettings,
         camera: &Camera,
-        shadow_map: Option<&SimpleShadowMap>,
+        shadow_map: Option<&ShadowMap>,
     ) {
         // 重置深度缓冲区
         self.depth_buffer.par_iter().for_each(|atomic_depth| {
@@ -93,12 +93,12 @@ impl FrameBuffer {
         let height = self.height;
 
         // 1. 背景缓存逻辑
-        let background_pixels_ref = self.get_or_compute_background_cache(settings, width, height);
+        let background_pixels_ref = self.compute_background_cache(settings, width, height);
 
-        // 2. 地面缓存逻辑 - 增加物体变换哈希
+        // 2. 地面缓存逻辑
         let (ground_factors_ref, ground_colors_ref, shadow_factors_ref) =
             if settings.enable_ground_plane {
-                self.get_or_compute_ground_cache(settings, camera, shadow_map, width, height)
+                self.compute_ground_cache(settings, camera, shadow_map, width, height)
             } else {
                 // 为未启用地面的情况提供默认值
                 (
@@ -118,8 +118,7 @@ impl FrameBuffer {
         );
     }
 
-    /// 提取：获取或计算背景缓存
-    fn get_or_compute_background_cache(
+    fn compute_background_cache(
         &mut self,
         settings: &RenderSettings,
         width: usize,
@@ -154,8 +153,7 @@ impl FrameBuffer {
                     let t_y = y as f32 / (height - 1) as f32;
                     let t_x = x as f32 / (width - 1) as f32;
 
-                    *pixel =
-                        compute_background_only(settings, background_texture.as_ref(), t_x, t_y);
+                    *pixel = compute_background(settings, background_texture.as_ref(), t_x, t_y);
                 });
 
             self.background_cache = Some(BackgroundCache {
@@ -171,13 +169,12 @@ impl FrameBuffer {
         self.background_cache.as_ref().unwrap().pixels.clone()
     }
 
-    /// 提取：获取或计算地面缓存
     #[allow(clippy::type_complexity)]
-    fn get_or_compute_ground_cache(
+    fn compute_ground_cache(
         &mut self,
         settings: &RenderSettings,
         camera: &Camera,
-        shadow_map: Option<&SimpleShadowMap>,
+        shadow_map: Option<&ShadowMap>,
         width: usize,
         height: usize,
     ) -> (Arc<Vec<f32>>, Arc<Vec<Vector3<f32>>>, Arc<Vec<f32>>) {
@@ -242,7 +239,6 @@ impl FrameBuffer {
         )
     }
 
-    /// 提取：合成最终颜色
     fn compose_final_colors(
         &self,
         settings: &RenderSettings,
@@ -286,7 +282,6 @@ impl FrameBuffer {
         });
     }
 
-    /// 直接加载背景图片，去除多层包装
     fn get_background_image(&mut self, settings: &RenderSettings) -> Option<&Texture> {
         if !settings.use_background_image {
             return None;
@@ -301,7 +296,6 @@ impl FrameBuffer {
             }
         }
 
-        // 直接加载，无中间层
         match Texture::from_file(current_path) {
             Some(texture) => {
                 debug!("背景图片加载成功: {}x{}", texture.width, texture.height);
@@ -316,10 +310,8 @@ impl FrameBuffer {
         }
     }
 
-    /// 优化的哈希函数 - 稳定的浮点数处理
     fn hash_f32_stable(value: f32, hasher: &mut std::collections::hash_map::DefaultHasher) {
         use std::hash::Hash;
-        // 使用更粗粒度的量化，减少微小变化导致的哈希抖动
         let quantized = (value * 100.0).round() as i32;
         quantized.hash(hasher);
     }
@@ -367,7 +359,7 @@ impl FrameBuffer {
 
         // 投影参数
         match &params.projection {
-            crate::geometry::camera::ProjectionType::Perspective {
+            ProjectionType::Perspective {
                 fov_y_degrees,
                 aspect_ratio,
             } => {
@@ -376,7 +368,7 @@ impl FrameBuffer {
                 Self::hash_f32_stable(*fov_y_degrees, &mut hasher);
                 Self::hash_f32_stable(*aspect_ratio, &mut hasher);
             }
-            crate::geometry::camera::ProjectionType::Orthographic { width, height } => {
+            ProjectionType::Orthographic { width, height } => {
                 use std::hash::Hash;
                 1u8.hash(&mut hasher);
                 Self::hash_f32_stable(*width, &mut hasher);
@@ -390,7 +382,6 @@ impl FrameBuffer {
         hasher.finish()
     }
 
-    /// 稳定的地面设置哈希计算
     fn compute_ground_settings_hash_stable(&self, settings: &RenderSettings) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -449,15 +440,11 @@ impl FrameBuffer {
     }
 
     /// 获取指定像素的背景颜色（返回Color类型，用于着色器）
-    pub fn get_pixel_color_as_color(
-        &self,
-        x: usize,
-        y: usize,
-    ) -> crate::material_system::color::Color {
+    pub fn get_pixel_color_as_color(&self, x: usize, y: usize) -> color::Color {
         if let Some(color_vec) = self.get_pixel_color(x, y) {
-            crate::material_system::color::Color::new(color_vec.x, color_vec.y, color_vec.z)
+            color::Color::new(color_vec.x, color_vec.y, color_vec.z)
         } else {
-            crate::material_system::color::Color::new(0.1, 0.1, 0.1)
+            color::Color::new(0.1, 0.1, 0.1)
         }
     }
 }
@@ -465,7 +452,7 @@ impl FrameBuffer {
 // ===== 背景和地面计算函数 =====
 
 /// 纯背景颜色计算（不包括地面）
-pub fn compute_background_only(
+pub fn compute_background(
     settings: &RenderSettings,
     background_texture: Option<&Texture>,
     t_x: f32,
@@ -504,10 +491,8 @@ pub fn compute_ground_factor(
 ) -> f32 {
     // 获取相机的视场角
     let fov_y_rad = match &camera.params.projection {
-        crate::geometry::camera::ProjectionType::Perspective { fov_y_degrees, .. } => {
-            fov_y_degrees.to_radians()
-        }
-        crate::geometry::camera::ProjectionType::Orthographic { .. } => 45.0_f32.to_radians(),
+        ProjectionType::Perspective { fov_y_degrees, .. } => fov_y_degrees.to_radians(),
+        ProjectionType::Orthographic { .. } => 45.0_f32.to_radians(),
     };
 
     // 使用相机数据
@@ -660,7 +645,7 @@ pub fn compute_ground_shadow_factor(
     camera: &Camera,
     t_x: f32,
     t_y: f32,
-    shadow_map: Option<&SimpleShadowMap>,
+    shadow_map: Option<&ShadowMap>,
 ) -> f32 {
     if !settings.enable_shadow_mapping {
         return 1.0;
@@ -693,10 +678,8 @@ fn compute_ground_intersection(
 ) -> Option<Point3<f32>> {
     // 复用 compute_ground_factor 中的射线与地面求交逻辑
     let fov_y_rad = match &camera.params.projection {
-        crate::geometry::camera::ProjectionType::Perspective { fov_y_degrees, .. } => {
-            fov_y_degrees.to_radians()
-        }
-        crate::geometry::camera::ProjectionType::Orthographic { .. } => 45.0_f32.to_radians(),
+        ProjectionType::Perspective { fov_y_degrees, .. } => fov_y_degrees.to_radians(),
+        ProjectionType::Orthographic { .. } => 45.0_f32.to_radians(),
     };
 
     let aspect_ratio = camera.aspect_ratio();

@@ -1,10 +1,12 @@
-use crate::io::render_settings::{AnimationType, RenderSettings, RotationAxis};
+use crate::io::render_settings::{
+    AnimationType, RenderSettings, RotationAxis, parse_point3, parse_vec3,
+};
 use crate::material_system::light::Light;
 use log::warn;
 use std::path::Path;
 use toml::Value;
 
-/// TOML配置管理器 - 统一处理所有配置的读写
+/// TOML配置管理器
 pub struct TomlConfigLoader;
 
 impl TomlConfigLoader {
@@ -30,7 +32,7 @@ impl TomlConfigLoader {
         std::fs::write(path, toml_content).map_err(|e| format!("写入配置文件失败: {}", e))
     }
 
-    /// 直接生成示例配置文件 - 内联实现，不依赖额外方法
+    /// 直接生成示例配置文件
     pub fn create_example_config<P: AsRef<Path>>(path: P) -> Result<(), String> {
         let settings = RenderSettings {
             obj: Some("obj/simple/bunny.obj".to_string()),
@@ -269,8 +271,7 @@ impl TomlConfigLoader {
             .and_then(|v| v.as_str())
             .unwrap_or("1,1,1");
 
-        let color_vec = crate::io::render_settings::parse_vec3(color_str)
-            .map_err(|e| format!("解析光源颜色失败: {}", e))?;
+        let color_vec = parse_vec3(color_str).map_err(|e| format!("解析光源颜色失败: {}", e))?;
 
         match light_type {
             "directional" => {
@@ -279,8 +280,8 @@ impl TomlConfigLoader {
                     .and_then(|v| v.as_str())
                     .ok_or("方向光缺少direction字段")?;
 
-                let direction_vec = crate::io::render_settings::parse_vec3(direction_str)
-                    .map_err(|e| format!("解析方向光方向失败: {}", e))?;
+                let direction_vec =
+                    parse_vec3(direction_str).map_err(|e| format!("解析方向光方向失败: {}", e))?;
 
                 let mut light = Light::directional(direction_vec, color_vec, intensity);
                 if let Light::Directional {
@@ -298,8 +299,8 @@ impl TomlConfigLoader {
                     .and_then(|v| v.as_str())
                     .ok_or("点光源缺少position字段")?;
 
-                let position_point = crate::io::render_settings::parse_point3(position_str)
-                    .map_err(|e| format!("解析点光源位置失败: {}", e))?;
+                let position_point =
+                    parse_point3(position_str).map_err(|e| format!("解析点光源位置失败: {}", e))?;
 
                 let constant = light_table
                     .get("constant_attenuation")
@@ -480,7 +481,7 @@ impl TomlConfigLoader {
         Ok(())
     }
 
-    /// 阴影配置解析 - 合并所有阴影相关参数
+    /// 阴影配置解析
     fn parse_shadow_section(
         settings: &mut RenderSettings,
         shadow: &toml::Table,
@@ -607,7 +608,7 @@ impl TomlConfigLoader {
         content.push_str(&format!("ambient_color = \"{}\"\n", settings.ambient_color));
         content.push('\n');
 
-        // [[light]] 数组 - 使用default的光源配置
+        // [[light]] 数组
         if !settings.lights.is_empty() {
             content.push_str("# 🔥 光源配置 - 默认包含一个方向光\n");
             for light in &settings.lights {
@@ -656,7 +657,7 @@ impl TomlConfigLoader {
             }
         }
 
-        // [material] 部分 - 移除阴影相关配置
+        // [material] 部分
         content.push_str("[material]\n");
         content.push_str(&format!("use_phong = {}\n", settings.use_phong));
         content.push_str(&format!("use_pbr = {}\n", settings.use_pbr));
@@ -739,7 +740,7 @@ impl TomlConfigLoader {
 
         content.push('\n');
 
-        // [shadow] 部分 - 合并所有阴影相关配置
+        // [shadow] 部分
         content.push_str("# 🌒 阴影与环境光遮蔽配置\n");
         content.push_str("[shadow]\n");
         content.push_str("# === 环境光遮蔽 ===\n");

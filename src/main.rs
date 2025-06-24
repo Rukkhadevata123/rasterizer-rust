@@ -12,13 +12,14 @@ mod ui;
 mod utils;
 
 // 导入语句
+use crate::ui::app::start_gui;
 use core::renderer::Renderer;
 use io::model_loader::ModelLoader;
 use io::simple_cli::SimpleCli;
 use utils::render_utils::{render_single_frame, run_animation_loop};
 
 fn main() -> Result<(), String> {
-    // 初始化日志系统 - 默认DEBUG级别
+    // 初始化日志系统
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Debug)
         .filter_module("eframe", log::LevelFilter::Warn) // 只显示 eframe 的警告和错误
@@ -39,7 +40,7 @@ fn main() -> Result<(), String> {
     // 判断是否应该启动GUI模式
     if should_start_gui {
         info!("启动GUI模式...");
-        if let Err(err) = ui::start_gui(settings) {
+        if let Err(err) = start_gui(settings) {
             error!("GUI启动失败: {}", err);
             return Err("GUI启动失败".to_string());
         }

@@ -21,8 +21,7 @@ pub enum RotationAxis {
     Custom,
 }
 
-/// 纯数据结构 - 所有可通过TOML配置的渲染参数
-/// 移除了clap逻辑和预设系统，专注于数据存储
+/// 纯数据结构
 #[derive(Debug, Clone)]
 pub struct RenderSettings {
     // ===== 文件路径设置 =====
@@ -327,7 +326,7 @@ impl Default for RenderSettings {
 }
 
 impl RenderSettings {
-    /// 初始化默认光源 - 确保启用光照时有可用光源
+    /// 初始化默认光源
     pub fn initialize_lights(&mut self) {
         if self.use_lighting && self.lights.is_empty() {
             self.lights = vec![Light::directional(
@@ -338,7 +337,7 @@ impl RenderSettings {
         }
     }
 
-    // ===== 按需计算方法（替代重复存储） =====
+    // ===== 按需计算方法 =====
 
     /// 获取环境光颜色向量（按需计算）
     pub fn get_ambient_color_vec(&self) -> Vector3<f32> {

@@ -1,12 +1,13 @@
 use crate::io::obj_loader::load_obj_model;
 use crate::io::render_settings::RenderSettings;
+use crate::material_system::materials::ModelData;
 use crate::scene::scene_utils::Scene;
 use crate::utils::model_utils::normalize_and_center_model;
 use log::{debug, info};
 use std::path::Path;
 use std::time::Instant;
 
-/// 模型加载器 - 专注模型加载和场景创建
+/// 模型加载器
 pub struct ModelLoader;
 
 impl ModelLoader {
@@ -14,7 +15,7 @@ impl ModelLoader {
     pub fn load_and_create_scene(
         obj_path: &str,
         settings: &RenderSettings,
-    ) -> Result<(Scene, crate::material_system::materials::ModelData), String> {
+    ) -> Result<(Scene, ModelData), String> {
         info!("加载模型：{}", obj_path);
         let load_start = Instant::now();
 
@@ -45,7 +46,7 @@ impl ModelLoader {
         Ok((scene, model_data))
     }
 
-    /// 验证资源 - 简化版本
+    /// 验证资源
     pub fn validate_resources(settings: &RenderSettings) -> Result<(), String> {
         // 验证 OBJ 文件
         if let Some(obj_path) = &settings.obj {

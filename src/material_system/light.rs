@@ -1,7 +1,7 @@
-use crate::io::render_settings::parse_vec3;
+use crate::io::render_settings::{parse_point3, parse_vec3};
 use nalgebra::{Point3, Vector3};
 
-/// 统一的光源结构 - 简化版本
+/// 统一的光源结构
 #[derive(Debug, Clone)]
 pub enum Light {
     Directional {
@@ -32,7 +32,7 @@ pub enum Light {
 }
 
 impl Light {
-    /// 创建方向光 - 同时设置配置和运行时字段
+    /// 创建方向光
     pub fn directional(direction: Vector3<f32>, color: Vector3<f32>, intensity: f32) -> Self {
         let direction_normalized = direction.normalize();
         Self::Directional {
@@ -48,7 +48,7 @@ impl Light {
         }
     }
 
-    /// 创建点光源 - 同时设置配置和运行时字段
+    /// 创建点光源
     pub fn point(
         position: Point3<f32>,
         color: Vector3<f32>,
@@ -69,7 +69,7 @@ impl Light {
         }
     }
 
-    /// 更新运行时字段 - 从字符串配置重新解析
+    /// 更新运行时字段
     pub fn update_runtime_fields(&mut self) -> Result<(), String> {
         match self {
             Self::Directional {
@@ -89,7 +89,7 @@ impl Light {
                 color,
                 ..
             } => {
-                *position = crate::io::render_settings::parse_point3(position_str)?;
+                *position = parse_point3(position_str)?;
                 *color = parse_vec3(color_str)?;
             }
         }

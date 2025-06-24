@@ -1,3 +1,8 @@
+use crate::core::renderer::Renderer;
+use crate::io::render_settings::RenderSettings;
+use crate::material_system::materials::material_applicator::{
+    apply_pbr_parameters, apply_phong_parameters,
+};
 use crate::ui::app::RasterizerApp;
 use crate::utils::save_utils::save_render_with_settings;
 use egui::{Color32, Context};
@@ -88,7 +93,7 @@ pub trait CoreMethods {
 impl CoreMethods for RasterizerApp {
     // === 核心渲染和加载实现 ===
 
-    /// 渲染当前场景 - 统一渲染逻辑
+    /// 渲染当前场景
     fn render(&mut self, ctx: &Context) {
         // 验证参数
         if let Err(e) = self.settings.validate() {
@@ -206,7 +211,7 @@ impl CoreMethods for RasterizerApp {
         );
     }
 
-    /// 统一同步入口 - 所有变化都在这里处理
+    /// 统一同步入口
     fn render_if_anything_changed(&mut self, ctx: &Context) {
         if self.interface_interaction.anything_changed && self.scene.is_some() {
             if let Some(scene) = &mut self.scene {
@@ -255,17 +260,11 @@ impl CoreMethods for RasterizerApp {
                 // 4. 材质参数同步
                 if let Some(model_data) = &mut self.model_data {
                     if self.settings.use_pbr {
-                        crate::material_system::materials::material_applicator::apply_pbr_parameters(
-                            model_data,
-                            &self.settings
-                        );
+                        apply_pbr_parameters(model_data, &self.settings);
                     }
 
                     if self.settings.use_phong {
-                        crate::material_system::materials::material_applicator::apply_phong_parameters(
-                            model_data,
-                            &self.settings
-                        );
+                        apply_phong_parameters(model_data, &self.settings);
                     }
 
                     scene.object.model_data = model_data.clone();
@@ -356,8 +355,7 @@ impl CoreMethods for RasterizerApp {
         let output_dir = self.settings.output_dir.clone();
         let output_name = self.settings.output.clone();
 
-        // 修复 Clippy 警告：使用结构体初始化语法
-        let new_settings = crate::io::render_settings::RenderSettings {
+        let new_settings = RenderSettings {
             obj: obj_path,
             output_dir,
             output: output_name,
@@ -368,14 +366,12 @@ impl CoreMethods for RasterizerApp {
         if self.renderer.frame_buffer.width != new_settings.width
             || self.renderer.frame_buffer.height != new_settings.height
         {
-            self.renderer =
-                crate::core::renderer::Renderer::new(new_settings.width, new_settings.height);
+            self.renderer = Renderer::new(new_settings.width, new_settings.height);
             self.rendered_image = None;
         }
 
         self.settings = new_settings;
 
-        // 直接内联：从settings初始化GUI变换字段
         if let Ok(pos) = crate::io::render_settings::parse_vec3(&self.settings.object_position) {
             self.object_position_vec = pos;
         } else {

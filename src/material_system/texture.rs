@@ -1,3 +1,4 @@
+use crate::material_system::color::{Color, get_random_color, srgb_to_linear};
 use image::{DynamicImage, GenericImageView};
 use log::warn;
 use nalgebra::Vector3;
@@ -71,18 +72,18 @@ impl Texture {
                 let y = ((1.0 - v) * self.height as f32) as u32 % self.height;
 
                 let pixel = img.get_pixel(x, y);
-                let srgb_color = crate::material_system::color::Color::new(
+                let srgb_color = Color::new(
                     pixel[0] as f32 / 255.0,
                     pixel[1] as f32 / 255.0,
                     pixel[2] as f32 / 255.0,
                 );
 
-                let linear_color = crate::material_system::color::srgb_to_linear(&srgb_color);
+                let linear_color = srgb_to_linear(&srgb_color);
                 [linear_color.x, linear_color.y, linear_color.z]
             }
             TextureData::SolidColor(color) => [color.x, color.y, color.z],
             TextureData::FaceColor(seed) => {
-                let color = crate::material_system::color::get_random_color(*seed, true);
+                let color = get_random_color(*seed, true);
                 [color.x, color.y, color.z]
             }
         }

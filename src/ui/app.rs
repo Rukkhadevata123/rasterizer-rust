@@ -1,5 +1,8 @@
+use super::animation::AnimationMethods;
+use super::core::CoreMethods;
+use super::widgets::WidgetMethods;
 use crate::core::renderer::Renderer;
-use crate::io::render_settings::RenderSettings;
+use crate::io::render_settings::{RenderSettings, parse_vec3};
 use crate::material_system::materials::ModelData;
 use crate::scene::scene_utils::Scene;
 use egui::{Color32, ColorImage, RichText, Vec2};
@@ -7,18 +10,13 @@ use nalgebra::Vector3;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-// 导入其他UI模块
-use super::animation::AnimationMethods;
-use super::core::CoreMethods;
-use super::widgets::WidgetMethods;
-
-/// GUI应用状态 - 清晰分离TOML配置和GUI专用参数
+/// GUI应用状态
 pub struct RasterizerApp {
-    // ===== TOML可配置参数 - 统一存储在settings中 =====
+    // ===== TOML可配置参数 =====
     /// 所有TOML可配置的渲染参数
     pub settings: RenderSettings,
 
-    // ===== GUI专用向量字段 - 从settings字符串同步 =====
+    // ===== GUI专用向量字段 =====
     /// GUI中物体位置控制的向量表示（与settings.object_position同步）
     pub object_position_vec: Vector3<f32>,
     /// GUI中物体旋转控制的向量表示（与settings.object_rotation同步，弧度制）
@@ -82,7 +80,7 @@ pub struct RasterizerApp {
     /// 视频生成进度
     pub video_progress: Arc<AtomicUsize>,
 
-    // ===== 相机交互设置 - 可考虑加入TOML配置 =====
+    // ===== 相机交互设置 =====
     /// 平移敏感度
     pub camera_pan_sensitivity: f32,
     /// 轨道旋转敏感度
@@ -129,26 +127,23 @@ impl RasterizerApp {
         cc.egui_ctx.set_fonts(fonts);
 
         // 从settings字符串初始化GUI专用向量字段
-        let object_position_vec =
-            if let Ok(pos) = crate::io::render_settings::parse_vec3(&settings.object_position) {
-                pos
-            } else {
-                nalgebra::Vector3::new(0.0, 0.0, 0.0)
-            };
+        let object_position_vec = if let Ok(pos) = parse_vec3(&settings.object_position) {
+            pos
+        } else {
+            Vector3::new(0.0, 0.0, 0.0)
+        };
 
-        let object_rotation_vec =
-            if let Ok(rot) = crate::io::render_settings::parse_vec3(&settings.object_rotation) {
-                nalgebra::Vector3::new(rot.x.to_radians(), rot.y.to_radians(), rot.z.to_radians())
-            } else {
-                nalgebra::Vector3::new(0.0, 0.0, 0.0)
-            };
+        let object_rotation_vec = if let Ok(rot) = parse_vec3(&settings.object_rotation) {
+            Vector3::new(rot.x.to_radians(), rot.y.to_radians(), rot.z.to_radians())
+        } else {
+            Vector3::new(0.0, 0.0, 0.0)
+        };
 
-        let object_scale_vec =
-            if let Ok(scale) = crate::io::render_settings::parse_vec3(&settings.object_scale_xyz) {
-                scale
-            } else {
-                nalgebra::Vector3::new(1.0, 1.0, 1.0)
-            };
+        let object_scale_vec = if let Ok(scale) = parse_vec3(&settings.object_scale_xyz) {
+            scale
+        } else {
+            Vector3::new(1.0, 1.0, 1.0)
+        };
 
         // 创建渲染器
         let renderer = Renderer::new(settings.width, settings.height);
@@ -226,13 +221,12 @@ impl RasterizerApp {
         self.show_error_dialog = true;
     }
 
-    /// 简化相机交互 - 直接更新settings
     fn handle_camera_interaction(&mut self, image_response: &egui::Response, ctx: &egui::Context) {
         if let Some(scene) = &mut self.scene {
             let mut camera_changed = false;
             let mut need_clear_ground_cache = false;
 
-            let screen_size = egui::Vec2::new(
+            let screen_size = Vec2::new(
                 self.renderer.frame_buffer.width as f32,
                 self.renderer.frame_buffer.height as f32,
             );
@@ -454,8 +448,8 @@ impl eframe::App for RasterizerApp {
 
                 // 显示交互提示
                 let overlay_rect = egui::Rect::from_min_size(
-                    ui.max_rect().right_bottom() - egui::Vec2::new(220.0, 20.0),
-                    egui::Vec2::new(220.0, 20.0),
+                    ui.max_rect().right_bottom() - Vec2::new(220.0, 20.0),
+                    Vec2::new(220.0, 20.0),
                 );
 
                 ui.allocate_new_ui(
@@ -464,7 +458,7 @@ impl eframe::App for RasterizerApp {
                         .layout(egui::Layout::right_to_left(egui::Align::BOTTOM)),
                     |ui| {
                         ui.group(|ui| {
-                            ui.label(RichText::new("🖱️ 相机交互").size(14.0).strong());
+                            ui.label(RichText::new("相机交互").size(14.0).strong());
                             ui.separator();
                             ui.small("• 拖拽 - 平移相机");
                             ui.small("• Shift+拖拽 - 轨道旋转");
@@ -476,7 +470,7 @@ impl eframe::App for RasterizerApp {
                             ui.small(format!("旋转敏感度: {:.1}x", self.camera_orbit_sensitivity));
                             ui.small(format!("缩放敏感度: {:.1}x", self.camera_dolly_sensitivity));
                             ui.separator();
-                            ui.small(RichText::new("✅ 交互已启用").color(Color32::GREEN));
+                            ui.small(RichText::new("交互已启用").color(Color32::GREEN));
                         });
                     },
                 );
@@ -487,7 +481,7 @@ impl eframe::App for RasterizerApp {
                     ui.label(RichText::new("点击「开始渲染」按钮或按Ctrl+R").color(Color32::GRAY));
                     ui.add_space(20.0);
                     ui.label(
-                        RichText::new("💡 加载模型后可在此区域进行相机交互")
+                        RichText::new("加载模型后可在此区域进行相机交互")
                             .color(Color32::from_rgb(100, 150, 255)),
                     );
                 });

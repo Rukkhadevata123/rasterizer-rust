@@ -1,5 +1,5 @@
 use crate::core::renderer::Renderer;
-use crate::io::render_settings::{RenderSettings, get_animation_axis_vector};
+use crate::io::render_settings::{AnimationType, RenderSettings, get_animation_axis_vector};
 use crate::scene::scene_utils::Scene;
 use crate::utils::render_utils::{
     animate_scene_step, calculate_rotation_delta, calculate_rotation_parameters,
@@ -121,7 +121,7 @@ pub trait AnimationMethods {
 
 impl AnimationMethods for RasterizerApp {
     /// 执行实时渲染循环
-    fn perform_realtime_rendering(&mut self, ctx: &egui::Context) {
+    fn perform_realtime_rendering(&mut self, ctx: &Context) {
         // 确保安全地进入预渲染模式
         if self.pre_render_mode
             && !self.is_pre_rendering
@@ -229,7 +229,7 @@ impl AnimationMethods for RasterizerApp {
         self.animation_time += dt;
 
         if let Some(scene) = &mut self.scene {
-            // 关键优化：动画过程中不清除缓存
+            // 动画过程中不清除缓存
             // 物体动画不影响背景和地面（相机不动），所以缓存仍然有效
 
             // 使用通用函数计算旋转增量
@@ -258,7 +258,7 @@ impl AnimationMethods for RasterizerApp {
             // 物体变换后清除地面缓存，确保阴影同步更新
             if matches!(
                 self.settings.animation_type,
-                crate::io::render_settings::AnimationType::ObjectLocalRotation
+                AnimationType::ObjectLocalRotation
             ) {
                 // 物体局部变换会影响阴影，需要清除地面缓存
                 self.renderer.frame_buffer.ground_cache = None;
@@ -272,7 +272,7 @@ impl AnimationMethods for RasterizerApp {
         }
     }
 
-    fn start_video_generation(&mut self, ctx: &egui::Context) {
+    fn start_video_generation(&mut self, ctx: &Context) {
         if !self.ffmpeg_available {
             self.set_error("无法生成视频：未检测到ffmpeg。请安装ffmpeg后重试。".to_string());
             return;
@@ -354,7 +354,7 @@ impl AnimationMethods for RasterizerApp {
                 self.is_generating_video = true;
                 video_progress_arc.store(0, Ordering::SeqCst);
 
-                // 更新状态消息 - 不再区分使用预渲染帧
+                // 更新状态消息
                 self.status_message = format!(
                     "开始生成视频 (0/{} 帧，{:.1} 秒时长)...",
                     total_frames,
@@ -382,7 +382,7 @@ impl AnimationMethods for RasterizerApp {
 
                     // 使用预渲染帧或重新渲染
                     if let Some(frames) = pre_rendered_frames_clone {
-                        // 使用预渲染帧 - 预渲染帧是一整圈动画
+                        // 使用预渲染帧
                         let pre_rendered_count = frames.len();
 
                         for frame_num in 0..total_frames {
@@ -496,7 +496,7 @@ impl AnimationMethods for RasterizerApp {
                     let success = ffmpeg_status.is_ok_and(|s| s.success());
 
                     // 视频生成后清理临时文件
-                    let _ = std::fs::remove_dir_all(&frames_dir_clone);
+                    let _ = fs::remove_dir_all(&frames_dir_clone);
 
                     (success, video_output_path)
                 });

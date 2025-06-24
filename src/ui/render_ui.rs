@@ -1,5 +1,6 @@
 use crate::io::config_loader::TomlConfigLoader;
 use crate::io::model_loader::ModelLoader;
+use crate::io::render_settings::{RenderSettings, parse_vec3};
 use crate::ui::app::RasterizerApp;
 use log::debug;
 use native_dialog::FileDialogBuilder;
@@ -31,7 +32,7 @@ pub trait RenderUIMethods {
     fn save_config_file(&mut self);
 
     /// 应用加载的配置到GUI
-    fn apply_loaded_config(&mut self, settings: crate::io::render_settings::RenderSettings);
+    fn apply_loaded_config(&mut self, settings: RenderSettings);
 }
 
 impl RenderUIMethods for RasterizerApp {
@@ -91,7 +92,7 @@ impl RenderUIMethods for RasterizerApp {
         }
     }
 
-    /// 选择背景图片 - 适配新的背景管理架构
+    /// 选择背景图片
     fn select_background_image(&mut self) {
         let result = FileDialogBuilder::default()
             .set_title("选择背景图片")
@@ -227,30 +228,24 @@ impl RenderUIMethods for RasterizerApp {
     }
 
     /// 应用加载的配置到GUI
-    fn apply_loaded_config(&mut self, loaded_settings: crate::io::render_settings::RenderSettings) {
+    fn apply_loaded_config(&mut self, loaded_settings: RenderSettings) {
         // 保存旧的settings
         self.settings = loaded_settings;
 
         // 重新同步GUI专用向量字段
-        self.object_position_vec = if let Ok(pos) =
-            crate::io::render_settings::parse_vec3(&self.settings.object_position)
-        {
+        self.object_position_vec = if let Ok(pos) = parse_vec3(&self.settings.object_position) {
             pos
         } else {
             nalgebra::Vector3::new(0.0, 0.0, 0.0)
         };
 
-        self.object_rotation_vec = if let Ok(rot) =
-            crate::io::render_settings::parse_vec3(&self.settings.object_rotation)
-        {
+        self.object_rotation_vec = if let Ok(rot) = parse_vec3(&self.settings.object_rotation) {
             nalgebra::Vector3::new(rot.x.to_radians(), rot.y.to_radians(), rot.z.to_radians())
         } else {
             nalgebra::Vector3::new(0.0, 0.0, 0.0)
         };
 
-        self.object_scale_vec = if let Ok(scale) =
-            crate::io::render_settings::parse_vec3(&self.settings.object_scale_xyz)
-        {
+        self.object_scale_vec = if let Ok(scale) = parse_vec3(&self.settings.object_scale_xyz) {
             scale
         } else {
             nalgebra::Vector3::new(1.0, 1.0, 1.0)

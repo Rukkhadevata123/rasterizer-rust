@@ -3,7 +3,7 @@ use crate::io::render_settings::RenderSettings;
 use clap::Parser;
 use log::info;
 
-/// 极简CLI - 专注配置文件和GUI控制
+/// 极简CLI
 #[derive(Parser, Debug)]
 #[command(name = "rasterizer")]
 #[command(about = "TOML驱动的光栅化渲染器")]
