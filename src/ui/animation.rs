@@ -82,7 +82,7 @@ where
             if matches!(settings.animation_type, AnimationType::ObjectLocalRotation) {
                 // 物体局部变换会影响阴影，需要清除地面缓存
                 thread_renderer.frame_buffer.ground_cache = None;
-                debug!("预渲染帧 {}: 物体局部旋转，清除地面阴影缓存", frame_num);
+                debug!("预渲染帧 {frame_num}: 物体局部旋转，清除地面阴影缓存");
             }
             // 相机轨道运动不影响阴影，所以不需要清除缓存
         }
@@ -156,7 +156,7 @@ impl AnimationMethods for RasterizerApp {
                         return;
                     }
                     Err(e) => {
-                        self.set_error(format!("加载模型失败: {}", e));
+                        self.set_error(format!("加载模型失败: {e}"));
                         self.stop_animation_rendering();
                         return;
                     }
@@ -202,7 +202,7 @@ impl AnimationMethods for RasterizerApp {
                     self.status_message = "模型加载成功，开始实时渲染...".to_string();
                 }
                 Err(e) => {
-                    self.set_error(format!("加载模型失败: {}", e));
+                    self.set_error(format!("加载模型失败: {e}"));
                     self.stop_animation_rendering();
                     return;
                 }
@@ -299,7 +299,7 @@ impl AnimationMethods for RasterizerApp {
             Ok(_) => {
                 let output_dir = self.settings.output_dir.clone();
                 if let Err(e) = fs::create_dir_all(&output_dir) {
-                    self.set_error(format!("创建输出目录失败: {}", e));
+                    self.set_error(format!("创建输出目录失败: {e}"));
                     return;
                 }
                 let frames_dir = format!(
@@ -308,7 +308,7 @@ impl AnimationMethods for RasterizerApp {
                     chrono::Utc::now().timestamp_millis()
                 );
                 if let Err(e) = fs::create_dir_all(&frames_dir) {
-                    self.set_error(format!("创建帧目录失败: {}", e));
+                    self.set_error(format!("创建帧目录失败: {e}"));
                     return;
                 }
 
@@ -338,7 +338,7 @@ impl AnimationMethods for RasterizerApp {
                             self.status_message = "模型加载成功，开始生成视频...".to_string();
                         }
                         Err(e) => {
-                            self.set_error(format!("加载模型失败，无法生成视频: {}", e));
+                            self.set_error(format!("加载模型失败，无法生成视频: {e}"));
                             return;
                         }
                     }
@@ -376,7 +376,7 @@ impl AnimationMethods for RasterizerApp {
                 ctx.request_repaint();
                 let ctx_clone = ctx.clone();
                 let video_filename = format!("{}.mp4", settings_for_thread.output);
-                let video_output_path = format!("{}/{}", output_dir, video_filename);
+                let video_output_path = format!("{output_dir}/{video_filename}");
                 let frames_dir_clone = frames_dir.clone();
 
                 // 如果有预渲染帧，复制到线程中
@@ -412,7 +412,7 @@ impl AnimationMethods for RasterizerApp {
 
                             // 将ColorImage转换为PNG并保存
                             let frame_path =
-                                format!("{}/frame_{:04}.png", frames_dir_clone, frame_num);
+                                format!("{frames_dir_clone}/frame_{frame_num:04}.png");
                             let color_data = frame_to_png_data(frame);
                             save_image(&frame_path, &color_data, width as u32, height as u32);
 
@@ -437,7 +437,7 @@ impl AnimationMethods for RasterizerApp {
 
                                 // 同时为视频保存PNG文件
                                 let frame_path =
-                                    format!("{}/frame_{:04}.png", frames_dir_clone, frame_num);
+                                    format!("{frames_dir_clone}/frame_{frame_num:04}.png");
                                 save_image(
                                     &frame_path,
                                     &color_data_rgb,
@@ -473,7 +473,7 @@ impl AnimationMethods for RasterizerApp {
 
                                 // 保存为图片文件
                                 let frame_path =
-                                    format!("{}/frame_{:04}.png", frames_dir_clone, frame_num);
+                                    format!("{frames_dir_clone}/frame_{frame_num:04}.png");
                                 save_image(&frame_path, source_data, width as u32, height as u32);
 
                                 if frame_num % (total_frames.max(1) / 20).max(1) == 0 {
@@ -487,7 +487,7 @@ impl AnimationMethods for RasterizerApp {
                     ctx_clone.request_repaint();
 
                     // 使用ffmpeg将帧序列合成为视频，并解决阻塞问题
-                    let frames_pattern = format!("{}/frame_%04d.png", frames_dir_clone);
+                    let frames_pattern = format!("{frames_dir_clone}/frame_%04d.png");
                     let ffmpeg_status = std::process::Command::new("ffmpeg")
                         .args([
                             "-y",
@@ -546,7 +546,7 @@ impl AnimationMethods for RasterizerApp {
                             self.status_message = "模型加载成功，开始预渲染...".to_string();
                         }
                         Err(e) => {
-                            self.set_error(format!("加载模型失败，无法预渲染: {}", e));
+                            self.set_error(format!("加载模型失败，无法预渲染: {e}"));
                             return;
                         }
                     }
@@ -571,8 +571,7 @@ impl AnimationMethods for RasterizerApp {
                 let scene_clone = self.scene.as_ref().expect("场景已检查存在").clone();
 
                 self.status_message = format!(
-                    "开始预渲染动画 (0/{} 帧，转一圈需 {:.1} 秒)...",
-                    frames_to_render, seconds_per_rotation
+                    "开始预渲染动画 (0/{frames_to_render} 帧，转一圈需 {seconds_per_rotation:.1} 秒)..."
                 );
                 ctx.request_repaint();
                 let ctx_clone = ctx.clone();
@@ -677,7 +676,7 @@ impl AnimationMethods for RasterizerApp {
         }
         self.last_frame_time = Some(now);
 
-        let texture_name = format!("pre_rendered_tex_{}", frame_to_display_idx);
+        let texture_name = format!("pre_rendered_tex_{frame_to_display_idx}");
         self.rendered_image =
             Some(ctx.load_texture(texture_name, frame_image, TextureOptions::LINEAR));
         self.current_frame_index = (self.current_frame_index + 1) % frames_len;

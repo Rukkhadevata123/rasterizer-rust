@@ -223,12 +223,12 @@ impl WidgetMethods for RasterizerApp {
                                 let _ = std::fs::remove_file("temp_example_for_gui.toml");
                             }
                             Err(e) => {
-                                app.set_error(format!("加载示例配置失败: {}", e));
+                                app.set_error(format!("加载示例配置失败: {e}"));
                             }
                         }
                     }
                     Err(e) => {
-                        app.set_error(format!("创建示例配置失败: {}", e));
+                        app.set_error(format!("创建示例配置失败: {e}"));
                     }
                 }
             }
@@ -540,7 +540,7 @@ impl WidgetMethods for RasterizerApp {
                         let resp = ui.add(
                             egui::Slider::new(&mut app.settings.shadow_bias, 0.0001..=0.01)
                                 .step_by(0.0001)
-                                .custom_formatter(|n, _| format!("{:.4}", n))
+                                .custom_formatter(|n, _| format!("{n:.4}"))
                         );
                         if (app.settings.shadow_bias - old_bias).abs() > f32::EPSILON {
                             app.interface_interaction.anything_changed = true;
@@ -871,7 +871,7 @@ impl WidgetMethods for RasterizerApp {
                         app.settings.background_image_path = Some(path_text.clone());
 
                         // 新架构：不再手动加载，由 FrameBuffer 自动处理
-                        app.status_message = format!("背景图片路径已设置: {}", path_text);
+                        app.status_message = format!("背景图片路径已设置: {path_text}");
                     }
                     app.interface_interaction.anything_changed = true;
                 }
@@ -959,7 +959,7 @@ impl WidgetMethods for RasterizerApp {
                     if let Some(optimal_height) = app.calculate_optimal_ground_height() {
                         app.settings.ground_plane_height = optimal_height;
                         app.interface_interaction.anything_changed = true;
-                        app.status_message = format!("地面高度已自动调整为 {:.2}", optimal_height);
+                        app.status_message = format!("地面高度已自动调整为 {optimal_height:.2}");
                     } else {
                         app.status_message = "无法计算地面高度：请先加载模型".to_string();
                     }
@@ -1587,8 +1587,7 @@ impl WidgetMethods for RasterizerApp {
         let total_seconds = seconds_per_rotation * app.settings.rotation_cycles;
 
         ui.label(format!(
-            "估计总帧数: {} (视频长度: {:.1}秒)",
-            total_frames, total_seconds
+            "估计总帧数: {total_frames} (视频长度: {total_seconds:.1}秒)"
         ));
 
         // 动画类型选择
@@ -1804,10 +1803,10 @@ impl WidgetMethods for RasterizerApp {
             if screenshot_button.clicked() {
                 match app.take_screenshot() {
                     Ok(path) => {
-                        app.status_message = format!("截图已保存至 {}", path);
+                        app.status_message = format!("截图已保存至 {path}");
                     }
                     Err(e) => {
-                        app.set_error(format!("截图失败: {}", e));
+                        app.set_error(format!("截图失败: {e}"));
                     }
                 }
             }
@@ -1829,7 +1828,7 @@ impl WidgetMethods for RasterizerApp {
                     (frames_per_rotation as f32 * app.settings.rotation_cycles) as usize;
 
                 let percent = (progress as f32 / total_frames as f32 * 100.0).round();
-                format!("生成视频中... {}%", percent)
+                format!("生成视频中... {percent}%")
             } else if app.ffmpeg_available {
                 "生成视频".to_string()
             } else {
@@ -1880,7 +1879,7 @@ impl WidgetMethods for RasterizerApp {
         // 渲染信息
         if let Some(time) = app.last_render_time {
             ui.separator();
-            ui.label(format!("渲染耗时: {:.2?}", time));
+            ui.label(format!("渲染耗时: {time:.2?}"));
 
             // 显示场景统计信息（直接使用SceneStats）
             if let Some(scene) = &app.scene {

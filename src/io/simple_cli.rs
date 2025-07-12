@@ -31,12 +31,12 @@ impl SimpleCli {
             let temp_config_path = "temp_example_config.toml";
 
             TomlConfigLoader::create_example_config(temp_config_path)
-                .map_err(|e| format!("创建示例配置失败: {}", e))?;
+                .map_err(|e| format!("创建示例配置失败: {e}"))?;
 
-            info!("已创建临时示例配置: {}", temp_config_path);
+            info!("已创建临时示例配置: {temp_config_path}");
 
             let settings = TomlConfigLoader::load_from_file(temp_config_path)
-                .map_err(|e| format!("加载示例配置失败: {}", e))?;
+                .map_err(|e| format!("加载示例配置失败: {e}"))?;
 
             let should_start_gui = !cli.headless;
             return Ok((settings, should_start_gui));
@@ -44,9 +44,9 @@ impl SimpleCli {
 
         // 加载配置文件或使用默认设置
         let settings = if let Some(config_path) = &cli.config {
-            info!("加载配置文件: {}", config_path);
+            info!("加载配置文件: {config_path}");
             TomlConfigLoader::load_from_file(config_path)
-                .map_err(|e| format!("配置文件加载失败: {}", e))?
+                .map_err(|e| format!("配置文件加载失败: {e}"))?
         } else {
             info!("使用默认设置");
             RenderSettings::default()

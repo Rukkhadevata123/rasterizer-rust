@@ -78,7 +78,7 @@ impl Material {
                     }
                 }
             }
-            _ => warn!("未知的纹理类型: {}", texture_type),
+            _ => warn!("未知的纹理类型: {texture_type}"),
         }
         self
     }

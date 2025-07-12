@@ -13,7 +13,7 @@ impl TomlConfigLoader {
     /// 从TOML文件加载完整配置
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<RenderSettings, String> {
         let content = std::fs::read_to_string(path.as_ref())
-            .map_err(|e| format!("读取配置文件失败: {}", e))?;
+            .map_err(|e| format!("读取配置文件失败: {e}"))?;
 
         Self::load_from_content(&content)
     }
@@ -21,7 +21,7 @@ impl TomlConfigLoader {
     /// 从TOML内容字符串加载配置
     pub fn load_from_content(content: &str) -> Result<RenderSettings, String> {
         let toml_value: Value =
-            toml::from_str(content).map_err(|e| format!("解析TOML失败: {}", e))?;
+            toml::from_str(content).map_err(|e| format!("解析TOML失败: {e}"))?;
 
         Self::parse_toml_to_settings(toml_value)
     }
@@ -29,7 +29,7 @@ impl TomlConfigLoader {
     /// 保存配置到TOML文件
     pub fn save_to_file<P: AsRef<Path>>(settings: &RenderSettings, path: P) -> Result<(), String> {
         let toml_content = Self::settings_to_toml(settings)?;
-        std::fs::write(path, toml_content).map_err(|e| format!("写入配置文件失败: {}", e))
+        std::fs::write(path, toml_content).map_err(|e| format!("写入配置文件失败: {e}"))
     }
 
     /// 直接生成示例配置文件
@@ -42,7 +42,7 @@ impl TomlConfigLoader {
         };
 
         // 保存配置
-        Self::save_to_file(&settings, path).map_err(|e| format!("创建示例配置失败: {}", e))
+        Self::save_to_file(&settings, path).map_err(|e| format!("创建示例配置失败: {e}"))
     }
 
     // ===== TOML -> RenderSettings 转换 =====
@@ -173,7 +173,7 @@ impl TomlConfigLoader {
             if [1, 2, 4, 8].contains(&samples) {
                 settings.msaa_samples = samples;
             } else {
-                warn!("无效的MSAA采样数 {}, 使用默认值1", samples);
+                warn!("无效的MSAA采样数 {samples}, 使用默认值1");
             }
         }
         Ok(())
@@ -271,7 +271,7 @@ impl TomlConfigLoader {
             .and_then(|v| v.as_str())
             .unwrap_or("1,1,1");
 
-        let color_vec = parse_vec3(color_str).map_err(|e| format!("解析光源颜色失败: {}", e))?;
+        let color_vec = parse_vec3(color_str).map_err(|e| format!("解析光源颜色失败: {e}"))?;
 
         match light_type {
             "directional" => {
@@ -281,7 +281,7 @@ impl TomlConfigLoader {
                     .ok_or("方向光缺少direction字段")?;
 
                 let direction_vec =
-                    parse_vec3(direction_str).map_err(|e| format!("解析方向光方向失败: {}", e))?;
+                    parse_vec3(direction_str).map_err(|e| format!("解析方向光方向失败: {e}"))?;
 
                 let mut light = Light::directional(direction_vec, color_vec, intensity);
                 if let Light::Directional {
@@ -300,7 +300,7 @@ impl TomlConfigLoader {
                     .ok_or("点光源缺少position字段")?;
 
                 let position_point =
-                    parse_point3(position_str).map_err(|e| format!("解析点光源位置失败: {}", e))?;
+                    parse_point3(position_str).map_err(|e| format!("解析点光源位置失败: {e}"))?;
 
                 let constant = light_table
                     .get("constant_attenuation")
@@ -330,7 +330,7 @@ impl TomlConfigLoader {
                 }
                 Ok(light)
             }
-            _ => Err(format!("未知的光源类型: {}", light_type)),
+            _ => Err(format!("未知的光源类型: {light_type}")),
         }
     }
 
@@ -460,7 +460,7 @@ impl TomlConfigLoader {
                 "CameraOrbit" => AnimationType::CameraOrbit,
                 "ObjectLocalRotation" => AnimationType::ObjectLocalRotation,
                 "None" => AnimationType::None,
-                _ => return Err(format!("未知的动画类型: {}", animation_type)),
+                _ => return Err(format!("未知的动画类型: {animation_type}")),
             };
         }
         if let Some(rotation_axis) = animation.get("rotation_axis").and_then(|v| v.as_str()) {
@@ -469,7 +469,7 @@ impl TomlConfigLoader {
                 "Y" => RotationAxis::Y,
                 "Z" => RotationAxis::Z,
                 "Custom" => RotationAxis::Custom,
-                _ => return Err(format!("未知的旋转轴: {}", rotation_axis)),
+                _ => return Err(format!("未知的旋转轴: {rotation_axis}")),
             };
         }
         if let Some(custom_rotation_axis) = animation
@@ -515,8 +515,7 @@ impl TomlConfigLoader {
                 settings.shadow_map_size = size;
             } else {
                 warn!(
-                    "无效的阴影贴图尺寸 {}, 必须是64-4096之间的2的幂，使用默认值256",
-                    size
+                    "无效的阴影贴图尺寸 {size}, 必须是64-4096之间的2的幂，使用默认值256"
                 );
             }
         }
@@ -541,19 +540,19 @@ impl TomlConfigLoader {
         // [files] 部分
         content.push_str("[files]\n");
         if let Some(obj) = &settings.obj {
-            content.push_str(&format!("obj = \"{}\"\n", obj));
+            content.push_str(&format!("obj = \"{obj}\"\n"));
         } else {
             content.push_str("# obj = \"path/to/your/model.obj\"  # 取消注释并设置OBJ文件路径\n");
         }
         content.push_str(&format!("output = \"{}\"\n", settings.output));
         content.push_str(&format!("output_dir = \"{}\"\n", settings.output_dir));
         if let Some(texture) = &settings.texture {
-            content.push_str(&format!("texture = \"{}\"\n", texture));
+            content.push_str(&format!("texture = \"{texture}\"\n"));
         } else {
             content.push_str("# texture = \"path/to/texture.jpg\"  # 可选：覆盖MTL文件中的纹理\n");
         }
         if let Some(bg_image) = &settings.background_image_path {
-            content.push_str(&format!("background_image = \"{}\"\n", bg_image));
+            content.push_str(&format!("background_image = \"{bg_image}\"\n"));
         } else {
             content.push_str("# background_image = \"path/to/background.jpg\"  # 可选：背景图片\n");
         }
@@ -622,10 +621,10 @@ impl TomlConfigLoader {
                         ..
                     } => {
                         content.push_str("type = \"directional\"\n");
-                        content.push_str(&format!("enabled = {}\n", enabled));
-                        content.push_str(&format!("direction = \"{}\"\n", direction_str));
-                        content.push_str(&format!("color = \"{}\"\n", color_str));
-                        content.push_str(&format!("intensity = {}\n", intensity));
+                        content.push_str(&format!("enabled = {enabled}\n"));
+                        content.push_str(&format!("direction = \"{direction_str}\"\n"));
+                        content.push_str(&format!("color = \"{color_str}\"\n"));
+                        content.push_str(&format!("intensity = {intensity}\n"));
                     }
                     Light::Point {
                         enabled,
@@ -638,18 +637,16 @@ impl TomlConfigLoader {
                         ..
                     } => {
                         content.push_str("type = \"point\"\n");
-                        content.push_str(&format!("enabled = {}\n", enabled));
-                        content.push_str(&format!("position = \"{}\"\n", position_str));
-                        content.push_str(&format!("color = \"{}\"\n", color_str));
-                        content.push_str(&format!("intensity = {}\n", intensity));
+                        content.push_str(&format!("enabled = {enabled}\n"));
+                        content.push_str(&format!("position = \"{position_str}\"\n"));
+                        content.push_str(&format!("color = \"{color_str}\"\n"));
+                        content.push_str(&format!("intensity = {intensity}\n"));
                         content.push_str(&format!(
-                            "constant_attenuation = {}\n",
-                            constant_attenuation
+                            "constant_attenuation = {constant_attenuation}\n"
                         ));
-                        content.push_str(&format!("linear_attenuation = {}\n", linear_attenuation));
+                        content.push_str(&format!("linear_attenuation = {linear_attenuation}\n"));
                         content.push_str(&format!(
-                            "quadratic_attenuation = {}\n",
-                            quadratic_attenuation
+                            "quadratic_attenuation = {quadratic_attenuation}\n"
                         ));
                     }
                 }

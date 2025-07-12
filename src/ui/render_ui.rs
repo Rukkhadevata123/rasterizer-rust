@@ -48,7 +48,7 @@ impl RenderUIMethods for RasterizerApp {
             Ok(Some(path)) => {
                 if let Some(path_str) = path.to_str() {
                     self.settings.obj = Some(path_str.to_string());
-                    self.status_message = format!("已选择模型: {}", path_str);
+                    self.status_message = format!("已选择模型: {path_str}");
 
                     // OBJ文件变化需要重新加载场景和重新渲染
                     self.interface_interaction.anything_changed = true;
@@ -60,7 +60,7 @@ impl RenderUIMethods for RasterizerApp {
                 self.status_message = "文件选择被取消".to_string();
             }
             Err(e) => {
-                self.set_error(format!("文件选择器错误: {}", e));
+                self.set_error(format!("文件选择器错误: {e}"));
             }
         }
     }
@@ -77,7 +77,7 @@ impl RenderUIMethods for RasterizerApp {
             Ok(Some(path)) => {
                 if let Some(path_str) = path.to_str() {
                     self.settings.texture = Some(path_str.to_string());
-                    self.status_message = format!("已选择纹理: {}", path_str);
+                    self.status_message = format!("已选择纹理: {path_str}");
 
                     // 纹理变化需要重新渲染
                     self.interface_interaction.anything_changed = true;
@@ -87,7 +87,7 @@ impl RenderUIMethods for RasterizerApp {
                 self.status_message = "纹理选择被取消".to_string();
             }
             Err(e) => {
-                self.set_error(format!("纹理选择错误: {}", e));
+                self.set_error(format!("纹理选择错误: {e}"));
             }
         }
     }
@@ -110,17 +110,17 @@ impl RenderUIMethods for RasterizerApp {
                     // 使用 ModelLoader 验证背景图片是否有效
                     match ModelLoader::validate_resources(&self.settings) {
                         Ok(_) => {
-                            self.status_message = format!("背景图片配置成功: {}", path_str);
+                            self.status_message = format!("背景图片配置成功: {path_str}");
 
                             // 清除已渲染的图像，强制重新渲染以应用新背景
                             self.rendered_image = None;
 
-                            debug!("背景图片路径已设置: {}", path_str);
+                            debug!("背景图片路径已设置: {path_str}");
                             debug!("背景图片将在下次渲染时由 FrameBuffer 自动加载");
                         }
                         Err(e) => {
                             // 验证失败，重置背景设置
-                            self.set_error(format!("背景图片验证失败: {}", e));
+                            self.set_error(format!("背景图片验证失败: {e}"));
                             self.settings.background_image_path = None;
                             self.settings.use_background_image = false;
                         }
@@ -131,7 +131,7 @@ impl RenderUIMethods for RasterizerApp {
                 self.status_message = "图片选择被取消".to_string();
             }
             Err(e) => {
-                self.set_error(format!("文件选择器错误: {}", e));
+                self.set_error(format!("文件选择器错误: {e}"));
             }
         }
     }
@@ -147,14 +147,14 @@ impl RenderUIMethods for RasterizerApp {
             Ok(Some(path)) => {
                 if let Some(path_str) = path.to_str() {
                     self.settings.output_dir = path_str.to_string();
-                    self.status_message = format!("已选择输出目录: {}", path_str);
+                    self.status_message = format!("已选择输出目录: {path_str}");
                 }
             }
             Ok(None) => {
                 self.status_message = "目录选择被取消".to_string();
             }
             Err(e) => {
-                self.set_error(format!("目录选择器错误: {}", e));
+                self.set_error(format!("目录选择器错误: {e}"));
             }
         }
     }
@@ -173,10 +173,10 @@ impl RenderUIMethods for RasterizerApp {
                     match TomlConfigLoader::load_from_file(path_str) {
                         Ok(loaded_settings) => {
                             self.apply_loaded_config(loaded_settings);
-                            self.status_message = format!("配置已加载: {}", path_str);
+                            self.status_message = format!("配置已加载: {path_str}");
                         }
                         Err(e) => {
-                            self.set_error(format!("配置加载失败: {}", e));
+                            self.set_error(format!("配置加载失败: {e}"));
                         }
                     }
                 }
@@ -185,7 +185,7 @@ impl RenderUIMethods for RasterizerApp {
                 self.status_message = "配置加载被取消".to_string();
             }
             Err(e) => {
-                self.set_error(format!("文件选择器错误: {}", e));
+                self.set_error(format!("文件选择器错误: {e}"));
             }
         }
     }
@@ -210,10 +210,10 @@ impl RenderUIMethods for RasterizerApp {
                 if let Some(path_str) = save_path.to_str() {
                     match TomlConfigLoader::save_to_file(&self.settings, path_str) {
                         Ok(_) => {
-                            self.status_message = format!("配置已保存: {}", path_str);
+                            self.status_message = format!("配置已保存: {path_str}");
                         }
                         Err(e) => {
-                            self.set_error(format!("配置保存失败: {}", e));
+                            self.set_error(format!("配置保存失败: {e}"));
                         }
                     }
                 }
@@ -222,7 +222,7 @@ impl RenderUIMethods for RasterizerApp {
                 self.status_message = "配置保存被取消".to_string();
             }
             Err(e) => {
-                self.set_error(format!("文件选择器错误: {}", e));
+                self.set_error(format!("文件选择器错误: {e}"));
             }
         }
     }

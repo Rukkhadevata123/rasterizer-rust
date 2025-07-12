@@ -405,7 +405,7 @@ impl RenderSettings {
 
         if let Some(obj_path) = &self.obj {
             if !std::path::Path::new(obj_path).exists() {
-                return Err(format!("错误: 找不到OBJ文件 '{}'", obj_path));
+                return Err(format!("错误: 找不到OBJ文件 '{obj_path}'"));
             }
         } else {
             return Err("错误: 未指定OBJ文件路径".to_string());

@@ -18,13 +18,13 @@ pub fn render_single_frame(
     output_name: &str,
 ) -> Result<(), String> {
     let frame_start_time = Instant::now();
-    debug!("渲染帧: {}", output_name);
+    debug!("渲染帧: {output_name}");
 
     // 直接渲染场景，无需额外同步
     renderer.render_scene(scene, settings);
 
     // 保存输出图像
-    debug!("保存 {} 的输出图像...", output_name);
+    debug!("保存 {output_name} 的输出图像...");
     save_render_with_settings(renderer, settings, Some(output_name))?;
 
     debug!(
@@ -112,7 +112,7 @@ pub fn run_animation_loop(
     // 计算旋转方向
     let rotation_axis_vec = get_animation_axis_vector(settings);
     if settings.rotation_axis == RotationAxis::Custom {
-        debug!("自定义旋转轴: {:?}", rotation_axis_vec);
+        debug!("自定义旋转轴: {rotation_axis_vec:?}");
     }
 
     // 计算每帧的旋转角度
@@ -135,7 +135,7 @@ pub fn run_animation_loop(
         }
 
         // 渲染和保存当前帧
-        let frame_output_name = format!("frame_{:03}", frame_num);
+        let frame_output_name = format!("frame_{frame_num:03}");
         render_single_frame(scene, renderer, settings, &frame_output_name)?;
 
         debug!(

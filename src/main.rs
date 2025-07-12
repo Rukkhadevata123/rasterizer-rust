@@ -41,7 +41,7 @@ fn main() -> Result<(), String> {
     if should_start_gui {
         info!("启动GUI模式...");
         if let Err(err) = start_gui(settings) {
-            error!("GUI启动失败: {}", err);
+            error!("GUI启动失败: {err}");
             return Err("GUI启动失败".to_string());
         }
         return Ok(());
@@ -65,13 +65,13 @@ fn main() -> Result<(), String> {
     // 验证资源
     info!("验证资源...");
     if let Err(e) = ModelLoader::validate_resources(&settings) {
-        warn!("{}", e);
+        warn!("{e}");
     }
 
     // 加载模型和创建场景
     let (mut scene, _model_data) = ModelLoader::load_and_create_scene(obj_path, &settings)
         .map_err(|e| {
-            error!("模型加载失败: {}", e);
+            error!("模型加载失败: {e}");
             "模型加载失败".to_string()
         })?;
 
@@ -81,7 +81,7 @@ fn main() -> Result<(), String> {
     // 渲染动画或单帧
     if settings.animate {
         run_animation_loop(&mut scene, &mut renderer, &settings).map_err(|e| {
-            error!("动画渲染失败: {}", e);
+            error!("动画渲染失败: {e}");
             "动画渲染失败".to_string()
         })?;
     } else {
@@ -101,7 +101,7 @@ fn main() -> Result<(), String> {
 
         if settings.use_background_image {
             if let Some(bg_path) = &settings.background_image_path {
-                info!("背景图片: {}", bg_path);
+                info!("背景图片: {bg_path}");
             }
         }
         if settings.enable_gradient_background {
@@ -113,7 +113,7 @@ fn main() -> Result<(), String> {
 
         render_single_frame(&mut scene, &mut renderer, &settings, &settings.output).map_err(
             |e| {
-                error!("单帧渲染失败: {}", e);
+                error!("单帧渲染失败: {e}");
                 "单帧渲染失败".to_string()
             },
         )?;

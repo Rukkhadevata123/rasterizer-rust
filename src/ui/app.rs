@@ -126,6 +126,12 @@ impl RasterizerApp {
 
         cc.egui_ctx.set_fonts(fonts);
 
+        // 浅色主题
+        // cc.egui_ctx.set_visuals(egui::Visuals::light());
+
+        // 深色主题
+        cc.egui_ctx.set_visuals(egui::Visuals::dark());
+
         // 从settings字符串初始化GUI专用向量字段
         let object_position_vec = if let Ok(pos) = parse_vec3(&settings.object_position) {
             pos
@@ -386,8 +392,7 @@ impl eframe::App for RasterizerApp {
                     let percent = (progress as f32 / total_frames as f32 * 100.0).round();
 
                     self.status_message = format!(
-                        "生成视频中... ({}/{}，{:.0}%)",
-                        progress, total_frames, percent
+                        "生成视频中... ({progress}/{total_frames}，{percent:.0}%)"
                     );
 
                     ctx.request_repaint_after(std::time::Duration::from_millis(500));

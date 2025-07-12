@@ -110,7 +110,7 @@ impl CoreMethods for RasterizerApp {
             }
         };
 
-        self.status_message = format!("正在加载 {}...", obj_path);
+        self.status_message = format!("正在加载 {obj_path}...");
         ctx.request_repaint(); // 立即更新状态消息
 
         // 加载模型
@@ -131,7 +131,7 @@ impl CoreMethods for RasterizerApp {
                 self.status_message = "模型加载成功，开始渲染...".to_string();
             }
             Err(e) => {
-                self.set_error(format!("加载模型失败: {}", e));
+                self.set_error(format!("加载模型失败: {e}"));
                 return;
             }
         }
@@ -142,7 +142,7 @@ impl CoreMethods for RasterizerApp {
         // 确保输出目录存在
         let output_dir = self.settings.output_dir.clone();
         if let Err(e) = fs::create_dir_all(&output_dir) {
-            self.set_error(format!("创建输出目录失败: {}", e));
+            self.set_error(format!("创建输出目录失败: {e}"));
             return;
         }
 
@@ -155,7 +155,7 @@ impl CoreMethods for RasterizerApp {
 
             // 保存输出文件
             if let Err(e) = save_render_with_settings(&self.renderer, &self.settings, None) {
-                warn!("保存渲染结果时发生错误: {}", e);
+                warn!("保存渲染结果时发生错误: {e}");
             }
 
             // 更新状态
@@ -164,8 +164,7 @@ impl CoreMethods for RasterizerApp {
             let output_name = self.settings.output.clone();
             let elapsed = self.last_render_time.unwrap();
             self.status_message = format!(
-                "渲染完成，耗时 {:.2?}，已保存到 {}/{}",
-                elapsed, output_dir, output_name
+                "渲染完成，耗时 {elapsed:.2?}，已保存到 {output_dir}/{output_name}"
             );
 
             // 在UI中显示渲染结果
@@ -283,13 +282,13 @@ impl CoreMethods for RasterizerApp {
     fn take_screenshot(&mut self) -> Result<String, String> {
         // 确保输出目录存在
         if let Err(e) = fs::create_dir_all(&self.settings.output_dir) {
-            return Err(format!("创建输出目录失败: {}", e));
+            return Err(format!("创建输出目录失败: {e}"));
         }
 
         // 生成唯一的文件名（基于时间戳）
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| format!("获取时间戳失败: {}", e))?
+            .map_err(|e| format!("获取时间戳失败: {e}"))?
             .as_secs();
 
         let snapshot_name = format!("{}_snapshot_{}", self.settings.output, timestamp);
@@ -304,7 +303,7 @@ impl CoreMethods for RasterizerApp {
 
         // 返回颜色图像的路径
         let color_path =
-            Path::new(&self.settings.output_dir).join(format!("{}_color.png", snapshot_name));
+            Path::new(&self.settings.output_dir).join(format!("{snapshot_name}_color.png"));
         Ok(color_path.to_string_lossy().to_string())
     }
 
@@ -344,8 +343,8 @@ impl CoreMethods for RasterizerApp {
 
     /// 设置错误信息
     fn set_error(&mut self, message: String) {
-        error!("{}", message);
-        self.status_message = format!("错误: {}", message);
+        error!("{message}");
+        self.status_message = format!("错误: {message}");
     }
 
     /// 重置应用状态到默认值
@@ -471,8 +470,7 @@ impl CoreMethods for RasterizerApp {
                 let percent = (progress as f32 / total_frames as f32 * 100.0).round();
 
                 self.status_message = format!(
-                    "生成视频中... ({}/{}，{:.0}%)",
-                    progress, total_frames, percent
+                    "生成视频中... ({progress}/{total_frames}，{percent:.0}%)"
                 );
             } else {
                 self.status_message = "已清空预渲染缓冲区".to_string();

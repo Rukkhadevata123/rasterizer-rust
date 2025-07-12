@@ -16,12 +16,12 @@ impl ModelLoader {
         obj_path: &str,
         settings: &RenderSettings,
     ) -> Result<(Scene, ModelData), String> {
-        info!("加载模型：{}", obj_path);
+        info!("加载模型：{obj_path}");
         let load_start = Instant::now();
 
         // 检查文件存在
         if !Path::new(obj_path).exists() {
-            return Err(format!("输入的 OBJ 文件未找到：{}", obj_path));
+            return Err(format!("输入的 OBJ 文件未找到：{obj_path}"));
         }
 
         // 加载模型数据
@@ -51,7 +51,7 @@ impl ModelLoader {
         // 验证 OBJ 文件
         if let Some(obj_path) = &settings.obj {
             if !Path::new(obj_path).exists() {
-                return Err(format!("OBJ 文件不存在: {}", obj_path));
+                return Err(format!("OBJ 文件不存在: {obj_path}"));
             }
         }
 
@@ -59,7 +59,7 @@ impl ModelLoader {
         if settings.use_background_image {
             if let Some(bg_path) = &settings.background_image_path {
                 if !Path::new(bg_path).exists() {
-                    return Err(format!("背景图片文件不存在: {}", bg_path));
+                    return Err(format!("背景图片文件不存在: {bg_path}"));
                 }
             } else {
                 return Err("启用了背景图片但未指定路径".to_string());
@@ -69,7 +69,7 @@ impl ModelLoader {
         // 验证纹理文件（如果指定）
         if let Some(texture_path) = &settings.texture {
             if !Path::new(texture_path).exists() {
-                return Err(format!("纹理文件不存在: {}", texture_path));
+                return Err(format!("纹理文件不存在: {texture_path}"));
             }
         }
 

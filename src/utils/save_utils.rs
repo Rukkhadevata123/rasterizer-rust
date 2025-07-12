@@ -8,8 +8,8 @@ use std::path::Path;
 /// 保存RGB图像数据到PNG文件
 pub fn save_image(path: &str, data: &[u8], width: u32, height: u32) {
     match image::save_buffer(path, data, width, height, ColorType::Rgb8) {
-        Ok(_) => info!("图像已保存到 {}", path),
-        Err(e) => warn!("保存图像到 {} 时出错: {}", path, e),
+        Ok(_) => info!("图像已保存到 {path}"),
+        Err(e) => warn!("保存图像到 {path} 时出错: {e}"),
     }
 }
 
@@ -47,8 +47,7 @@ pub fn normalize_depth(depth_buffer: &[f32], min_percentile: f32, max_percentile
             }
         }
         debug!(
-            "使用百分位数归一化深度: [{:.1}%, {:.1}%] -> [{:.3}, {:.3}]",
-            min_percentile, max_percentile, min_clip, max_clip
+            "使用百分位数归一化深度: [{min_percentile:.1}%, {max_percentile:.1}%] -> [{min_clip:.3}, {max_clip:.3}]"
         );
     } else {
         warn!("没有足够的有限深度值进行百分位裁剪。使用默认范围 [0.1, 10.0]");
@@ -85,7 +84,7 @@ pub fn save_render_result(
 ) -> Result<(), String> {
     // 保存彩色图像
     let color_path = Path::new(output_dir)
-        .join(format!("{}_color.png", output_name))
+        .join(format!("{output_name}_color.png"))
         .to_str()
         .ok_or_else(|| "创建彩色输出路径字符串失败".to_string())?
         .to_string();
@@ -107,7 +106,7 @@ pub fn save_render_result(
             );
 
             let depth_path = Path::new(output_dir)
-                .join(format!("{}_depth.png", output_name))
+                .join(format!("{output_name}_depth.png"))
                 .to_str()
                 .ok_or_else(|| "创建深度输出路径字符串失败".to_string())?
                 .to_string();

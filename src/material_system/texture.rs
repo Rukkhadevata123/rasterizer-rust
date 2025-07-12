@@ -28,7 +28,7 @@ impl Texture {
                 data: TextureData::Image(Arc::new(img)),
             }),
             Err(e) => {
-                warn!("无法加载纹理: {}", e);
+                warn!("无法加载纹理: {e}");
                 None
             }
         }
@@ -96,7 +96,7 @@ impl Texture {
 
 pub fn load_texture<P: AsRef<Path>>(path: P, default_color: Vector3<f32>) -> Texture {
     Texture::from_file(path).unwrap_or_else(|| {
-        warn!("无法加载纹理，使用默认颜色 {:?}", default_color);
+        warn!("无法加载纹理，使用默认颜色 {default_color:?}");
         Texture::solid_color(default_color)
     })
 }

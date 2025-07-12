@@ -31,7 +31,7 @@ fn generate_smooth_vertex_normals(
 
         // 边界检查
         if idx0 >= num_vertices || idx1 >= num_vertices || idx2 >= num_vertices {
-            warn!("面 {} 包含越界的顶点索引，跳过", i);
+            warn!("面 {i} 包含越界的顶点索引，跳过");
             continue;
         }
 
@@ -64,8 +64,7 @@ fn generate_smooth_vertex_normals(
 
     if zero_norm_count > 0 {
         warn!(
-            "{} 个顶点的法线为零，设置为默认值 [0, 1, 0]",
-            zero_norm_count
+            "{zero_norm_count} 个顶点的法线为零，设置为默认值 [0, 1, 0]"
         );
     }
 
@@ -85,7 +84,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
     settings: &RenderSettings,
 ) -> Result<ModelData, String> {
     let obj_path_ref = obj_path.as_ref();
-    info!("加载 OBJ 文件: {:?}", obj_path_ref);
+    info!("加载 OBJ 文件: {obj_path_ref:?}");
 
     // 提取 OBJ 文件的基本名称（不含扩展名）
     let obj_basename = get_basename_from_path(obj_path_ref);
@@ -96,7 +95,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
     // 检查命令行指定的纹理
     let cli_texture: Option<Texture> = if let Some(tex_path_str) = &settings.texture {
         let tex_path = Path::new(tex_path_str);
-        debug!("使用命令行指定的纹理: {:?}", tex_path);
+        debug!("使用命令行指定的纹理: {tex_path:?}");
         let default_color = Vector3::new(0.8, 0.8, 0.8);
         Some(load_texture(tex_path, default_color))
     } else {
@@ -112,7 +111,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
 
     // 加载 OBJ 和关联的 MTL 文件
     let (models, materials_result) =
-        tobj::load_obj(obj_path_ref, &load_options).map_err(|e| format!("加载 OBJ 失败: {}", e))?;
+        tobj::load_obj(obj_path_ref, &load_options).map_err(|e| format!("加载 OBJ 失败: {e}"))?;
 
     // 加载材质
     let mut loaded_materials: Vec<Material> = match materials_result {
@@ -182,7 +181,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
             }
         }
         Err(e) => {
-            warn!("加载材质失败: {}", e);
+            warn!("加载材质失败: {e}");
             Vec::new()
         }
     };
@@ -247,7 +246,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
         };
 
         if mesh.indices.is_empty() {
-            debug!("跳过没有索引的网格 '{}'", mesh_name);
+            debug!("跳过没有索引的网格 '{mesh_name}'");
             continue;
         }
 
@@ -256,7 +255,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
 
         // 如果需要，生成平滑顶点法线
         let generated_normals: Option<Vec<Vector3<f32>>> = if !has_normals {
-            warn!("网格 '{}' 缺少法线，计算平滑顶点法线", mesh_name);
+            warn!("网格 '{mesh_name}' 缺少法线，计算平滑顶点法线");
 
             let positions: Vec<Point3<f32>> = mesh
                 .positions
@@ -267,7 +266,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
             match generate_smooth_vertex_normals(&positions, &mesh.indices) {
                 Ok(normals) => Some(normals),
                 Err(e) => {
-                    warn!("生成平滑法线错误: {}，使用默认法线 [0,1,0]", e);
+                    warn!("生成平滑法线错误: {e}，使用默认法线 [0,1,0]");
                     Some(vec![Vector3::y(); num_vertices_in_obj])
                 }
             }
@@ -276,7 +275,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
         };
 
         if !has_texcoords {
-            debug!("网格 '{}' 缺少纹理坐标，纹理映射可能不正确", mesh_name);
+            debug!("网格 '{mesh_name}' 缺少纹理坐标，纹理映射可能不正确");
         }
 
         // 顶点去重和索引处理
@@ -305,7 +304,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                         mesh.positions[p_start + 2],
                     )
                 } else {
-                    warn!("遇到无效的 OBJ 位置索引 {}", pos_idx);
+                    warn!("遇到无效的 OBJ 位置索引 {pos_idx}");
                     Point3::origin() // 回退值
                 };
 
@@ -317,7 +316,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                                 .get(pos_idx as usize)
                                 .copied()
                                 .unwrap_or_else(|| {
-                                    warn!("生成的法线索引 {} 越界", pos_idx);
+                                    warn!("生成的法线索引 {pos_idx} 越界");
                                     Vector3::y()
                                 })
                         } else {
@@ -331,7 +330,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                                 )
                                 .normalize()
                             } else {
-                                warn!("遇到无效的 OBJ 法线索引 {}", normal_source_idx);
+                                warn!("遇到无效的 OBJ 法线索引 {normal_source_idx}");
                                 Vector3::y() // 回退值
                             }
                         }
@@ -343,11 +342,11 @@ pub fn load_obj_model<P: AsRef<Path>>(
                                 .get(pos_idx as usize)
                                 .copied()
                                 .unwrap_or_else(|| {
-                                    warn!("生成的法线索引 {} 越界（回退）", pos_idx);
+                                    warn!("生成的法线索引 {pos_idx} 越界（回退）");
                                     Vector3::y()
                                 })
                         } else {
-                            warn!("缺少顶点 {} 的法线索引和生成法线", pos_idx);
+                            warn!("缺少顶点 {pos_idx} 的法线索引和生成法线");
                             Vector3::y()
                         }
                     }
@@ -358,7 +357,7 @@ pub fn load_obj_model<P: AsRef<Path>>(
                     if t_start + 1 < mesh.texcoords.len() {
                         Vector2::new(mesh.texcoords[t_start], mesh.texcoords[t_start + 1])
                     } else {
-                        warn!("遇到无效的 OBJ 纹理坐标索引 {}", idx);
+                        warn!("遇到无效的 OBJ 纹理坐标索引 {idx}");
                         Vector2::zeros() // 回退值
                     }
                 } else {

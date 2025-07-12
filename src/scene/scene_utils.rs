@@ -82,11 +82,11 @@ impl Scene {
     pub fn setup_camera_from_settings(settings: &RenderSettings) -> Result<Camera, String> {
         let aspect_ratio = settings.width as f32 / settings.height as f32;
         let camera_from = parse_point3(&settings.camera_from)
-            .map_err(|e| format!("无效的相机位置格式: {}", e))?;
+            .map_err(|e| format!("无效的相机位置格式: {e}"))?;
         let camera_at =
-            parse_point3(&settings.camera_at).map_err(|e| format!("无效的相机目标格式: {}", e))?;
+            parse_point3(&settings.camera_at).map_err(|e| format!("无效的相机目标格式: {e}"))?;
         let camera_up =
-            parse_vec3(&settings.camera_up).map_err(|e| format!("无效的相机上方向格式: {}", e))?;
+            parse_vec3(&settings.camera_up).map_err(|e| format!("无效的相机上方向格式: {e}"))?;
 
         let camera = match settings.projection.as_str() {
             "perspective" => Camera::perspective(
