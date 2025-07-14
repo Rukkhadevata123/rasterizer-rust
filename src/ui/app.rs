@@ -103,7 +103,7 @@ pub struct InterfaceInteraction {
     pub camera_is_dragging: bool,
     pub camera_is_orbiting: bool,
     pub last_mouse_pos: Option<egui::Pos2>,
-    pub anything_changed: bool, // 标记相机是否发生变化，需要重新渲染
+    pub anything_changed: bool, // 标记相机等是否发生变化，需要重新渲染
 }
 
 impl RasterizerApp {

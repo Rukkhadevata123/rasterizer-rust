@@ -89,16 +89,8 @@ roughness = 0.6             # 中等粗糙度
 ambient_occlusion = 0.8
 emissive = "0.0,0.0,0.0"
 
-# 合并：阴影与环境光遮蔽配置
+
 [shadow]
-# === 环境光遮蔽 ===
-enhanced_ao = true
-ao_strength = 0.6
-
-# === 软阴影 ===
-soft_shadows = true
-shadow_strength = 0.8
-
 # === 阴影映射 (地面阴影) ===
 enable_shadow_mapping = true
 shadow_map_size = 256

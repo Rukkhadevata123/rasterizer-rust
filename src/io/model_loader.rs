@@ -41,7 +41,7 @@ impl ModelLoader {
 
         // 创建场景
         debug!("创建场景...");
-        let scene = Scene::create_from_model_and_settings(model_data.clone(), settings)?;
+        let scene = Scene::new(model_data.clone(), settings)?;
 
         Ok((scene, model_data))
     }

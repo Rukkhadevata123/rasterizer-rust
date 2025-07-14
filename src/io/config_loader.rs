@@ -12,8 +12,8 @@ pub struct TomlConfigLoader;
 impl TomlConfigLoader {
     /// 从TOML文件加载完整配置
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<RenderSettings, String> {
-        let content = std::fs::read_to_string(path.as_ref())
-            .map_err(|e| format!("读取配置文件失败: {e}"))?;
+        let content =
+            std::fs::read_to_string(path.as_ref()).map_err(|e| format!("读取配置文件失败: {e}"))?;
 
         Self::load_from_content(&content)
     }
@@ -486,22 +486,6 @@ impl TomlConfigLoader {
         settings: &mut RenderSettings,
         shadow: &toml::Table,
     ) -> Result<(), String> {
-        // === 环境光遮蔽 ===
-        if let Some(enhanced_ao) = shadow.get("enhanced_ao").and_then(|v| v.as_bool()) {
-            settings.enhanced_ao = enhanced_ao;
-        }
-        if let Some(ao_strength) = shadow.get("ao_strength").and_then(|v| v.as_float()) {
-            settings.ao_strength = ao_strength as f32;
-        }
-
-        // === 软阴影 ===
-        if let Some(soft_shadows) = shadow.get("soft_shadows").and_then(|v| v.as_bool()) {
-            settings.soft_shadows = soft_shadows;
-        }
-        if let Some(shadow_strength) = shadow.get("shadow_strength").and_then(|v| v.as_float()) {
-            settings.shadow_strength = shadow_strength as f32;
-        }
-
         // === 阴影映射 ===
         if let Some(enable_shadow_mapping) = shadow
             .get("enable_shadow_mapping")
@@ -514,9 +498,7 @@ impl TomlConfigLoader {
             if (64..=4096).contains(&size) && size.is_power_of_two() {
                 settings.shadow_map_size = size;
             } else {
-                warn!(
-                    "无效的阴影贴图尺寸 {size}, 必须是64-4096之间的2的幂，使用默认值256"
-                );
+                warn!("无效的阴影贴图尺寸 {size}, 必须是64-4096之间的2的幂，使用默认值256");
             }
         }
         if let Some(shadow_bias) = shadow.get("shadow_bias").and_then(|v| v.as_float()) {
@@ -641,9 +623,8 @@ impl TomlConfigLoader {
                         content.push_str(&format!("position = \"{position_str}\"\n"));
                         content.push_str(&format!("color = \"{color_str}\"\n"));
                         content.push_str(&format!("intensity = {intensity}\n"));
-                        content.push_str(&format!(
-                            "constant_attenuation = {constant_attenuation}\n"
-                        ));
+                        content
+                            .push_str(&format!("constant_attenuation = {constant_attenuation}\n"));
                         content.push_str(&format!("linear_attenuation = {linear_attenuation}\n"));
                         content.push_str(&format!(
                             "quadratic_attenuation = {quadratic_attenuation}\n"
@@ -740,12 +721,6 @@ impl TomlConfigLoader {
         // [shadow] 部分
         content.push_str("# 🌒 阴影与环境光遮蔽配置\n");
         content.push_str("[shadow]\n");
-        content.push_str("# === 环境光遮蔽 ===\n");
-        content.push_str(&format!("enhanced_ao = {}\n", settings.enhanced_ao));
-        content.push_str(&format!("ao_strength = {}\n", settings.ao_strength));
-        content.push_str("# === 软阴影 ===\n");
-        content.push_str(&format!("soft_shadows = {}\n", settings.soft_shadows));
-        content.push_str(&format!("shadow_strength = {}\n", settings.shadow_strength));
         content.push_str("# === 阴影映射 (地面阴影) ===\n");
         content.push_str(&format!(
             "enable_shadow_mapping = {}\n",

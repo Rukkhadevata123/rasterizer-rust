@@ -51,7 +51,7 @@ impl Default for CameraParams {
     }
 }
 
-/// 简化的相机类，移除内部可变性和未使用方法
+/// 简化的相机类
 #[derive(Debug, Clone)]
 pub struct Camera {
     pub params: CameraParams,

@@ -447,50 +447,6 @@ impl WidgetMethods for RasterizerApp {
 
         // 修改原有的增强光照效果组，添加阴影映射
         ui.group(|ui| {
-            ui.label(RichText::new("增强光照效果").size(14.0).strong());
-
-            let old_enhanced_ao = app.settings.enhanced_ao;
-            let resp1 = ui.checkbox(&mut app.settings.enhanced_ao, "增强环境光遮蔽");
-            if app.settings.enhanced_ao != old_enhanced_ao {
-                app.interface_interaction.anything_changed = true;
-            }
-            Self::add_tooltip(resp1, ctx, "基于几何特征增强环境光遮蔽效果，让凹陷区域更暗");
-
-            if app.settings.enhanced_ao {
-                ui.horizontal(|ui| {
-                    let old_ao = app.settings.ao_strength;
-                    let resp = ui.add(
-                        egui::Slider::new(&mut app.settings.ao_strength, 0.0..=1.0).text("AO强度"),
-                    );
-                    if (app.settings.ao_strength - old_ao).abs() > f32::EPSILON {
-                        app.interface_interaction.anything_changed = true;
-                    }
-                    Self::add_tooltip(resp, ctx, "控制环境光遮蔽的强度，值越大阴影越明显");
-                });
-            }
-
-            let old_soft_shadows = app.settings.soft_shadows;
-            let resp2 = ui.checkbox(&mut app.settings.soft_shadows, "软阴影");
-            if app.settings.soft_shadows != old_soft_shadows {
-                app.interface_interaction.anything_changed = true;
-            }
-            Self::add_tooltip(resp2, ctx, "为多光源计算软阴影效果，让光照过渡更自然");
-
-            if app.settings.soft_shadows {
-                ui.horizontal(|ui| {
-                    let old_shadow = app.settings.shadow_strength;
-                    let resp = ui.add(
-                        egui::Slider::new(&mut app.settings.shadow_strength, 0.0..=1.0)
-                            .text("阴影强度"),
-                    );
-                    if (app.settings.shadow_strength - old_shadow).abs() > f32::EPSILON {
-                        app.interface_interaction.anything_changed = true;
-                    }
-                    Self::add_tooltip(resp, ctx, "控制软阴影的强度，值越大阴影对比越强");
-                });
-            }
-
-            ui.separator();
 
             // 阴影映射设置
             let old_shadow_mapping = app.settings.enable_shadow_mapping;

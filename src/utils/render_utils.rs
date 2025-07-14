@@ -10,7 +10,7 @@ use std::time::Instant;
 
 const BASE_SPEED: f32 = 60.0; // 1s旋转60度
 
-/// 渲染单帧并保存结果（精简版本）
+/// 渲染单帧并保存结果
 pub fn render_single_frame(
     scene: &mut Scene,
     renderer: &mut Renderer,
@@ -35,7 +35,7 @@ pub fn render_single_frame(
     Ok(())
 }
 
-/// 执行单个步骤的场景动画（精简版本）
+/// 执行单个步骤的场景动画
 pub fn animate_scene_step(
     scene: &mut Scene,
     animation_type: &AnimationType,
@@ -86,7 +86,7 @@ pub fn calculate_rotation_parameters(rotation_speed: f32, fps: usize) -> (f32, f
     )
 }
 
-/// 执行完整的动画渲染循环（精简版本）
+/// 执行完整的动画渲染循环
 pub fn run_animation_loop(
     scene: &mut Scene,
     renderer: &mut Renderer,

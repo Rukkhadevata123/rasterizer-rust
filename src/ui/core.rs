@@ -163,9 +163,8 @@ impl CoreMethods for RasterizerApp {
             let output_dir = self.settings.output_dir.clone();
             let output_name = self.settings.output.clone();
             let elapsed = self.last_render_time.unwrap();
-            self.status_message = format!(
-                "渲染完成，耗时 {elapsed:.2?}，已保存到 {output_dir}/{output_name}"
-            );
+            self.status_message =
+                format!("渲染完成，耗时 {elapsed:.2?}，已保存到 {output_dir}/{output_name}");
 
             // 在UI中显示渲染结果
             self.display_render_result(ctx);
@@ -227,11 +226,7 @@ impl CoreMethods for RasterizerApp {
                 // 统一同步所有状态
 
                 // 1. 光源同步
-                scene.lights = self.settings.lights.clone();
-                scene.set_ambient_light(
-                    self.settings.ambient,
-                    self.settings.get_ambient_color_vec(),
-                );
+                scene.set_lights(self.settings.lights.clone());
 
                 // 2. 相机同步
                 if let Ok(from) =
@@ -254,22 +249,30 @@ impl CoreMethods for RasterizerApp {
                 scene.active_camera.update_matrices();
 
                 // 3. 物体变换同步
-                scene.update_object_transform(&self.settings);
+                let (position, rotation_rad, scale) =
+                    self.settings.get_object_transform_components();
+                let final_scale = if self.settings.object_scale != 1.0 {
+                    scale * self.settings.object_scale
+                } else {
+                    scale
+                };
+                scene.set_object_transform(position, rotation_rad, final_scale);
 
                 // 4. 材质参数同步
                 if let Some(model_data) = &mut self.model_data {
                     if self.settings.use_pbr {
                         apply_pbr_parameters(model_data, &self.settings);
                     }
-
                     if self.settings.use_phong {
                         apply_phong_parameters(model_data, &self.settings);
                     }
-
                     scene.object.model_data = model_data.clone();
                 }
 
-                // 5. 执行渲染
+                // 5. 环境光同步
+                scene.set_ambient(self.settings.ambient, self.settings.get_ambient_color_vec());
+
+                // 6. 执行渲染
                 self.renderer.render_scene(scene, &self.settings);
             }
 
@@ -469,9 +472,8 @@ impl CoreMethods for RasterizerApp {
                 let progress = self.video_progress.load(Ordering::SeqCst);
                 let percent = (progress as f32 / total_frames as f32 * 100.0).round();
 
-                self.status_message = format!(
-                    "生成视频中... ({progress}/{total_frames}，{percent:.0}%)"
-                );
+                self.status_message =
+                    format!("生成视频中... ({progress}/{total_frames}，{percent:.0}%)");
             } else {
                 self.status_message = "已清空预渲染缓冲区".to_string();
             }

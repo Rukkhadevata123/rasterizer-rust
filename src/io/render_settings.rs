@@ -125,14 +125,6 @@ pub struct RenderSettings {
     pub emissive: String,
 
     // ===== 阴影设置 =====
-    /// 启用增强环境光遮蔽
-    pub enhanced_ao: bool,
-    /// 环境光遮蔽强度 (0.0-1.0)
-    pub ao_strength: f32,
-    /// 启用软阴影
-    pub soft_shadows: bool,
-    /// 软阴影强度 (0.0-1.0)
-    pub shadow_strength: f32,
 
     /// 启用简单阴影映射（仅地面）
     pub enable_shadow_mapping: bool,
@@ -285,10 +277,6 @@ impl Default for RenderSettings {
             emissive: "0.0,0.0,0.0".to_string(),
 
             // ===== 阴影设置 =====
-            enhanced_ao: true,
-            ao_strength: 0.5,
-            soft_shadows: true,
-            shadow_strength: 0.7,
 
             // 简单阴影映射配置
             enable_shadow_mapping: false, // 启用地面阴影映射

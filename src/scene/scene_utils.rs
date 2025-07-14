@@ -28,66 +28,37 @@ pub struct Scene {
 }
 
 impl Scene {
-    /// 从模型数据创建场景
-    pub fn from_model_data(model_data: ModelData, default_camera: Camera) -> Self {
-        Scene {
-            object: SceneObject::from_model_data(model_data),
-            lights: Vec::new(),
-            active_camera: default_camera,
-            ambient_intensity: 0.2,
-            ambient_color: Vector3::new(1.0, 1.0, 1.0),
+    /// 链式创建场景，自动应用所有设置
+    pub fn new(model_data: ModelData, settings: &RenderSettings) -> Result<Self, String> {
+        let mut model_data = model_data.clone();
+        // 应用材质参数
+        if settings.use_pbr {
+            apply_pbr_parameters(&mut model_data, settings);
         }
-    }
+        if settings.use_phong {
+            apply_phong_parameters(&mut model_data, settings);
+        }
 
-    /// 从模型数据和渲染设置创建完整场景
-    pub fn create_from_model_and_settings(
-        model_data: ModelData,
-        settings: &RenderSettings,
-    ) -> Result<Self, String> {
-        let camera = Self::setup_camera_from_settings(settings)?;
-        let mut modified_model_data = model_data.clone();
-
-        Self::apply_material_parameters(&mut modified_model_data, settings);
-
-        let mut scene = Self::from_model_data(modified_model_data, camera);
+        // 创建对象
+        let mut object = SceneObject::from_model_data(model_data);
 
         // 应用对象变换
-        scene.update_object_transform(settings);
-
-        // 直接使用设置中的光源，无需重复创建
-        scene.lights = settings.lights.clone();
-
-        // 使用按需计算方法获取环境光颜色
-        scene.set_ambient_light(settings.ambient, settings.get_ambient_color_vec());
-
-        Ok(scene)
-    }
-
-    /// 更新对象变换
-    pub fn update_object_transform(&mut self, settings: &RenderSettings) {
         let (position, rotation_rad, scale) = settings.get_object_transform_components();
-
-        // 应用全局缩放
         let final_scale = if settings.object_scale != 1.0 {
             scale * settings.object_scale
         } else {
             scale
         };
+        object.set_transform_from_components(position, rotation_rad, final_scale);
 
-        self.object
-            .set_transform_from_components(position, rotation_rad, final_scale);
-    }
-
-    /// 根据渲染设置创建相机
-    pub fn setup_camera_from_settings(settings: &RenderSettings) -> Result<Camera, String> {
+        // 相机
         let aspect_ratio = settings.width as f32 / settings.height as f32;
-        let camera_from = parse_point3(&settings.camera_from)
-            .map_err(|e| format!("无效的相机位置格式: {e}"))?;
+        let camera_from =
+            parse_point3(&settings.camera_from).map_err(|e| format!("无效的相机位置格式: {e}"))?;
         let camera_at =
             parse_point3(&settings.camera_at).map_err(|e| format!("无效的相机目标格式: {e}"))?;
         let camera_up =
             parse_vec3(&settings.camera_up).map_err(|e| format!("无效的相机上方向格式: {e}"))?;
-
         let camera = match settings.projection.as_str() {
             "perspective" => Camera::perspective(
                 camera_from,
@@ -106,21 +77,54 @@ impl Scene {
             _ => return Err(format!("不支持的投影类型: {}", settings.projection)),
         };
 
-        Ok(camera)
+        // 光源
+        let lights = settings.lights.clone();
+
+        // 环境光
+        let ambient_intensity = settings.ambient;
+        let ambient_color = settings.get_ambient_color_vec();
+
+        Ok(Scene {
+            object,
+            lights,
+            active_camera: camera,
+            ambient_intensity,
+            ambient_color,
+        })
     }
 
-    /// 设置活动相机
-    pub fn set_camera(&mut self, camera: Camera) {
+    /// 链式设置对象变换
+    pub fn set_object_transform(
+        &mut self,
+        position: Vector3<f32>,
+        rotation_rad: Vector3<f32>,
+        scale: Vector3<f32>,
+    ) -> &mut Self {
+        self.object
+            .set_transform_from_components(position, rotation_rad, scale);
+        self
+    }
+
+    /// 链式设置光源
+    pub fn set_lights(&mut self, lights: Vec<Light>) -> &mut Self {
+        self.lights = lights;
+        self
+    }
+
+    /// 链式设置相机
+    pub fn set_camera(&mut self, camera: Camera) -> &mut Self {
         self.active_camera = camera;
+        self
     }
 
-    /// 设置环境光
-    pub fn set_ambient_light(&mut self, intensity: f32, color: Vector3<f32>) {
+    /// 链式设置环境光
+    pub fn set_ambient(&mut self, intensity: f32, color: Vector3<f32>) -> &mut Self {
         self.ambient_intensity = intensity;
         self.ambient_color = color;
+        self
     }
 
-    /// 获取场景统计信息（直接计算，无中间转换）
+    /// 获取场景统计信息
     pub fn get_scene_stats(&self) -> SceneStats {
         let mut vertex_count = 0;
         let mut triangle_count = 0;
@@ -140,19 +144,9 @@ impl Scene {
             light_count: self.lights.len(),
         }
     }
-
-    // 私有辅助方法
-    fn apply_material_parameters(model_data: &mut ModelData, settings: &RenderSettings) {
-        if settings.use_pbr {
-            apply_pbr_parameters(model_data, settings);
-        }
-        if settings.use_phong {
-            apply_phong_parameters(model_data, settings);
-        }
-    }
 }
 
-/// 统一的场景统计信息（删除ObjectStats，只用一个结构体）
+/// 场景统计信息
 #[derive(Debug, Clone)]
 pub struct SceneStats {
     pub vertex_count: usize,

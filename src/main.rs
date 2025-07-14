@@ -2,7 +2,6 @@ use log::{error, info, warn};
 use std::fs;
 use std::time::Instant;
 
-// 声明模块
 mod core;
 mod geometry;
 mod io;
@@ -11,7 +10,6 @@ mod scene;
 mod ui;
 mod utils;
 
-// 导入语句
 use crate::ui::app::start_gui;
 use core::renderer::Renderer;
 use io::model_loader::ModelLoader;
