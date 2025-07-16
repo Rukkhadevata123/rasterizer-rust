@@ -1,0 +1,109 @@
+# 光栅化渲染器配置文件
+# 由 RenderSettings 默认值生成的示例配置
+
+[files]
+obj = "/run/media/yoimiya/Data/Users/Yoimiya/Desktop/LinuxBak/obj_not_upload/nahida/scene.obj"
+output = "output"
+output_dir = "output_rust"
+# texture = "path/to/texture.jpg"  # 可选：覆盖MTL纹理
+# background_image = "path/to/background.jpg"  # 可选：背景图片
+
+[render]
+width = 1024
+height = 1024
+projection = "perspective"
+use_zbuffer = true
+colorize = false
+use_texture = true
+use_gamma = true
+backface_culling = false
+wireframe = false
+cull_small_triangles = false
+min_triangle_area = 0.001
+save_depth = true
+
+[camera]
+from = "-1.4397278,0.56275815,2.0724256"
+at = "-0.13386878,0.056531943,-0.1262863"
+up = "0,1,0"
+fov = 45
+
+[object]
+position = "0,0,0"
+rotation = "90,0,0"
+scale_xyz = "1,1,1"
+scale = 1
+
+[lighting]
+use_lighting = true
+ambient = 0.3
+ambient_color = "0.3,0.4,0.5"
+
+# 光源配置
+[[light]]
+type = "directional"
+enabled = true
+direction = "0,-1,-1"
+color = "1,1,1"
+intensity = 0.8
+
+[[light]]
+type = "directional"
+enabled = true
+direction = "0,1,1"
+color = "1,1,1"
+intensity = 0.8
+
+[[light]]
+type = "directional"
+enabled = true
+direction = "0,1,-1"
+color = "1,1,1"
+intensity = 0.4
+
+[[light]]
+type = "directional"
+enabled = true
+direction = "0,-1,1"
+color = "1,1,1"
+intensity = 0.8
+
+[material]
+use_phong = true
+use_pbr = false
+diffuse_color = "0.8,0.8,0.8"
+diffuse_intensity = 1
+alpha = 1
+specular_color = "0.5,0.5,0.5"
+specular_intensity = 1
+shininess = 32
+base_color = "0.8,0.8,0.8"
+metallic = 0
+roughness = 0.5
+ambient_occlusion = 1
+emissive = "0.0,0.0,0.0"
+
+[background]
+use_background_image = false
+enable_gradient_background = true
+gradient_top_color = "0.5,0.7,1.0"
+gradient_bottom_color = "0.1,0.2,0.4"
+enable_ground_plane = true
+ground_plane_color = "0.3,0.5,0.2"
+ground_plane_height = -0.9
+
+[animation]
+animate = false
+fps = 30
+rotation_speed = 1
+rotation_cycles = 1
+animation_type = "CameraOrbit"
+rotation_axis = "Y"
+custom_rotation_axis = "0,1,0"
+
+# 阴影与环境光遮蔽配置
+[shadow]
+enable_shadow_mapping = true
+shadow_map_size = 4096
+shadow_bias = 0.001
+shadow_distance = 20

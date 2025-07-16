@@ -1,6 +1,6 @@
 # Software Rasterization Renderer in Rust
 
-A high-performance, multi-threaded 3D software rasterizer built from scratch in Rust. This project implements a modern, PBR-correct rendering pipeline, complete with an interactive GUI, a sophisticated caching system, and animation capabilities.
+A high-performance, multi-threaded 3D software rasterizer **built from scratch** in Rust. This project implements a modern, PBR-correct rendering pipeline, complete with an interactive GUI, a sophisticated caching system, and animation capabilities.
 
 [![Rust](https://img.shields.io/badge/rust-1.78%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -24,7 +24,7 @@ This project is a comprehensive implementation of a 3D graphics pipeline in pure
 
 Check our Video Demo:
 
-![Video Demo](./demo/nahida-ui.mp4)
+![Video Demo](https://github.com/user-attachments/assets/6178824d-f03b-4dd9-a31f-6de5d7155a94)
 
 ## Rendering Pipeline
 
@@ -242,9 +242,9 @@ custom_rotation_axis = "0,1,0"
 The material system is designed for flexibility and type safety. Instead of a single, monolithic `Material` struct, the project uses a `Material` enum:
 
 ```rust
-pub enum Material {
-    BlinnPhong(PhongMaterial),
-    PBR(PbrMaterial),
+pub enum MaterialType {
+    Phong,
+    PBR,
 }
 ```
 
@@ -259,6 +259,7 @@ To achieve high performance during interactive use and animations, the renderer 
 * **Ground Shadow Cache:** The shadows cast on the ground are in their own cache.
 
 This fine-grained approach enables smart optimizations:
+
 * **Camera Movement:** Invalidates the ground base and shadow caches, but re-uses the background cache.
 * **Object-Only Animation:** Invalidates only the shadow cache, re-using both the background and ground base caches for maximum efficiency.
 
@@ -267,6 +268,7 @@ This is managed by a clean, event-driven invalidation API (`frame_buffer.invalid
 ### GUI and Interaction
 
 The application provides a comprehensive GUI for real-time control.
+
 * **Side Panel:** All settings are organized into logical, collapsible sections for easy navigation.
 * **Render View:** The central view displays the rendered image.
 * **Camera Controls:**
