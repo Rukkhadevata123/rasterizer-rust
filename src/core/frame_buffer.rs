@@ -12,23 +12,30 @@ use std::sync::atomic::{AtomicU8, Ordering};
 /// 缓存的背景状态
 #[derive(Debug, Clone)]
 struct BackgroundCache {
-    /// 缓存的背景像素数据 (RGB)
     pixels: Arc<Vec<Vector3<f32>>>,
-    /// 缓存时的设置哈希值，用于检测变化
-    settings_hash: u64,
-    /// 渲染尺寸
+    version: u64,
     width: usize,
     height: usize,
 }
 
-/// 缓存的地面状态
+/// 地面本体缓存（不含阴影）
 #[derive(Debug, Clone)]
-pub struct GroundCache {
+pub struct GroundBaseCache {
     ground_factors: Arc<Vec<f32>>,
     ground_colors: Arc<Vec<Vector3<f32>>>,
+    camera_version: u64,
+    ground_settings_version: u64,
+    width: usize,
+    height: usize,
+}
+
+/// 地面阴影缓存（仅阴影因子）
+#[derive(Debug, Clone)]
+pub struct GroundShadowCache {
     shadow_factors: Arc<Vec<f32>>,
-    camera_hash: u64,
-    ground_settings_hash: u64,
+    // 阴影缓存依赖于相机、地面设置、物体变换（动画时需手动失效）
+    camera_version: u64,
+    ground_settings_version: u64,
     width: usize,
     height: usize,
 }
@@ -42,7 +49,8 @@ pub struct FrameBuffer {
     cached_background: Option<Texture>,
     cached_path: Option<String>,
     background_cache: Option<BackgroundCache>,
-    pub ground_cache: Option<GroundCache>,
+    pub ground_base_cache: Option<GroundBaseCache>,
+    pub ground_shadow_cache: Option<GroundShadowCache>,
 }
 
 impl FrameBuffer {
@@ -60,12 +68,17 @@ impl FrameBuffer {
             cached_background: None,
             cached_path: None,
             background_cache: None,
-            ground_cache: None,
+            ground_base_cache: None,
+            ground_shadow_cache: None,
         }
     }
 
+    /// 清空并准备帧缓冲区，使用版本号进行缓存检查
     pub fn clear(
         &mut self,
+        background_version: u64,
+        camera_version: u64,
+        ground_settings_version: u64,
         settings: &RenderSettings,
         camera: &Camera,
         shadow_map: Option<&ShadowMap>,
@@ -79,22 +92,42 @@ impl FrameBuffer {
         let height = self.height;
 
         // 1. 背景缓存逻辑
-        let background_pixels_ref = self.compute_background_cache(settings, width, height);
+        let background_pixels_ref =
+            self.compute_background_cache(settings, background_version, width, height);
 
-        // 2. 地面缓存逻辑
-        let (ground_factors_ref, ground_colors_ref, shadow_factors_ref) =
-            if settings.enable_ground_plane {
-                self.compute_ground_cache(settings, camera, shadow_map, width, height)
-            } else {
-                // 为未启用地面的情况提供默认值
-                (
-                    Arc::new(vec![0.0; width * height]),
-                    Arc::new(vec![Vector3::zeros(); width * height]),
-                    Arc::new(vec![1.0; width * height]),
-                )
-            };
+        // 2. 地面本体缓存（不含阴影）
+        let (ground_factors_ref, ground_colors_ref) = if settings.enable_ground_plane {
+            self.compute_ground_base_cache(
+                settings,
+                camera,
+                camera_version,
+                ground_settings_version,
+                width,
+                height,
+            )
+        } else {
+            (
+                Arc::new(vec![0.0; width * height]),
+                Arc::new(vec![Vector3::zeros(); width * height]),
+            )
+        };
 
-        // 3. 并行合成最终颜色
+        // 3. 地面阴影缓存（仅阴影因子）
+        let shadow_factors_ref = if settings.enable_ground_plane && settings.enable_shadow_mapping {
+            self.compute_ground_shadow_cache(
+                settings,
+                camera,
+                shadow_map,
+                camera_version,
+                ground_settings_version,
+                width,
+                height,
+            )
+        } else {
+            Arc::new(vec![1.0; width * height])
+        };
+
+        // 4. 并行合成最终颜色
         self.compose_final_colors(
             settings,
             &background_pixels_ref,
@@ -107,19 +140,18 @@ impl FrameBuffer {
     fn compute_background_cache(
         &mut self,
         settings: &RenderSettings,
+        current_version: u64,
         width: usize,
         height: usize,
     ) -> Arc<Vec<Vector3<f32>>> {
-        let current_hash = self.compute_background_settings_hash(settings);
-
         let cache_valid = if let Some(ref cache) = self.background_cache {
-            cache.settings_hash == current_hash && cache.width == width && cache.height == height
+            cache.version == current_version && cache.width == width && cache.height == height
         } else {
             false
         };
 
         if !cache_valid {
-            debug!("计算背景缓存...");
+            debug!("计算背景缓存 (版本: {current_version})");
 
             let background_texture =
                 if settings.use_background_image && settings.background_image_path.is_some() {
@@ -144,7 +176,7 @@ impl FrameBuffer {
 
             self.background_cache = Some(BackgroundCache {
                 pixels: Arc::new(background_pixels),
-                settings_hash: current_hash,
+                version: current_version,
                 width,
                 height,
             });
@@ -155,21 +187,18 @@ impl FrameBuffer {
         self.background_cache.as_ref().unwrap().pixels.clone()
     }
 
-    #[allow(clippy::type_complexity)]
-    fn compute_ground_cache(
+    fn compute_ground_base_cache(
         &mut self,
         settings: &RenderSettings,
         camera: &Camera,
-        shadow_map: Option<&ShadowMap>,
+        current_camera_version: u64,
+        current_ground_version: u64,
         width: usize,
         height: usize,
-    ) -> (Arc<Vec<f32>>, Arc<Vec<Vector3<f32>>>, Arc<Vec<f32>>) {
-        let camera_hash = self.compute_camera_hash_stable(camera);
-        let ground_hash = self.compute_ground_settings_hash_stable(settings);
-
-        let cache_valid = if let Some(ref cache) = self.ground_cache {
-            cache.camera_hash == camera_hash
-                && cache.ground_settings_hash == ground_hash
+    ) -> (Arc<Vec<f32>>, Arc<Vec<Vector3<f32>>>) {
+        let cache_valid = if let Some(ref cache) = self.ground_base_cache {
+            cache.camera_version == current_camera_version
+                && cache.ground_settings_version == current_ground_version
                 && cache.width == width
                 && cache.height == height
         } else {
@@ -177,49 +206,100 @@ impl FrameBuffer {
         };
 
         if !cache_valid {
-            debug!("重新计算地面+阴影缓存...");
+            debug!(
+                "重新计算地面本体缓存 (相机版本: {current_camera_version}, 地面版本: {current_ground_version})"
+            );
 
             let mut ground_factors = vec![0.0; width * height];
             let mut ground_colors = vec![Vector3::zeros(); width * height];
-            let mut shadow_factors = vec![1.0; width * height];
 
             ground_factors
                 .par_iter_mut()
                 .zip(ground_colors.par_iter_mut())
-                .zip(shadow_factors.par_iter_mut())
                 .enumerate()
-                .for_each(|(buffer_index, ((factor, color), shadow_factor))| {
+                .for_each(|(buffer_index, (factor, color))| {
                     let y = buffer_index / width;
                     let x = buffer_index % width;
                     let t_y = y as f32 / (height - 1) as f32;
                     let t_x = x as f32 / (width - 1) as f32;
 
-                    let (ground_factor, ground_color, shadow) =
-                        compute_ground(settings, camera, t_x, t_y, shadow_map);
+                    let (ground_factor, ground_color) =
+                        compute_ground_base(settings, camera, t_x, t_y);
                     *factor = ground_factor;
                     *color = ground_color;
-                    *shadow_factor = shadow;
                 });
 
-            self.ground_cache = Some(GroundCache {
+            self.ground_base_cache = Some(GroundBaseCache {
                 ground_factors: Arc::new(ground_factors),
                 ground_colors: Arc::new(ground_colors),
-                shadow_factors: Arc::new(shadow_factors),
-                camera_hash,
-                ground_settings_hash: ground_hash,
+                camera_version: current_camera_version,
+                ground_settings_version: current_ground_version,
                 width,
                 height,
             });
 
-            debug!("地面+阴影缓存计算完成");
+            debug!("地面本体缓存计算完成");
         }
 
-        let cache = self.ground_cache.as_ref().unwrap();
-        (
-            cache.ground_factors.clone(),
-            cache.ground_colors.clone(),
-            cache.shadow_factors.clone(),
-        )
+        let cache = self.ground_base_cache.as_ref().unwrap();
+        (cache.ground_factors.clone(), cache.ground_colors.clone())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn compute_ground_shadow_cache(
+        &mut self,
+        settings: &RenderSettings,
+        camera: &Camera,
+        shadow_map: Option<&ShadowMap>,
+        current_camera_version: u64,
+        current_ground_version: u64,
+        width: usize,
+        height: usize,
+    ) -> Arc<Vec<f32>> {
+        let cache_valid = if let Some(ref cache) = self.ground_shadow_cache {
+            cache.camera_version == current_camera_version
+                && cache.ground_settings_version == current_ground_version
+                && cache.width == width
+                && cache.height == height
+        } else {
+            false
+        };
+
+        if !cache_valid {
+            debug!(
+                "重新计算地面阴影缓存 (相机版本: {current_camera_version}, 地面版本: {current_ground_version})"
+            );
+
+            let mut shadow_factors = vec![1.0; width * height];
+
+            shadow_factors
+                .par_iter_mut()
+                .enumerate()
+                .for_each(|(buffer_index, shadow_factor)| {
+                    let y = buffer_index / width;
+                    let x = buffer_index % width;
+                    let t_y = y as f32 / (height - 1) as f32;
+                    let t_x = x as f32 / (width - 1) as f32;
+
+                    *shadow_factor = compute_ground_shadow(settings, camera, t_x, t_y, shadow_map);
+                });
+
+            self.ground_shadow_cache = Some(GroundShadowCache {
+                shadow_factors: Arc::new(shadow_factors),
+                camera_version: current_camera_version,
+                ground_settings_version: current_ground_version,
+                width,
+                height,
+            });
+
+            debug!("地面阴影缓存计算完成");
+        }
+
+        self.ground_shadow_cache
+            .as_ref()
+            .unwrap()
+            .shadow_factors
+            .clone()
     }
 
     fn compose_final_colors(
@@ -292,77 +372,10 @@ impl FrameBuffer {
         }
     }
 
-    fn hash_f32_stable(value: f32, hasher: &mut std::collections::hash_map::DefaultHasher) {
-        use std::hash::Hash;
-        let quantized = (value * 100.0).round() as i32;
-        quantized.hash(hasher);
-    }
-
-    fn compute_background_settings_hash(&self, settings: &RenderSettings) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        settings.use_background_image.hash(&mut hasher);
-        settings.background_image_path.hash(&mut hasher);
-        settings.enable_gradient_background.hash(&mut hasher);
-        settings.gradient_top_color.hash(&mut hasher);
-        settings.gradient_bottom_color.hash(&mut hasher);
-        hasher.finish()
-    }
-
-    fn compute_camera_hash_stable(&self, camera: &Camera) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::Hasher;
-
-        let mut hasher = DefaultHasher::new();
-        let pos = camera.position();
-        let params = &camera.params;
-        Self::hash_f32_stable(pos.x, &mut hasher);
-        Self::hash_f32_stable(pos.y, &mut hasher);
-        Self::hash_f32_stable(pos.z, &mut hasher);
-        Self::hash_f32_stable(params.target.x, &mut hasher);
-        Self::hash_f32_stable(params.target.y, &mut hasher);
-        Self::hash_f32_stable(params.target.z, &mut hasher);
-        Self::hash_f32_stable(params.up.x, &mut hasher);
-        Self::hash_f32_stable(params.up.y, &mut hasher);
-        Self::hash_f32_stable(params.up.z, &mut hasher);
-        match &params.projection {
-            ProjectionType::Perspective {
-                fov_y_degrees,
-                aspect_ratio,
-            } => {
-                use std::hash::Hash;
-                0u8.hash(&mut hasher);
-                Self::hash_f32_stable(*fov_y_degrees, &mut hasher);
-                Self::hash_f32_stable(*aspect_ratio, &mut hasher);
-            }
-            ProjectionType::Orthographic { width, height } => {
-                use std::hash::Hash;
-                1u8.hash(&mut hasher);
-                Self::hash_f32_stable(*width, &mut hasher);
-                Self::hash_f32_stable(*height, &mut hasher);
-            }
-        }
-        Self::hash_f32_stable(params.near, &mut hasher);
-        Self::hash_f32_stable(params.far, &mut hasher);
-        hasher.finish()
-    }
-
-    fn compute_ground_settings_hash_stable(&self, settings: &RenderSettings) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        settings.enable_ground_plane.hash(&mut hasher);
-        Self::hash_f32_stable(settings.ground_plane_height, &mut hasher);
-        settings.ground_plane_color.hash(&mut hasher);
-        hasher.finish()
-    }
-
     pub fn invalidate_caches(&mut self) {
         self.background_cache = None;
-        self.ground_cache = None;
+        self.ground_base_cache = None;
+        self.ground_shadow_cache = None;
         debug!("已清除所有缓存");
     }
 
@@ -438,18 +451,16 @@ pub fn compute_background(
     final_color
 }
 
-/// 地面的所有效果
-pub fn compute_ground(
+/// 地面本体（不含阴影）计算
+pub fn compute_ground_base(
     settings: &RenderSettings,
     camera: &Camera,
     t_x: f32,
     t_y: f32,
-    shadow_map: Option<&ShadowMap>,
-) -> (f32, Vector3<f32>, f32) {
-    // 统一射线求交和世界坐标判定
+) -> (f32, Vector3<f32>) {
     let (intersection, valid) = screen_to_ground_intersection(settings, camera, t_x, t_y);
     if !valid {
-        return (0.0, Vector3::zeros(), 1.0);
+        return (0.0, Vector3::zeros());
     }
 
     let camera_position = camera.position();
@@ -459,7 +470,6 @@ pub fn compute_ground(
     let grid_size = 1.0;
     let grid_x = ((intersection.x - camera_position.x * 0.1) / grid_size).abs() % 1.0;
     let grid_z = ((intersection.z - camera_position.z * 0.1) / grid_size).abs() % 1.0;
-    // 动态调整网格线宽度
     let distance_from_camera = (intersection - camera_position).magnitude();
     let adaptive_line_width = (0.02 + distance_from_camera * 0.001).min(0.1);
     let is_grid_line = grid_x < adaptive_line_width
@@ -534,8 +544,23 @@ pub fn compute_ground(
     // 确保地面颜色不会过暗
     ground_color = ground_color.map(|x| x.max(0.15));
 
-    // 地面阴影
-    let shadow = if settings.enable_shadow_mapping {
+    (ground_factor, ground_color)
+}
+
+/// 地面阴影因子计算
+pub fn compute_ground_shadow(
+    settings: &RenderSettings,
+    camera: &Camera,
+    t_x: f32,
+    t_y: f32,
+    shadow_map: Option<&ShadowMap>,
+) -> f32 {
+    let (intersection, valid) = screen_to_ground_intersection(settings, camera, t_x, t_y);
+    if !valid {
+        return 1.0;
+    }
+
+    if settings.enable_shadow_mapping {
         if let Some(shadow_map) = shadow_map {
             if shadow_map.is_valid {
                 shadow_map.compute_shadow_factor(
@@ -551,9 +576,7 @@ pub fn compute_ground(
         }
     } else {
         1.0
-    };
-
-    (ground_factor, ground_color, shadow)
+    }
 }
 
 /// 屏幕坐标到地面交点

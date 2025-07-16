@@ -167,6 +167,11 @@ pub struct RenderSettings {
     // ===== 光源数组（运行时字段） =====
     /// 场景中的所有光源
     pub lights: Vec<Light>,
+
+    // 版本号用于缓存失效判断
+    pub background_version: u64,
+    pub camera_version: u64,
+    pub ground_settings_version: u64,
 }
 
 /// 辅助函数用于解析逗号分隔的浮点数
@@ -300,6 +305,11 @@ impl Default for RenderSettings {
 
             // ===== 光源数组 =====
             lights: Vec::new(),
+
+            // 版本号用于缓存失效判断
+            background_version: 0,
+            camera_version: 0,
+            ground_settings_version: 0,
         };
 
         // 如果启用了光照且没有光源，创建默认方向光

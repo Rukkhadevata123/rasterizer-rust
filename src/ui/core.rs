@@ -220,8 +220,9 @@ impl CoreMethods for RasterizerApp {
                     self.renderer.invalidate_background_cache();
                 }
 
-                // 强制清除阴影相关缓存
-                self.renderer.frame_buffer.ground_cache = None;
+                // 强制清除地面本体和阴影缓存
+                self.renderer.frame_buffer.ground_base_cache = None;
+                self.renderer.frame_buffer.ground_shadow_cache = None;
 
                 // 统一同步所有状态
 

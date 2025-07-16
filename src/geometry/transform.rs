@@ -1,56 +1,124 @@
 use log::warn;
-use nalgebra::{Matrix3, Matrix4, Point2, Point3, Rotation3, Unit, Vector3, Vector4};
+use nalgebra::{Matrix3, Matrix4, Point2, Point3, Vector3, Vector4};
 
 //=================================
-// 变换矩阵创建工厂
+// 变换矩阵创建工厂 (手动实现)
 //=================================
 
 /// 变换矩阵工厂，提供创建各种变换矩阵的静态方法
 pub struct TransformFactory;
 
+#[rustfmt::skip]
 impl TransformFactory {
-    /// 创建绕任意轴旋转的变换矩阵
+    /// 创建绕任意轴旋转的变换矩阵 (使用 Rodrigues' rotation formula)
     pub fn rotation(axis: &Vector3<f32>, angle_rad: f32) -> Matrix4<f32> {
-        let axis_unit = Unit::new_normalize(*axis);
-        Matrix4::from(Rotation3::from_axis_angle(&axis_unit, angle_rad))
+        let axis_unit = axis.normalize();
+        let x = axis_unit.x;
+        let y = axis_unit.y;
+        let z = axis_unit.z;
+        let c = angle_rad.cos();
+        let s = angle_rad.sin();
+        let t = 1.0 - c;
+
+        Matrix4::new(
+            t * x * x + c,     t * x * y - z * s, t * x * z + y * s, 0.0,
+            t * x * y + z * s, t * y * y + c,     t * y * z - x * s, 0.0,
+            t * x * z - y * s, t * y * z + x * s, t * z * z + c,     0.0,
+            0.0,               0.0,               0.0,               1.0,
+        )
     }
 
     /// 创建绕X轴旋转的变换矩阵
     pub fn rotation_x(angle_rad: f32) -> Matrix4<f32> {
-        Self::rotation(&Vector3::x_axis(), angle_rad)
+        let c = angle_rad.cos();
+        let s = angle_rad.sin();
+        Matrix4::new(
+            1.0, 0.0, 0.0, 0.0,
+            0.0, c,  -s,   0.0,
+            0.0, s,   c,   0.0,
+            0.0, 0.0, 0.0, 1.0,
+        )
     }
 
     /// 创建绕Y轴旋转的变换矩阵
     pub fn rotation_y(angle_rad: f32) -> Matrix4<f32> {
-        Self::rotation(&Vector3::y_axis(), angle_rad)
+        let c = angle_rad.cos();
+        let s = angle_rad.sin();
+        Matrix4::new(
+            c,   0.0, s,   0.0,
+            0.0, 1.0, 0.0, 0.0,
+           -s,   0.0, c,   0.0,
+            0.0, 0.0, 0.0, 1.0,
+        )
     }
 
     /// 创建绕Z轴旋转的变换矩阵
     pub fn rotation_z(angle_rad: f32) -> Matrix4<f32> {
-        Self::rotation(&Vector3::z_axis(), angle_rad)
+        let c = angle_rad.cos();
+        let s = angle_rad.sin();
+        Matrix4::new(
+            c,  -s,   0.0, 0.0,
+            s,   c,   0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,
+        )
     }
 
     /// 创建平移矩阵
     pub fn translation(translation: &Vector3<f32>) -> Matrix4<f32> {
-        Matrix4::new_translation(translation)
+        Matrix4::new(
+            1.0, 0.0, 0.0, translation.x,
+            0.0, 1.0, 0.0, translation.y,
+            0.0, 0.0, 1.0, translation.z,
+            0.0, 0.0, 0.0, 1.0,
+        )
     }
 
-    /// 创建缩放矩阵
+    /// 创建非均匀缩放矩阵
     pub fn scaling_nonuniform(scale: &Vector3<f32>) -> Matrix4<f32> {
-        Matrix4::new_nonuniform_scaling(scale)
+        Matrix4::new(
+            scale.x, 0.0,     0.0,     0.0,
+            0.0,     scale.y, 0.0,     0.0,
+            0.0,     0.0,     scale.z, 0.0,
+            0.0,     0.0,     0.0,     1.0,
+        )
     }
 
-    /// 创建视图矩阵 (Look-At)
+    /// 创建视图矩阵 (Look-At, Right-Handed)
     pub fn view(eye: &Point3<f32>, target: &Point3<f32>, up: &Vector3<f32>) -> Matrix4<f32> {
-        Matrix4::look_at_rh(eye, target, &Unit::new_normalize(*up))
+        let z_axis = (eye - target).normalize(); // 在右手坐标系中，摄像机看向自己的-Z方向
+        let x_axis = up.cross(&z_axis).normalize();
+        let y_axis = z_axis.cross(&x_axis);
+
+        // 创建从世界空间到视图空间的旋转矩阵
+        let rotation = Matrix4::new(
+            x_axis.x, x_axis.y, x_axis.z, 0.0,
+            y_axis.x, y_axis.y, y_axis.z, 0.0,
+            z_axis.x, z_axis.y, z_axis.z, 0.0,
+            0.0,      0.0,      0.0,      1.0,
+        );
+
+        // 创建平移矩阵，将摄像机位置移到原点
+        let translation = Self::translation(&-eye.coords);
+
+        // 视图矩阵 = 旋转矩阵 * 平移矩阵
+        rotation * translation
     }
 
-    /// 创建透视投影矩阵
+    /// 创建透视投影矩阵 (Right-Handed)
     pub fn perspective(aspect_ratio: f32, fov_y_rad: f32, near: f32, far: f32) -> Matrix4<f32> {
-        Matrix4::new_perspective(aspect_ratio, fov_y_rad, near, far)
+        let f = 1.0 / (fov_y_rad / 2.0).tan();
+        let nf = 1.0 / (near - far);
+
+        Matrix4::new(
+            f / aspect_ratio, 0.0, 0.0,                          0.0,
+            0.0,              f,   0.0,                          0.0,
+            0.0,              0.0, (far + near) * nf,            2.0 * far * near * nf,
+            0.0,              0.0, -1.0,                         0.0,
+        )
     }
 
-    /// 创建正交投影矩阵
+    /// 创建正交投影矩阵 (Right-Handed)
     pub fn orthographic(
         left: f32,
         right: f32,
@@ -59,7 +127,16 @@ impl TransformFactory {
         near: f32,
         far: f32,
     ) -> Matrix4<f32> {
-        Matrix4::new_orthographic(left, right, bottom, top, near, far)
+        let rl = 1.0 / (right - left);
+        let tb = 1.0 / (top - bottom);
+        let nf = 1.0 / (near - far);
+
+        Matrix4::new(
+            2.0 * rl,      0.0,           0.0,          -(right + left) * rl,
+            0.0,           2.0 * tb,      0.0,          -(top + bottom) * tb,
+            0.0,           0.0,           2.0 * nf,     (far + near) * nf, // 注意这里是 `(far + near) * nf`
+            0.0,           0.0,           0.0,          1.0,
+        )
     }
 
     /// 创建MVP矩阵（Model-View-Projection）
@@ -111,11 +188,7 @@ pub fn transform_point(point: &Point3<f32>, matrix: &Matrix4<f32>) -> Point3<f32
             transformed_homogeneous.z,
         )
     } else {
-        Point3::new(
-            transformed_homogeneous.x / transformed_homogeneous.w,
-            transformed_homogeneous.y / transformed_homogeneous.w,
-            transformed_homogeneous.z / transformed_homogeneous.w,
-        )
+        Point3::from(transformed_homogeneous.xyz() / transformed_homogeneous.w)
     }
 }
 
@@ -134,19 +207,19 @@ pub fn apply_perspective_division(clip: &Vector4<f32>) -> Point3<f32> {
     if w.abs() > 1e-6 {
         Point3::new(clip.x / w, clip.y / w, clip.z / w)
     } else {
-        Point3::origin()
+        Point3::origin() // 避免除以零
     }
 }
 
-/// NDC到屏幕坐标转换
+/// NDC到屏幕坐标转换（视口变换）
 ///
 /// NDC范围[-1,1] → 屏幕像素坐标[0,width/height]
 /// 注意Y轴翻转：NDC的+Y向上，屏幕坐标的+Y向下
 #[inline]
 pub fn ndc_to_screen(ndc_x: f32, ndc_y: f32, width: f32, height: f32) -> Point2<f32> {
     Point2::new(
-        (ndc_x * 0.5 + 0.5) * width,
-        (1.0 - (ndc_y * 0.5 + 0.5)) * height,
+        (ndc_x + 1.0) * 0.5 * width,
+        (1.0 - (ndc_y + 1.0) * 0.5) * height, // 使用更标准的NDC -> Screen映射
     )
 }
 

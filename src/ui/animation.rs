@@ -53,56 +53,49 @@ fn render_one_rotation_cycle<F>(
 where
     F: FnMut(usize, Vec<u8>),
 {
-    // 创建线程渲染器
     let mut thread_renderer = Renderer::new(width, height);
-
-    // 计算旋转参数
     let (effective_rotation_speed_dps, _, frames_to_render) =
         calculate_rotation_parameters(settings.rotation_speed, settings.fps);
 
-    // 计算旋转轴和每帧旋转角度
     let rotation_axis_vec = get_animation_axis_vector(settings);
     let rotation_increment_rad_per_frame =
         (360.0 / frames_to_render as f32).to_radians() * effective_rotation_speed_dps.signum();
 
-    // 渲染每一帧
     for frame_num in 0..frames_to_render {
         progress_arc.store(frame_num, Ordering::SeqCst);
 
         if frame_num > 0 {
-            // 使用通用函数执行动画步骤
             animate_scene_step(
                 &mut scene_copy,
                 &settings.animation_type,
                 &rotation_axis_vec,
                 rotation_increment_rad_per_frame,
             );
-
-            // 物体变换后清除地面缓存，确保阴影同步更新
-            if matches!(settings.animation_type, AnimationType::ObjectLocalRotation) {
-                // 物体局部变换会影响阴影，需要清除地面缓存
-                thread_renderer.frame_buffer.ground_cache = None;
-                debug!("预渲染帧 {frame_num}: 物体局部旋转，清除地面阴影缓存");
-            }
-            // 相机轨道运动不影响阴影，所以不需要清除缓存
         }
 
-        // 渲染当前帧
+        // === 缓存失效策略 ===
+        match settings.animation_type {
+            AnimationType::CameraOrbit => {
+                thread_renderer.frame_buffer.ground_base_cache = None;
+                thread_renderer.frame_buffer.ground_shadow_cache = None;
+            }
+            AnimationType::ObjectLocalRotation => {
+                if settings.enable_shadow_mapping {
+                    thread_renderer.frame_buffer.ground_shadow_cache = None;
+                }
+            }
+            AnimationType::None => {}
+        }
+
         thread_renderer.render_scene(&mut scene_copy, settings);
-
-        // 获取颜色数据
         let color_data_rgb = thread_renderer.frame_buffer.get_color_buffer_bytes();
-
-        // 调用回调函数处理渲染结果
         on_frame_rendered(frame_num, color_data_rgb);
 
-        // 定期请求UI更新
         if frame_num % (frames_to_render.max(1) / 20).max(1) == 0 {
             ctx_clone.request_repaint();
         }
     }
 
-    // 设置进度为完成状态
     progress_arc.store(frames_to_render, Ordering::SeqCst);
     ctx_clone.request_repaint();
 
@@ -256,7 +249,6 @@ impl AnimationMethods for RasterizerApp {
                 rotation_delta_rad,
             );
 
-            // 只在debug模式下输出详细信息
             debug!(
                 "实时渲染中: FPS={:.1}, 动画类型={:?}, 轴={:?}, 旋转速度={}, 角度增量={:.3}rad, Phong={}",
                 self.avg_fps,
@@ -267,17 +259,22 @@ impl AnimationMethods for RasterizerApp {
                 self.settings.use_phong
             );
 
-            // 物体变换后清除地面缓存，确保阴影同步更新
-            if matches!(
-                self.settings.animation_type,
-                AnimationType::ObjectLocalRotation
-            ) {
-                // 物体局部变换会影响阴影，需要清除地面缓存
-                self.renderer.frame_buffer.ground_cache = None;
+            match self.settings.animation_type {
+                AnimationType::CameraOrbit => {
+                    // 相机轨道动画：地面本体和阴影都依赖相机，必须全部失效
+                    self.renderer.frame_buffer.ground_base_cache = None;
+                    self.renderer.frame_buffer.ground_shadow_cache = None;
+                }
+                AnimationType::ObjectLocalRotation => {
+                    if self.settings.enable_shadow_mapping {
+                        // 物体动画+阴影：只需失效阴影缓存，地面本体可复用
+                        self.renderer.frame_buffer.ground_shadow_cache = None;
+                    }
+                    // 未开阴影时，地面缓存可复用，无需清理
+                }
+                AnimationType::None => {}
             }
-            // 相机轨道运动不影响阴影，所以不需要清除缓存
 
-            // 渲染（背景/地面缓存让这里变得非常快）
             self.renderer.render_scene(scene, &self.settings);
             self.display_render_result(ctx);
             ctx.request_repaint();

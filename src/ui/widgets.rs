@@ -769,6 +769,7 @@ impl WidgetMethods for RasterizerApp {
         let old_bg_image = app.settings.use_background_image;
         ui.checkbox(&mut app.settings.use_background_image, "使用背景图片");
         if app.settings.use_background_image != old_bg_image {
+            app.settings.background_version += 1;
             app.interface_interaction.anything_changed = true;
         }
 
@@ -787,10 +788,9 @@ impl WidgetMethods for RasterizerApp {
                         app.settings.background_image_path = None;
                     } else {
                         app.settings.background_image_path = Some(path_text.clone());
-
-                        // 新架构：不再手动加载，由 FrameBuffer 自动处理
                         app.status_message = format!("背景图片路径已设置: {path_text}");
                     }
+                    app.settings.background_version += 1;
                     app.interface_interaction.anything_changed = true;
                 }
 
@@ -804,6 +804,7 @@ impl WidgetMethods for RasterizerApp {
         let old_gradient = app.settings.enable_gradient_background;
         ui.checkbox(&mut app.settings.enable_gradient_background, "使用渐变背景");
         if app.settings.enable_gradient_background != old_gradient {
+            app.settings.background_version += 1;
             app.interface_interaction.anything_changed = true;
         }
 
@@ -820,6 +821,7 @@ impl WidgetMethods for RasterizerApp {
                     "{},{},{}",
                     top_color_array[0], top_color_array[1], top_color_array[2]
                 );
+                app.settings.background_version += 1;
                 app.interface_interaction.anything_changed = true;
             }
             ui.label("渐变顶部颜色");
@@ -831,6 +833,7 @@ impl WidgetMethods for RasterizerApp {
                     "{},{},{}",
                     bottom_color_array[0], bottom_color_array[1], bottom_color_array[2]
                 );
+                app.settings.background_version += 1;
                 app.interface_interaction.anything_changed = true;
             }
             ui.label("渐变底部颜色");
@@ -840,6 +843,7 @@ impl WidgetMethods for RasterizerApp {
         let old_ground = app.settings.enable_ground_plane;
         ui.checkbox(&mut app.settings.enable_ground_plane, "显示地面平面");
         if app.settings.enable_ground_plane != old_ground {
+            app.settings.ground_settings_version += 1;
             app.interface_interaction.anything_changed = true;
         }
 
@@ -856,6 +860,7 @@ impl WidgetMethods for RasterizerApp {
                     "{},{},{}",
                     ground_color_array[0], ground_color_array[1], ground_color_array[2]
                 );
+                app.settings.ground_settings_version += 1;
                 app.interface_interaction.anything_changed = true;
             }
             ui.label("地面颜色");
@@ -869,6 +874,7 @@ impl WidgetMethods for RasterizerApp {
                     )
                     .changed()
                 {
+                    app.settings.ground_settings_version += 1;
                     app.interface_interaction.anything_changed = true;
                 }
 
@@ -876,6 +882,7 @@ impl WidgetMethods for RasterizerApp {
                 if ui.button("自动适配").clicked() {
                     if let Some(optimal_height) = app.calculate_optimal_ground_height() {
                         app.settings.ground_plane_height = optimal_height;
+                        app.settings.ground_settings_version += 1;
                         app.interface_interaction.anything_changed = true;
                         app.status_message = format!("地面高度已自动调整为 {optimal_height:.2}");
                     } else {
@@ -892,12 +899,11 @@ impl WidgetMethods for RasterizerApp {
             let old_from = app.settings.camera_from.clone();
             let resp = ui.text_edit_singleline(&mut app.settings.camera_from);
             if app.settings.camera_from != old_from {
-                // 更新场景相机参数
                 if let Some(scene) = &mut app.scene {
                     if let Ok(from) = parse_point3(&app.settings.camera_from) {
-                        // 直接设置参数而不是调用不存在的方法
                         scene.active_camera.params.position = from;
-                        scene.active_camera.update_matrices(); // 手动更新矩阵
+                        scene.active_camera.update_matrices();
+                        app.settings.camera_version += 1;
                         app.interface_interaction.anything_changed = true;
                     }
                 }
@@ -910,11 +916,11 @@ impl WidgetMethods for RasterizerApp {
             let old_at = app.settings.camera_at.clone();
             let resp = ui.text_edit_singleline(&mut app.settings.camera_at);
             if app.settings.camera_at != old_at {
-                // 更新场景相机参数
                 if let Some(scene) = &mut app.scene {
                     if let Ok(at) = parse_point3(&app.settings.camera_at) {
                         scene.active_camera.params.target = at;
-                        scene.active_camera.update_matrices(); // 手动更新矩阵
+                        scene.active_camera.update_matrices();
+                        app.settings.camera_version += 1;
                         app.interface_interaction.anything_changed = true;
                     }
                 }
@@ -927,11 +933,11 @@ impl WidgetMethods for RasterizerApp {
             let old_up = app.settings.camera_up.clone();
             let resp = ui.text_edit_singleline(&mut app.settings.camera_up);
             if app.settings.camera_up != old_up {
-                // 更新场景相机参数
                 if let Some(scene) = &mut app.scene {
                     if let Ok(up) = parse_vec3(&app.settings.camera_up) {
                         scene.active_camera.params.up = up.normalize();
-                        scene.active_camera.update_matrices(); // 手动更新矩阵
+                        scene.active_camera.update_matrices();
+                        app.settings.camera_version += 1;
                         app.interface_interaction.anything_changed = true;
                     }
                 }
@@ -947,21 +953,19 @@ impl WidgetMethods for RasterizerApp {
                 10.0..=120.0,
             ));
             if (app.settings.camera_fov - old_fov).abs() > 0.1 {
-                // 使用 if let 替代 match
                 if let Some(scene) = &mut app.scene {
                     if let ProjectionType::Perspective { fov_y_degrees, .. } =
                         &mut scene.active_camera.params.projection
                     {
                         *fov_y_degrees = app.settings.camera_fov;
-                        scene.active_camera.update_matrices(); // 手动更新矩阵
+                        scene.active_camera.update_matrices();
+                        app.settings.camera_version += 1;
                         app.interface_interaction.anything_changed = true;
                     }
-                    // 正交投影不需要FOV，所以不做任何操作
                 }
             }
             Self::add_tooltip(resp, ctx, "相机视场角，值越大视野范围越广（鱼眼效果）");
         });
-
         ui.separator();
 
         // 相机交互控制设置（敏感度设置不需要立即响应，它们只影响交互行为）

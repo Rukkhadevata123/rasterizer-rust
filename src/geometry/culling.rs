@@ -12,6 +12,19 @@ pub fn calculate_triangle_area(v0: &Point2<f32>, v1: &Point2<f32>, v2: &Point2<f
     ((v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)).abs() * 0.5
 }
 
+/// 检查面积是否合理
+/// # 参数
+/// * `v0`, `v1`, `v2` - 三角形的三个顶点（屏幕坐标）
+///
+/// # 返回值
+/// 如果三角形面积大于一个很小的阈值（1e-6），返回true
+///
+#[inline]
+pub fn is_valid_triangle(v0: &Point2<f32>, v1: &Point2<f32>, v2: &Point2<f32>) -> bool {
+    let area = calculate_triangle_area(v0, v1, v2);
+    area > 1e-6
+}
+
 /// 检查三角形是否应该被剔除（面积过小）
 ///
 /// # 参数
