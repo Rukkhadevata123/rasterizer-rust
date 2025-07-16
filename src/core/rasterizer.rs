@@ -1,5 +1,5 @@
 use crate::core::frame_buffer::FrameBuffer;
-use crate::core::geometry::GeometryResult;
+use crate::core::renderer::GeometryResult;
 use crate::geometry::culling::{is_backface, is_on_triangle_edge, should_cull_small_triangle};
 use crate::geometry::interpolation::{
     barycentric_coordinates, interpolate_depth, interpolate_normal, interpolate_position,

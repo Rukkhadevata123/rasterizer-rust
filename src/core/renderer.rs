@@ -1,14 +1,120 @@
 use crate::core::{
     frame_buffer::FrameBuffer,
-    geometry::transform_geometry,
     rasterizer::{prepare_triangles, rasterize_triangles},
     shadow_map::ShadowMap,
 };
+use crate::geometry::camera::Camera;
+use crate::geometry::transform::{
+    TransformFactory, clip_to_screen, compute_normal_matrix, point_to_clip, transform_normal,
+    transform_point,
+};
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::light::Light;
+use crate::scene::scene_object::SceneObject;
 use crate::scene::scene_utils::Scene;
 use log::debug;
+use nalgebra::{Matrix4, Point2, Point3, Vector3};
+use rayon::prelude::*;
 use std::time::Instant;
+
+//=================================
+// 完整变换管线
+//=================================
+
+/// 顶点管线变换结果
+///
+/// 返回三个数组：屏幕坐标、视图空间坐标、视图空间法线
+pub type VertexPipelineResult = (Vec<Point2<f32>>, Vec<Point3<f32>>, Vec<Vector3<f32>>);
+
+/// 完整的顶点变换管线（并行版本）
+///
+/// 执行完整的3D图形管线变换：
+/// 1. 模型空间 → 视图空间（MV变换）
+/// 2. 模型空间 → 屏幕空间（MVP变换 + 视口变换）
+/// 3. 法线变换（法线矩阵变换）
+///
+/// 使用Rayon并行处理大量顶点数据
+pub fn vertex_pipeline_parallel(
+    vertices_model: &[Point3<f32>],   // 模型空间顶点
+    normals_model: &[Vector3<f32>],   // 模型空间法线
+    model_matrix: &Matrix4<f32>,      // 模型变换矩阵
+    view_matrix: &Matrix4<f32>,       // 视图变换矩阵
+    projection_matrix: &Matrix4<f32>, // 投影变换矩阵
+    screen_width: usize,              // 屏幕宽度
+    screen_height: usize,             // 屏幕高度
+) -> VertexPipelineResult {
+    // 预计算变换矩阵，避免重复计算
+    let model_view = TransformFactory::model_view(model_matrix, view_matrix);
+    let mvp = TransformFactory::model_view_projection(model_matrix, view_matrix, projection_matrix);
+    let normal_matrix = compute_normal_matrix(&model_view);
+
+    // 并行变换到视图空间（用于光照计算）
+    let view_positions = vertices_model
+        .par_iter()
+        .map(|vertex| transform_point(vertex, &model_view))
+        .collect();
+
+    // 并行变换到屏幕空间（用于光栅化）
+    let screen_coords = vertices_model
+        .par_iter()
+        .map(|vertex| {
+            let clip = point_to_clip(vertex, &mvp);
+            clip_to_screen(&clip, screen_width as f32, screen_height as f32)
+        })
+        .collect();
+
+    // 并行变换法线（用于光照计算）
+    let view_normals = normals_model
+        .par_iter()
+        .map(|normal| transform_normal(normal, &normal_matrix))
+        .collect();
+
+    (screen_coords, view_positions, view_normals)
+}
+
+pub struct GeometryResult {
+    pub screen_coords: Vec<Point2<f32>>,
+    pub view_coords: Vec<Point3<f32>>,
+    pub view_normals: Vec<Vector3<f32>>,
+    pub mesh_offsets: Vec<usize>,
+}
+
+pub fn transform_geometry(
+    scene_object: &SceneObject,
+    camera: &mut Camera,
+    frame_width: usize,
+    frame_height: usize,
+) -> GeometryResult {
+    camera.update_matrices();
+
+    // 收集所有顶点和法线
+    let mut vertices = Vec::new();
+    let mut normals = Vec::new();
+    let mut mesh_offsets = vec![0];
+    for mesh in &scene_object.model_data.meshes {
+        vertices.extend(mesh.vertices.iter().map(|v| v.position));
+        normals.extend(mesh.vertices.iter().map(|v| v.normal));
+        mesh_offsets.push(vertices.len());
+    }
+
+    // 顶点管线变换
+    let (screen_coords, view_coords, view_normals) = vertex_pipeline_parallel(
+        &vertices,
+        &normals,
+        &scene_object.transform,
+        &camera.view_matrix(),
+        &camera.projection_matrix(),
+        frame_width,
+        frame_height,
+    );
+
+    GeometryResult {
+        screen_coords,
+        view_coords,
+        view_normals,
+        mesh_offsets,
+    }
+}
 
 pub struct Renderer {
     pub frame_buffer: FrameBuffer,
