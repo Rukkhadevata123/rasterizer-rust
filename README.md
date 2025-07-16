@@ -22,7 +22,9 @@ This project is a comprehensive implementation of a 3D graphics pipeline in pure
 
 ![image](./demo/demo.png)
 
-![demo](./demo/nahida-ui.mp4)
+Check our Video Demo:
+
+![Video Demo](./demo/nahida-ui.mp4)
 
 ## Rendering Pipeline
 
