@@ -391,9 +391,8 @@ impl eframe::App for RasterizerApp {
 
                     let percent = (progress as f32 / total_frames as f32 * 100.0).round();
 
-                    self.status_message = format!(
-                        "生成视频中... ({progress}/{total_frames}，{percent:.0}%)"
-                    );
+                    self.status_message =
+                        format!("生成视频中... ({progress}/{total_frames}，{percent:.0}%)");
 
                     ctx.request_repaint_after(std::time::Duration::from_millis(500));
                 }

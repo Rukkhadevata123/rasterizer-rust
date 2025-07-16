@@ -112,9 +112,7 @@ impl ShadowMap {
             }
         }
 
-        debug!(
-            "阴影三角形: 处理 {triangles_processed}, 剔除 {triangles_culled}"
-        );
+        debug!("阴影三角形: 处理 {triangles_processed}, 剔除 {triangles_culled}");
     }
 
     #[inline]

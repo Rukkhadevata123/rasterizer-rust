@@ -411,8 +411,7 @@ impl AnimationMethods for RasterizerApp {
                             let frame = &frames[pre_render_idx.min(pre_rendered_count - 1)]; // 避免越界访问
 
                             // 将ColorImage转换为PNG并保存
-                            let frame_path =
-                                format!("{frames_dir_clone}/frame_{frame_num:04}.png");
+                            let frame_path = format!("{frames_dir_clone}/frame_{frame_num:04}.png");
                             let color_data = frame_to_png_data(frame);
                             save_image(&frame_path, &color_data, width as u32, height as u32);
 

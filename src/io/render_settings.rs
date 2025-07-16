@@ -61,8 +61,6 @@ pub struct RenderSettings {
     pub min_triangle_area: f32,
     /// 启用渲染和保存深度图
     pub save_depth: bool,
-    /// 多重采样抗锯齿 (MSAA) 级别
-    pub msaa_samples: u32,
 
     // ===== 物体变换控制（字符串格式，用于TOML序列化） =====
     /// 物体位置 (x,y,z)
@@ -125,7 +123,6 @@ pub struct RenderSettings {
     pub emissive: String,
 
     // ===== 阴影设置 =====
-
     /// 启用简单阴影映射（仅地面）
     pub enable_shadow_mapping: bool,
     /// 阴影贴图尺寸
@@ -238,7 +235,6 @@ impl Default for RenderSettings {
             cull_small_triangles: false,
             min_triangle_area: 1e-3,
             save_depth: true,
-            msaa_samples: 1,
 
             // ===== 物体变换控制 =====
             object_position: "0,0,0".to_string(),

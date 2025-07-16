@@ -63,9 +63,7 @@ fn generate_smooth_vertex_normals(
     }
 
     if zero_norm_count > 0 {
-        warn!(
-            "{zero_norm_count} 个顶点的法线为零，设置为默认值 [0, 1, 0]"
-        );
+        warn!("{zero_norm_count} 个顶点的法线为零，设置为默认值 [0, 1, 0]");
     }
 
     Ok(vertex_normals)

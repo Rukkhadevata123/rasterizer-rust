@@ -45,17 +45,6 @@ pub struct TriangleData<'a> {
     pub is_perspective: bool,
 }
 
-pub struct MSAAPattern {
-    pub offsets: &'static [(f32, f32)],
-}
-
-#[derive(Debug, Clone)]
-pub struct MSAASample {
-    pub color: Vector3<f32>,
-    pub depth: f32,
-    pub hit: bool,
-}
-
 #[derive(Debug, Clone, Copy)]
 enum RenderStrategy {
     LargeTrianglePixelParallel,
@@ -64,50 +53,6 @@ enum RenderStrategy {
 }
 
 // ===== 核心功能实现 =====
-
-impl MSAAPattern {
-    pub fn get_pattern(sample_count: u32) -> Self {
-        match sample_count {
-            1 => Self {
-                offsets: &[(0.0, 0.0)],
-            },
-            2 => Self {
-                offsets: &[(-0.25, -0.25), (0.25, 0.25)],
-            },
-            4 => Self {
-                offsets: &[
-                    (-0.125, -0.375),
-                    (0.375, -0.125),
-                    (-0.375, 0.125),
-                    (0.125, 0.375),
-                ],
-            },
-            8 => Self {
-                offsets: &[
-                    (-0.0625, -0.1875),
-                    (0.0625, 0.1875),
-                    (-0.3125, 0.0625),
-                    (0.1875, -0.3125),
-                    (-0.1875, 0.3125),
-                    (0.3125, -0.0625),
-                    (-0.4375, -0.4375),
-                    (0.4375, 0.4375),
-                ],
-            },
-            _ => Self::get_pattern(1),
-        }
-    }
-}
-
-impl Default for MSAASample {
-    fn default() -> Self {
-        Self {
-            color: Vector3::zeros(),
-            depth: f32::INFINITY,
-            hit: false,
-        }
-    }
-}
 
 impl<'a> TriangleData<'a> {
     pub fn is_valid(&self) -> bool {
@@ -500,45 +445,24 @@ pub fn rasterize_triangle(
     let use_texture = !matches!(triangle.texture_source, TextureSource::None);
     let ambient_contribution = calculate_ambient_contribution(triangle);
 
-    let msaa_pattern = MSAAPattern::get_pattern(settings.msaa_samples);
-    let use_msaa = settings.msaa_samples > 1;
-
     for y in min_y..max_y {
         for x in min_x..max_x {
             let pixel_index = y * width + x;
-
-            if use_msaa {
-                process_pixel_msaa(
-                    triangle,
-                    x,
-                    y,
-                    pixel_index,
-                    &msaa_pattern,
-                    use_phong_or_pbr,
-                    use_texture,
-                    &ambient_contribution,
-                    depth_buffer,
-                    color_buffer,
-                    settings,
-                    frame_buffer,
-                );
-            } else {
-                let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
-                process_pixel(
-                    triangle,
-                    pixel_center,
-                    pixel_index,
-                    x,
-                    y,
-                    use_phong_or_pbr,
-                    use_texture,
-                    &ambient_contribution,
-                    depth_buffer,
-                    color_buffer,
-                    settings,
-                    frame_buffer,
-                );
-            }
+            let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
+            process_pixel(
+                triangle,
+                pixel_center,
+                pixel_index,
+                x,
+                y,
+                use_phong_or_pbr,
+                use_texture,
+                &ambient_contribution,
+                depth_buffer,
+                color_buffer,
+                settings,
+                frame_buffer,
+            );
         }
     }
 }
@@ -665,157 +589,6 @@ fn process_pixel(
         apply_alpha_blending(&material_color, final_alpha, pixel_x, pixel_y, frame_buffer);
 
     write_pixel_color(pixel_index, &final_color, color_buffer, settings.use_gamma);
-}
-
-// ===== MSAA处理 =====
-
-#[allow(clippy::too_many_arguments)]
-fn process_pixel_msaa(
-    triangle: &TriangleData,
-    pixel_x: usize,
-    pixel_y: usize,
-    pixel_index: usize,
-    msaa_pattern: &MSAAPattern,
-    use_phong_or_pbr: bool,
-    use_texture: bool,
-    ambient_contribution: &Vector3<f32>,
-    depth_buffer: &[AtomicF32],
-    color_buffer: &[AtomicU8],
-    settings: &RenderSettings,
-    frame_buffer: &FrameBuffer,
-) {
-    let sample_points = generate_sample_points(pixel_x, pixel_y, msaa_pattern);
-    let mut samples = vec![MSAASample::default(); sample_points.len()];
-    let mut any_hit = false;
-
-    for (i, &sample_point) in sample_points.iter().enumerate() {
-        let sample_result = process_sample_point(
-            triangle,
-            sample_point,
-            pixel_x,
-            pixel_y,
-            use_phong_or_pbr,
-            use_texture,
-            ambient_contribution,
-            settings,
-            frame_buffer,
-        );
-
-        if let Some((color, depth)) = sample_result {
-            samples[i] = MSAASample {
-                color,
-                depth,
-                hit: true,
-            };
-            any_hit = true;
-        }
-    }
-
-    if !any_hit {
-        return;
-    }
-
-    let (final_color, final_depth) = resolve_msaa_samples(&samples);
-
-    if settings.use_zbuffer && final_depth < f32::INFINITY {
-        let current_depth_atomic = &depth_buffer[pixel_index];
-        let old_depth = current_depth_atomic.fetch_min(final_depth, Ordering::Relaxed);
-        if old_depth <= final_depth {
-            return;
-        }
-    }
-
-    write_pixel_color(pixel_index, &final_color, color_buffer, settings.use_gamma);
-}
-
-#[allow(clippy::too_many_arguments)]
-fn process_sample_point(
-    triangle: &TriangleData,
-    sample_point: Point2<f32>,
-    pixel_x: usize,
-    pixel_y: usize,
-    use_phong_or_pbr: bool,
-    use_texture: bool,
-    ambient_contribution: &Vector3<f32>,
-    settings: &RenderSettings,
-    frame_buffer: &FrameBuffer,
-) -> Option<(Vector3<f32>, f32)> {
-    let v0 = &triangle.vertices[0].pix;
-    let v1 = &triangle.vertices[1].pix;
-    let v2 = &triangle.vertices[2].pix;
-
-    let bary = barycentric_coordinates(sample_point, *v0, *v1, *v2)?;
-
-    if !is_inside_triangle(bary) {
-        return None;
-    }
-
-    let final_alpha = get_effective_alpha(triangle, settings);
-    if final_alpha <= 0.01 {
-        return None;
-    }
-
-    if settings.wireframe && !is_on_triangle_edge(sample_point, *v0, *v1, *v2, 1.0) {
-        return None;
-    }
-
-    let interpolated_depth = interpolate_depth(
-        bary,
-        triangle.vertices[0].z_view,
-        triangle.vertices[1].z_view,
-        triangle.vertices[2].z_view,
-        settings.is_perspective() && triangle.is_perspective,
-    );
-
-    if !interpolated_depth.is_finite() || interpolated_depth >= f32::INFINITY {
-        return None;
-    }
-
-    let material_color = calculate_pixel_color(
-        triangle,
-        bary,
-        settings,
-        use_phong_or_pbr,
-        use_texture,
-        ambient_contribution,
-    );
-    let final_color =
-        apply_alpha_blending(&material_color, final_alpha, pixel_x, pixel_y, frame_buffer);
-
-    Some((final_color, interpolated_depth))
-}
-
-fn generate_sample_points(
-    pixel_x: usize,
-    pixel_y: usize,
-    pattern: &MSAAPattern,
-) -> Vec<Point2<f32>> {
-    let center_x = pixel_x as f32 + 0.5;
-    let center_y = pixel_y as f32 + 0.5;
-
-    pattern
-        .offsets
-        .iter()
-        .map(|(dx, dy)| Point2::new(center_x + dx, center_y + dy))
-        .collect()
-}
-
-fn resolve_msaa_samples(samples: &[MSAASample]) -> (Vector3<f32>, f32) {
-    let hit_samples: Vec<_> = samples.iter().filter(|s| s.hit).collect();
-
-    if hit_samples.is_empty() {
-        return (Vector3::zeros(), f32::INFINITY);
-    }
-
-    let total_color: Vector3<f32> = hit_samples.iter().map(|s| s.color).sum();
-    let avg_color = total_color / hit_samples.len() as f32;
-
-    let min_depth = hit_samples
-        .iter()
-        .map(|s| s.depth)
-        .fold(f32::INFINITY, f32::min);
-
-    (avg_color, min_depth)
 }
 
 // ===== 着色计算 =====
