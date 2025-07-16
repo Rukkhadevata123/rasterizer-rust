@@ -1,5 +1,5 @@
 use crate::geometry::transform::TransformFactory;
-use crate::material_system::materials::ModelData;
+use crate::material_system::materials::Model;
 use nalgebra::{Matrix4, Vector3};
 
 /// 表示场景中的单个对象实例
@@ -8,7 +8,7 @@ use nalgebra::{Matrix4, Vector3};
 #[derive(Debug, Clone)]
 pub struct SceneObject {
     /// 对象的几何数据（网格、材质等）
-    pub model_data: ModelData,
+    pub model: Model,
 
     /// 对象在世界空间中的变换矩阵
     pub transform: Matrix4<f32>,
@@ -16,9 +16,9 @@ pub struct SceneObject {
 
 impl SceneObject {
     /// 从模型数据创建新的场景对象
-    pub fn from_model_data(model_data: ModelData) -> Self {
+    pub fn from_model_data(model: Model) -> Self {
         Self {
-            model_data,
+            model,
             transform: Matrix4::identity(),
         }
     }
@@ -26,7 +26,7 @@ impl SceneObject {
     /// 创建空的场景对象（用于测试或占位）
     pub fn empty(name: &str) -> Self {
         Self {
-            model_data: ModelData {
+            model: Model {
                 meshes: Vec::new(),
                 materials: Vec::new(),
                 name: name.to_string(),

@@ -1,5 +1,5 @@
 use crate::core::frame_buffer::FrameBuffer;
-use crate::core::renderer::GeometryResult; // 假设这个 use 存在于您的项目中
+use crate::core::renderer::GeometryResult;
 use crate::geometry::culling::{
     is_backface, is_on_triangle_edge, is_valid_triangle, should_cull_small_triangle,
 };
@@ -10,7 +10,7 @@ use crate::geometry::interpolation::{
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::color::{get_random_color, linear_rgb_to_u8};
 use crate::material_system::light::Light;
-use crate::material_system::materials::{Material, MaterialView, ModelData, Vertex};
+use crate::material_system::materials::{Material, Model, Vertex, compute_material_response};
 use crate::material_system::texture::Texture;
 use atomic_float::AtomicF32;
 use nalgebra::{Point2, Point3, Vector2, Vector3};
@@ -28,23 +28,16 @@ pub struct VertexRenderData {
     pub position_view: Option<Point3<f32>>,
 }
 
-#[derive(Debug, Clone)]
-pub enum TextureSource<'a> {
-    None,
-    Image(&'a Texture),
-    FaceColor(u64),
-    SolidColor(Vector3<f32>),
-}
-
 pub struct TriangleData<'a> {
     pub vertices: [VertexRenderData; 3],
     pub base_color: Vector3<f32>,
-    pub texture_source: TextureSource<'a>,
-    pub material_view: Option<MaterialView<'a>>,
+    pub texture: Option<&'a Texture>,
+    pub material: Option<&'a Material>,
     pub lights: &'a [Light],
     pub ambient_intensity: f32,
     pub ambient_color: Vector3<f32>,
     pub is_perspective: bool,
+    pub face_seed: Option<u64>, // 面颜色模式下的随机种子
 }
 
 impl<'a> TriangleData<'a> {
@@ -59,9 +52,8 @@ impl<'a> TriangleData<'a> {
 
 // ===== 三角形准备 =====
 
-#[allow(clippy::too_many_arguments)]
 pub fn prepare_triangles<'a>(
-    model_data: &'a ModelData,
+    model: &'a Model,
     geometry_result: &GeometryResult,
     material_override: Option<&'a Material>,
     settings: &'a RenderSettings,
@@ -69,14 +61,13 @@ pub fn prepare_triangles<'a>(
     ambient_intensity: f32,
     ambient_color: Vector3<f32>,
 ) -> Vec<TriangleData<'a>> {
-    model_data
+    model
         .meshes
         .par_iter()
         .enumerate()
         .flat_map(|(mesh_idx, mesh)| {
             let vertex_offset = geometry_result.mesh_offsets[mesh_idx];
-            let material_opt = material_override
-                .or_else(|| mesh.material_id.and_then(|id| model_data.materials.get(id)));
+            let material_opt = material_override.or_else(|| model.materials.get(mesh.material_id));
 
             mesh.indices
                 .chunks_exact(3)
@@ -148,17 +139,20 @@ fn process_triangle<'a>(
         return None;
     }
 
-    // 确定纹理和颜色
-    let texture_source = determine_texture_source(settings, material_opt, global_face_index);
-    let base_color = determine_base_color(&texture_source, material_opt);
-
-    let material_view = material_opt.map(|m| {
-        if settings.use_pbr {
-            MaterialView::PBR(m)
+    // 纹理和颜色
+    let (texture, base_color, face_seed) = if let Some(mat) = material_opt {
+        if let Some(tex) = &mat.texture {
+            (Some(tex), mat.base_color, None)
+        } else if settings.colorize {
+            (None, Vector3::new(1.0, 1.0, 1.0), Some(global_face_index))
         } else {
-            MaterialView::BlinnPhong(m)
+            (None, mat.base_color, None)
         }
-    });
+    } else if settings.colorize {
+        (None, Vector3::new(1.0, 1.0, 1.0), Some(global_face_index))
+    } else {
+        (None, Vector3::new(0.7, 0.7, 0.7), None)
+    };
 
     let vertex_data = [
         create_vertex_render_data(
@@ -166,7 +160,7 @@ fn process_triangle<'a>(
             view_pos0,
             &vertices[i0],
             global_i0,
-            &texture_source,
+            texture,
             geometry_result,
         ),
         create_vertex_render_data(
@@ -174,7 +168,7 @@ fn process_triangle<'a>(
             view_pos1,
             &vertices[i1],
             global_i1,
-            &texture_source,
+            texture,
             geometry_result,
         ),
         create_vertex_render_data(
@@ -182,7 +176,7 @@ fn process_triangle<'a>(
             view_pos2,
             &vertices[i2],
             global_i2,
-            &texture_source,
+            texture,
             geometry_result,
         ),
     ];
@@ -190,50 +184,14 @@ fn process_triangle<'a>(
     Some(TriangleData {
         vertices: vertex_data,
         base_color,
-        texture_source,
-        material_view,
+        texture,
+        material: material_opt,
         lights,
         ambient_intensity,
         ambient_color,
         is_perspective: settings.is_perspective(),
+        face_seed,
     })
-}
-
-fn determine_texture_source<'a>(
-    settings: &RenderSettings,
-    material_opt: Option<&'a Material>,
-    global_face_index: u64,
-) -> TextureSource<'a> {
-    if !settings.use_texture {
-        return if settings.colorize {
-            TextureSource::FaceColor(global_face_index)
-        } else {
-            TextureSource::None
-        };
-    }
-
-    if let Some(tex) = material_opt.and_then(|m| m.texture.as_ref()) {
-        if tex.is_face_color() {
-            TextureSource::FaceColor(global_face_index)
-        } else {
-            TextureSource::Image(tex)
-        }
-    } else if settings.colorize {
-        TextureSource::FaceColor(global_face_index)
-    } else {
-        let color = material_opt.map_or_else(|| Vector3::new(0.7, 0.7, 0.7), |m| m.diffuse());
-        TextureSource::SolidColor(color)
-    }
-}
-
-fn determine_base_color(
-    texture_source: &TextureSource,
-    material_opt: Option<&Material>,
-) -> Vector3<f32> {
-    match texture_source {
-        TextureSource::FaceColor(_) => Vector3::new(1.0, 1.0, 1.0),
-        _ => material_opt.map_or_else(|| Vector3::new(0.7, 0.7, 0.7), |m| m.diffuse()),
-    }
 }
 
 fn create_vertex_render_data(
@@ -241,13 +199,13 @@ fn create_vertex_render_data(
     view_pos: Point3<f32>,
     vertex: &Vertex,
     global_index: usize,
-    texture_source: &TextureSource,
+    texture: Option<&Texture>,
     geometry_result: &GeometryResult,
 ) -> VertexRenderData {
     VertexRenderData {
         pix: *pix,
         z_view: view_pos.z,
-        texcoord: if matches!(texture_source, TextureSource::Image(_)) {
+        texcoord: if texture.is_some() {
             Some(vertex.texcoord)
         } else {
             None
@@ -257,7 +215,7 @@ fn create_vertex_render_data(
     }
 }
 
-// ===== 并行光栅化 (已简化) =====
+// ===== 并行光栅化 =====
 
 pub fn rasterize_triangles(
     triangles: &[TriangleData],
@@ -272,7 +230,6 @@ pub fn rasterize_triangles(
         return;
     }
 
-    // 直接使用三角形级并行，不再有策略选择
     triangles.par_iter().for_each(|triangle| {
         rasterize_triangle(
             triangle,
@@ -306,12 +263,8 @@ pub fn rasterize_triangle(
         return;
     }
 
-    let use_phong_or_pbr = (settings.use_pbr || settings.use_phong)
-        && triangle.vertices[0].normal_view.is_some()
-        && triangle.vertices[0].position_view.is_some()
-        && !triangle.lights.is_empty();
+    let use_lighting = settings.use_pbr || settings.use_phong;
 
-    let use_texture = !matches!(triangle.texture_source, TextureSource::None);
     let ambient_contribution = calculate_ambient_contribution(triangle);
 
     for y in min_y..max_y {
@@ -324,8 +277,7 @@ pub fn rasterize_triangle(
                 pixel_index,
                 x,
                 y,
-                use_phong_or_pbr,
-                use_texture,
+                use_lighting,
                 &ambient_contribution,
                 depth_buffer,
                 color_buffer,
@@ -360,8 +312,7 @@ fn process_pixel(
     pixel_index: usize,
     pixel_x: usize,
     pixel_y: usize,
-    use_phong_or_pbr: bool,
-    use_texture: bool,
+    use_lighting: bool,
     ambient_contribution: &Vector3<f32>,
     depth_buffer: &[AtomicF32],
     color_buffer: &[AtomicU8],
@@ -410,14 +361,8 @@ fn process_pixel(
         }
     }
 
-    let material_color = calculate_pixel_color(
-        triangle,
-        bary,
-        settings,
-        use_phong_or_pbr,
-        use_texture,
-        ambient_contribution,
-    );
+    let material_color =
+        calculate_pixel_color(triangle, bary, settings, use_lighting, ambient_contribution);
     let final_color =
         apply_alpha_blending(&material_color, final_alpha, pixel_x, pixel_y, frame_buffer);
 
@@ -431,138 +376,91 @@ fn calculate_pixel_color(
     triangle: &TriangleData,
     bary: Vector3<f32>,
     settings: &RenderSettings,
-    use_phong_or_pbr: bool,
-    use_texture: bool,
+    use_lighting: bool,
     ambient_contribution: &Vector3<f32>,
 ) -> Vector3<f32> {
-    if use_phong_or_pbr {
-        calculate_advanced_shading(triangle, bary, settings, use_texture, ambient_contribution)
-    } else {
-        calculate_basic_shading(triangle, bary, settings, use_texture, ambient_contribution)
-    }
-}
-
-fn calculate_advanced_shading(
-    triangle: &TriangleData,
-    bary: Vector3<f32>,
-    settings: &RenderSettings,
-    use_texture: bool,
-    ambient_contribution: &Vector3<f32>,
-) -> Vector3<f32> {
-    let material_view = match &triangle.material_view {
-        Some(mat_view) => mat_view,
-        None => {
-            return calculate_basic_shading(
-                triangle,
+    let surface_color = if let Some(tex) = triangle.texture {
+        if let (Some(tc1), Some(tc2), Some(tc3)) = (
+            triangle.vertices[0].texcoord,
+            triangle.vertices[1].texcoord,
+            triangle.vertices[2].texcoord,
+        ) {
+            let tc = interpolate_texcoords(
                 bary,
-                settings,
-                use_texture,
-                ambient_contribution,
+                tc1,
+                tc2,
+                tc3,
+                triangle.vertices[0].z_view,
+                triangle.vertices[1].z_view,
+                triangle.vertices[2].z_view,
+                triangle.is_perspective,
+            );
+            let arr = tex.sample(tc.x, tc.y);
+            Vector3::new(arr[0], arr[1], arr[2])
+        } else {
+            Vector3::new(1.0, 1.0, 1.0)
+        }
+    } else if let Some(seed) = triangle.face_seed {
+        get_random_color(seed, true)
+    } else {
+        triangle.base_color
+    };
+
+    if use_lighting
+        && triangle.material.is_some()
+        && triangle.vertices[0].normal_view.is_some()
+        && triangle.vertices[0].position_view.is_some()
+        && !triangle.lights.is_empty()
+    {
+        let interp_normal = interpolate_normal(
+            bary,
+            triangle.vertices[0].normal_view.unwrap(),
+            triangle.vertices[1].normal_view.unwrap(),
+            triangle.vertices[2].normal_view.unwrap(),
+            triangle.is_perspective,
+            triangle.vertices[0].z_view,
+            triangle.vertices[1].z_view,
+            triangle.vertices[2].z_view,
+        );
+
+        let interp_position = interpolate_position(
+            bary,
+            triangle.vertices[0].position_view.unwrap(),
+            triangle.vertices[1].position_view.unwrap(),
+            triangle.vertices[2].position_view.unwrap(),
+            triangle.is_perspective,
+            triangle.vertices[0].z_view,
+            triangle.vertices[1].z_view,
+            triangle.vertices[2].z_view,
+        );
+
+        let view_dir = (-interp_position.coords).normalize();
+
+        let mut total_direct_light = Vector3::zeros();
+
+        for light in triangle.lights {
+            let light_dir = light.get_direction(&interp_position);
+            let light_intensity = light.get_intensity(&interp_position);
+
+            let response = compute_material_response(
+                triangle.material.unwrap(),
+                &light_dir,
+                &view_dir,
+                &interp_normal,
+            );
+
+            total_direct_light += Vector3::new(
+                response.x * light_intensity.x,
+                response.y * light_intensity.y,
+                response.z * light_intensity.z,
             );
         }
-    };
 
-    let interp_normal = interpolate_normal(
-        bary,
-        triangle.vertices[0].normal_view.unwrap(),
-        triangle.vertices[1].normal_view.unwrap(),
-        triangle.vertices[2].normal_view.unwrap(),
-        triangle.is_perspective,
-        triangle.vertices[0].z_view,
-        triangle.vertices[1].z_view,
-        triangle.vertices[2].z_view,
-    );
-
-    let interp_position = interpolate_position(
-        bary,
-        triangle.vertices[0].position_view.unwrap(),
-        triangle.vertices[1].position_view.unwrap(),
-        triangle.vertices[2].position_view.unwrap(),
-        triangle.is_perspective,
-        triangle.vertices[0].z_view,
-        triangle.vertices[1].z_view,
-        triangle.vertices[2].z_view,
-    );
-
-    let view_dir = (-interp_position.coords).normalize();
-
-    let mut total_direct_light = Vector3::zeros();
-
-    for light in triangle.lights {
-        let light_dir = light.get_direction(&interp_position);
-        let light_intensity = light.get_intensity(&interp_position);
-
-        let response = material_view.compute_response(&light_dir, &view_dir, &interp_normal);
-
-        total_direct_light += Vector3::new(
-            response.x * light_intensity.x,
-            response.y * light_intensity.y,
-            response.z * light_intensity.z,
-        );
-    }
-
-    let direct_light = total_direct_light;
-
-    let surface_color = if use_texture {
-        sample_texture(triangle, bary)
-    } else {
-        triangle.base_color
-    };
-
-    if settings.use_lighting {
-        surface_color.component_mul(&(direct_light + *ambient_contribution))
-    } else {
-        surface_color.component_mul(ambient_contribution)
-    }
-}
-
-fn calculate_basic_shading(
-    triangle: &TriangleData,
-    bary: Vector3<f32>,
-    settings: &RenderSettings,
-    use_texture: bool,
-    ambient_contribution: &Vector3<f32>,
-) -> Vector3<f32> {
-    let surface_color = if use_texture {
-        sample_texture(triangle, bary)
-    } else {
-        triangle.base_color
-    };
-
-    if settings.use_lighting {
+        surface_color.component_mul(&(total_direct_light + *ambient_contribution))
+    } else if settings.use_lighting {
         surface_color.component_mul(ambient_contribution)
     } else {
         surface_color
-    }
-}
-
-fn sample_texture(triangle: &TriangleData, bary: Vector3<f32>) -> Vector3<f32> {
-    match &triangle.texture_source {
-        TextureSource::Image(tex) => {
-            if let (Some(tc1), Some(tc2), Some(tc3)) = (
-                triangle.vertices[0].texcoord,
-                triangle.vertices[1].texcoord,
-                triangle.vertices[2].texcoord,
-            ) {
-                let tc = interpolate_texcoords(
-                    bary,
-                    tc1,
-                    tc2,
-                    tc3,
-                    triangle.vertices[0].z_view,
-                    triangle.vertices[1].z_view,
-                    triangle.vertices[2].z_view,
-                    triangle.is_perspective,
-                );
-                let color_array = tex.sample(tc.x, tc.y);
-                Vector3::new(color_array[0], color_array[1], color_array[2])
-            } else {
-                Vector3::new(1.0, 1.0, 1.0)
-            }
-        }
-        TextureSource::FaceColor(seed) => get_random_color(*seed, true),
-        TextureSource::SolidColor(color) => *color,
-        TextureSource::None => Vector3::new(1.0, 1.0, 1.0),
     }
 }
 
@@ -576,12 +474,7 @@ fn calculate_ambient_contribution(triangle: &TriangleData) -> Vector3<f32> {
         ambient_color.z * ambient_intensity,
     );
 
-    if let Some(material_view) = &triangle.material_view {
-        let material = match material_view {
-            MaterialView::BlinnPhong(material) => material,
-            MaterialView::PBR(material) => material,
-        };
-
+    if let Some(material) = triangle.material {
         return Vector3::new(
             material.ambient_factor.x * ambient.x,
             material.ambient_factor.y * ambient.y,
@@ -595,15 +488,7 @@ fn calculate_ambient_contribution(triangle: &TriangleData) -> Vector3<f32> {
 // ===== Alpha和颜色处理 =====
 
 fn get_effective_alpha(triangle: &TriangleData, settings: &RenderSettings) -> f32 {
-    let material_alpha = if let Some(material_view) = &triangle.material_view {
-        match material_view {
-            MaterialView::BlinnPhong(material) => material.alpha,
-            MaterialView::PBR(material) => material.alpha,
-        }
-    } else {
-        1.0
-    };
-
+    let material_alpha = triangle.material.map_or(1.0, |m| m.alpha);
     (material_alpha * settings.alpha).clamp(0.0, 1.0)
 }
 

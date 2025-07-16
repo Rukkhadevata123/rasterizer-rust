@@ -1,6 +1,6 @@
 use crate::io::obj_loader::load_obj_model;
 use crate::io::render_settings::RenderSettings;
-use crate::material_system::materials::ModelData;
+use crate::material_system::materials::Model;
 use crate::scene::scene_utils::Scene;
 use crate::utils::model_utils::normalize_and_center_model;
 use log::{debug, info};
@@ -15,7 +15,7 @@ impl ModelLoader {
     pub fn load_and_create_scene(
         obj_path: &str,
         settings: &RenderSettings,
-    ) -> Result<(Scene, ModelData), String> {
+    ) -> Result<(Scene, Model), String> {
         info!("加载模型：{obj_path}");
         let load_start = Instant::now();
 
@@ -25,13 +25,13 @@ impl ModelLoader {
         }
 
         // 加载模型数据
-        let mut model_data = load_obj_model(obj_path, settings)?;
+        let mut model = load_obj_model(obj_path, settings)?;
         debug!("模型加载耗时 {:?}", load_start.elapsed());
 
         // 归一化模型
         debug!("归一化模型...");
         let norm_start_time = Instant::now();
-        let (original_center, scale_factor) = normalize_and_center_model(&mut model_data);
+        let (original_center, scale_factor) = normalize_and_center_model(&mut model);
         debug!(
             "模型归一化耗时 {:?}，原始中心：{:.3?}，缩放系数：{:.3}",
             norm_start_time.elapsed(),
@@ -41,9 +41,9 @@ impl ModelLoader {
 
         // 创建场景
         debug!("创建场景...");
-        let scene = Scene::new(model_data.clone(), settings)?;
+        let scene = Scene::new(model.clone(), settings)?;
 
-        Ok((scene, model_data))
+        Ok((scene, model))
     }
 
     /// 验证资源

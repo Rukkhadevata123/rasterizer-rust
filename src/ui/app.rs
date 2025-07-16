@@ -3,7 +3,7 @@ use super::core::CoreMethods;
 use super::widgets::WidgetMethods;
 use crate::core::renderer::Renderer;
 use crate::io::render_settings::RenderSettings;
-use crate::material_system::materials::ModelData;
+use crate::material_system::materials::Model;
 use crate::scene::scene_utils::Scene;
 use egui::{Color32, ColorImage, RichText, Vec2};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,7 +17,7 @@ pub struct RasterizerApp {
     // 渲染运行时状态
     pub renderer: Renderer,
     pub scene: Option<Scene>,
-    pub model_data: Option<ModelData>,
+    pub model_data: Option<Model>,
 
     // GUI界面状态
     pub rendered_image: Option<egui::TextureHandle>,

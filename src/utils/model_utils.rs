@@ -1,8 +1,8 @@
-use crate::material_system::materials::ModelData;
+use crate::material_system::materials::Model;
 use nalgebra::{Point3, Vector3};
 
 /// 归一化和中心化模型顶点
-pub fn normalize_and_center_model(model_data: &mut ModelData) -> (Vector3<f32>, f32) {
+pub fn normalize_and_center_model(model_data: &mut Model) -> (Vector3<f32>, f32) {
     if model_data.meshes.is_empty() {
         return (Vector3::zeros(), 1.0);
     }

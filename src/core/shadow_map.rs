@@ -82,7 +82,7 @@ impl ShadowMap {
         let mut triangles_processed = 0;
         let mut triangles_culled = 0;
 
-        for mesh in &scene_object.model_data.meshes {
+        for mesh in &scene_object.model.meshes {
             for indices in mesh.indices.chunks_exact(3) {
                 let vertices = [
                     mesh.vertices[indices[0] as usize].position,

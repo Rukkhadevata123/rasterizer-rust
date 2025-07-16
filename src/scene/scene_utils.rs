@@ -1,10 +1,8 @@
 use crate::geometry::camera::Camera;
 use crate::io::render_settings::{RenderSettings, parse_point3, parse_vec3};
 use crate::material_system::light::Light;
-use crate::material_system::materials::ModelData;
-use crate::material_system::materials::material_applicator::{
-    apply_pbr_parameters, apply_phong_parameters,
-};
+use crate::material_system::materials::Model;
+use crate::material_system::materials::apply_material_parameters;
 use crate::scene::scene_object::SceneObject;
 use nalgebra::Vector3;
 
@@ -29,15 +27,10 @@ pub struct Scene {
 
 impl Scene {
     /// 链式创建场景，自动应用所有设置
-    pub fn new(model_data: ModelData, settings: &RenderSettings) -> Result<Self, String> {
+    pub fn new(model_data: Model, settings: &RenderSettings) -> Result<Self, String> {
         let mut model_data = model_data.clone();
         // 应用材质参数
-        if settings.use_pbr {
-            apply_pbr_parameters(&mut model_data, settings);
-        }
-        if settings.use_phong {
-            apply_phong_parameters(&mut model_data, settings);
-        }
+        apply_material_parameters(&mut model_data, settings);
 
         // 创建对象
         let mut object = SceneObject::from_model_data(model_data);
@@ -128,10 +121,10 @@ impl Scene {
     pub fn get_scene_stats(&self) -> SceneStats {
         let mut vertex_count = 0;
         let mut triangle_count = 0;
-        let material_count = self.object.model_data.materials.len();
-        let mesh_count = self.object.model_data.meshes.len();
+        let material_count = self.object.model.materials.len();
+        let mesh_count = self.object.model.meshes.len();
 
-        for mesh in &self.object.model_data.meshes {
+        for mesh in &self.object.model.meshes {
             vertex_count += mesh.vertices.len();
             triangle_count += mesh.indices.len() / 3;
         }

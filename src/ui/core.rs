@@ -1,8 +1,6 @@
 use crate::core::renderer::Renderer;
 use crate::io::render_settings::RenderSettings;
-use crate::material_system::materials::material_applicator::{
-    apply_pbr_parameters, apply_phong_parameters,
-};
+use crate::material_system::materials::apply_material_parameters;
 use crate::ui::app::RasterizerApp;
 use crate::utils::save_utils::save_render_with_settings;
 use egui::{Color32, Context};
@@ -260,15 +258,7 @@ impl CoreMethods for RasterizerApp {
                 scene.set_object_transform(position, rotation_rad, final_scale);
 
                 // 4. 材质参数同步
-                if let Some(model_data) = &mut self.model_data {
-                    if self.settings.use_pbr {
-                        apply_pbr_parameters(model_data, &self.settings);
-                    }
-                    if self.settings.use_phong {
-                        apply_phong_parameters(model_data, &self.settings);
-                    }
-                    scene.object.model_data = model_data.clone();
-                }
+                apply_material_parameters(&mut scene.object.model, &self.settings);
 
                 // 5. 环境光同步
                 scene.set_ambient(self.settings.ambient, self.settings.get_ambient_color_vec());

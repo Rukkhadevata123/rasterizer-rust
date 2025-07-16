@@ -91,7 +91,7 @@ pub fn transform_geometry(
     let mut vertices = Vec::new();
     let mut normals = Vec::new();
     let mut mesh_offsets = vec![0];
-    for mesh in &scene_object.model_data.meshes {
+    for mesh in &scene_object.model.meshes {
         vertices.extend(mesh.vertices.iter().map(|v| v.position));
         normals.extend(mesh.vertices.iter().map(|v| v.normal));
         mesh_offsets.push(vertices.len());
@@ -168,7 +168,7 @@ impl Renderer {
 
         // 4. 三角形准备
         let triangles = prepare_triangles(
-            &scene.object.model_data,
+            &scene.object.model,
             &geometry_result,
             None,
             settings,
@@ -194,7 +194,7 @@ impl Renderer {
         if log::log_enabled!(log::Level::Debug) {
             debug!(
                 "渲染完成 '{}': {} 三角形, 耗时: {:?}{}",
-                scene.object.model_data.name,
+                scene.object.model.name,
                 triangles.len(),
                 frame_time,
                 if settings.enable_shadow_mapping
@@ -249,7 +249,7 @@ impl Renderer {
             nalgebra::Point3::new(f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
         let mut has_vertices = false;
 
-        for mesh in &scene.object.model_data.meshes {
+        for mesh in &scene.object.model.meshes {
             for vertex in &mesh.vertices {
                 let world_pos = scene.object.transform.transform_point(&vertex.position);
 
