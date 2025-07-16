@@ -24,7 +24,7 @@ This project is a comprehensive implementation of a 3D graphics pipeline in pure
 
 Check our Video Demo:
 
-![Video Demo](https://github.com/user-attachments/assets/6178824d-f03b-4dd9-a31f-6de5d7155a94)
+https://github.com/user-attachments/assets/1137feff-b93c-450a-a39f-0bac5608b523
 
 ## Rendering Pipeline
 
