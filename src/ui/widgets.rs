@@ -593,199 +593,51 @@ impl WidgetMethods for RasterizerApp {
     }
 
     /// 物体变换控制面板
-    fn ui_object_transform_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, _ctx: &Context) {
+    fn ui_object_transform_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         // 位置控制
         ui.group(|ui| {
-            ui.label("位置");
-            let mut position_changed = false;
-
-            ui.horizontal(|ui| {
-                ui.label("X:");
-                position_changed |= ui
-                    .add(
-                        egui::DragValue::new(&mut app.object_position_vec.x)
-                            .speed(0.1)
-                            .range(-10.0..=10.0),
-                    )
-                    .changed();
-
-                ui.label("Y:");
-                position_changed |= ui
-                    .add(
-                        egui::DragValue::new(&mut app.object_position_vec.y)
-                            .speed(0.1)
-                            .range(-10.0..=10.0),
-                    )
-                    .changed();
-
-                ui.label("Z:");
-                position_changed |= ui
-                    .add(
-                        egui::DragValue::new(&mut app.object_position_vec.z)
-                            .speed(0.1)
-                            .range(-10.0..=10.0),
-                    )
-                    .changed();
-            });
-
-            if ui.button("重置位置").clicked() {
-                app.object_position_vec = nalgebra::Vector3::zeros();
-                position_changed = true;
-            }
-
-            // 直接更新settings字符串并标记变化
-            if position_changed {
-                app.settings.object_position = format!(
-                    "{},{},{}",
-                    app.object_position_vec.x, app.object_position_vec.y, app.object_position_vec.z
-                );
+            ui.label("物体位置 (x,y,z)：");
+            let old = app.settings.object_position.clone();
+            let resp = ui.text_edit_singleline(&mut app.settings.object_position);
+            if app.settings.object_position != old {
                 app.interface_interaction.anything_changed = true;
             }
+            Self::add_tooltip(resp, ctx, "输入物体的世界坐标，例如 0,0,0");
         });
 
-        // 旋转控制
+        // 旋转控制（度）
         ui.group(|ui| {
-            ui.label("旋转");
-            let mut rotation_changed = false;
-
-            ui.horizontal(|ui| {
-                ui.label("X轴:");
-                rotation_changed |= ui
-                    .add(
-                        egui::Slider::new(
-                            &mut app.object_rotation_vec.x,
-                            -std::f32::consts::PI..=std::f32::consts::PI,
-                        )
-                        .suffix("弧度"),
-                    )
-                    .changed();
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Y轴:");
-                rotation_changed |= ui
-                    .add(
-                        egui::Slider::new(
-                            &mut app.object_rotation_vec.y,
-                            -std::f32::consts::PI..=std::f32::consts::PI,
-                        )
-                        .suffix("弧度"),
-                    )
-                    .changed();
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Z轴:");
-                rotation_changed |= ui
-                    .add(
-                        egui::Slider::new(
-                            &mut app.object_rotation_vec.z,
-                            -std::f32::consts::PI..=std::f32::consts::PI,
-                        )
-                        .suffix("弧度"),
-                    )
-                    .changed();
-            });
-
-            ui.horizontal(|ui| {
-                if ui.button("绕Y轴+90°").clicked() {
-                    app.object_rotation_vec.y += std::f32::consts::PI / 2.0;
-                    if app.object_rotation_vec.y > std::f32::consts::PI {
-                        app.object_rotation_vec.y -= 2.0 * std::f32::consts::PI;
-                    }
-                    rotation_changed = true;
-                }
-
-                if ui.button("重置旋转").clicked() {
-                    app.object_rotation_vec = nalgebra::Vector3::zeros();
-                    rotation_changed = true;
-                }
-            });
-
-            // 直接更新settings字符串并标记变化
-            if rotation_changed {
-                // 转换回度数存储到settings
-                let rotation_degrees = nalgebra::Vector3::new(
-                    app.object_rotation_vec.x.to_degrees(),
-                    app.object_rotation_vec.y.to_degrees(),
-                    app.object_rotation_vec.z.to_degrees(),
-                );
-                app.settings.object_rotation = format!(
-                    "{},{},{}",
-                    rotation_degrees.x, rotation_degrees.y, rotation_degrees.z
-                );
+            ui.label("物体旋转 (x,y,z，度)：");
+            let old = app.settings.object_rotation.clone();
+            let resp = ui.text_edit_singleline(&mut app.settings.object_rotation);
+            if app.settings.object_rotation != old {
                 app.interface_interaction.anything_changed = true;
             }
+            Self::add_tooltip(resp, ctx, "输入旋转角度（度），例如 0,45,0");
         });
 
         // 缩放控制
         ui.group(|ui| {
-            ui.label("缩放");
-            let mut scale_changed = false;
-
-            ui.horizontal(|ui| {
-                ui.label("全局缩放:");
-                scale_changed |= ui
-                    .add(
-                        egui::Slider::new(&mut app.settings.object_scale, 0.1..=5.0)
-                            .logarithmic(true)
-                            .text("倍率"),
-                    )
-                    .changed();
-            });
-
-            ui.separator();
-            ui.label("分轴缩放:");
-
-            ui.horizontal(|ui| {
-                ui.label("X:");
-                scale_changed |= ui
-                    .add(
-                        egui::Slider::new(&mut app.object_scale_vec.x, 0.1..=5.0).logarithmic(true),
-                    )
-                    .changed();
-
-                ui.label("Y:");
-                scale_changed |= ui
-                    .add(
-                        egui::Slider::new(&mut app.object_scale_vec.y, 0.1..=5.0).logarithmic(true),
-                    )
-                    .changed();
-
-                ui.label("Z:");
-                scale_changed |= ui
-                    .add(
-                        egui::Slider::new(&mut app.object_scale_vec.z, 0.1..=5.0).logarithmic(true),
-                    )
-                    .changed();
-            });
-
-            ui.horizontal(|ui| {
-                if ui.button("重置缩放").clicked() {
-                    app.settings.object_scale = 1.0;
-                    app.object_scale_vec = nalgebra::Vector3::new(1.0, 1.0, 1.0);
-                    scale_changed = true;
-                }
-
-                if ui.button("放大2倍").clicked() {
-                    app.settings.object_scale *= 2.0;
-                    scale_changed = true;
-                }
-
-                if ui.button("缩小一半").clicked() {
-                    app.settings.object_scale *= 0.5;
-                    scale_changed = true;
-                }
-            });
-
-            // 直接更新settings字符串并标记变化
-            if scale_changed {
-                app.settings.object_scale_xyz = format!(
-                    "{},{},{}",
-                    app.object_scale_vec.x, app.object_scale_vec.y, app.object_scale_vec.z
-                );
+            ui.label("物体缩放 (x,y,z)：");
+            let old = app.settings.object_scale_xyz.clone();
+            let resp = ui.text_edit_singleline(&mut app.settings.object_scale_xyz);
+            if app.settings.object_scale_xyz != old {
                 app.interface_interaction.anything_changed = true;
             }
+            Self::add_tooltip(resp, ctx, "输入缩放比例，例如 1,1,1");
+            ui.horizontal(|ui| {
+                ui.label("全局缩放:");
+                let old_scale = app.settings.object_scale;
+                let resp = ui.add(
+                    egui::Slider::new(&mut app.settings.object_scale, 0.1..=5.0)
+                        .logarithmic(true)
+                        .text("倍率"),
+                );
+                if app.settings.object_scale != old_scale {
+                    app.interface_interaction.anything_changed = true;
+                }
+                Self::add_tooltip(resp, ctx, "整体缩放倍率，影响所有轴");
+            });
         });
     }
 
@@ -926,9 +778,9 @@ impl WidgetMethods for RasterizerApp {
     fn ui_camera_settings_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
         ui.horizontal(|ui| {
             ui.label("相机位置 (x,y,z)：");
-            let old_from = app.settings.camera_from.clone();
+            let old = app.settings.camera_from.clone();
             let resp = ui.text_edit_singleline(&mut app.settings.camera_from);
-            if app.settings.camera_from != old_from {
+            if app.settings.camera_from != old {
                 if let Some(scene) = &mut app.scene {
                     if let Ok(from) = parse_point3(&app.settings.camera_from) {
                         scene.active_camera.params.position = from;
@@ -942,9 +794,9 @@ impl WidgetMethods for RasterizerApp {
 
         ui.horizontal(|ui| {
             ui.label("相机目标 (x,y,z)：");
-            let old_at = app.settings.camera_at.clone();
+            let old = app.settings.camera_at.clone();
             let resp = ui.text_edit_singleline(&mut app.settings.camera_at);
-            if app.settings.camera_at != old_at {
+            if app.settings.camera_at != old {
                 if let Some(scene) = &mut app.scene {
                     if let Ok(at) = parse_point3(&app.settings.camera_at) {
                         scene.active_camera.params.target = at;
@@ -958,9 +810,9 @@ impl WidgetMethods for RasterizerApp {
 
         ui.horizontal(|ui| {
             ui.label("相机上方向 (x,y,z)：");
-            let old_up = app.settings.camera_up.clone();
+            let old = app.settings.camera_up.clone();
             let resp = ui.text_edit_singleline(&mut app.settings.camera_up);
-            if app.settings.camera_up != old_up {
+            if app.settings.camera_up != old {
                 if let Some(scene) = &mut app.scene {
                     if let Ok(up) = parse_vec3(&app.settings.camera_up) {
                         scene.active_camera.params.up = up.normalize();

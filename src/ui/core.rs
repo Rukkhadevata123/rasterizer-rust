@@ -375,25 +375,6 @@ impl CoreMethods for RasterizerApp {
 
         self.settings = new_settings;
 
-        if let Ok(pos) = crate::io::render_settings::parse_vec3(&self.settings.object_position) {
-            self.object_position_vec = pos;
-        } else {
-            self.object_position_vec = nalgebra::Vector3::new(0.0, 0.0, 0.0);
-        }
-
-        if let Ok(rot) = crate::io::render_settings::parse_vec3(&self.settings.object_rotation) {
-            self.object_rotation_vec =
-                nalgebra::Vector3::new(rot.x.to_radians(), rot.y.to_radians(), rot.z.to_radians());
-        } else {
-            self.object_rotation_vec = nalgebra::Vector3::new(0.0, 0.0, 0.0);
-        }
-
-        if let Ok(scale) = crate::io::render_settings::parse_vec3(&self.settings.object_scale_xyz) {
-            self.object_scale_vec = scale;
-        } else {
-            self.object_scale_vec = nalgebra::Vector3::new(1.0, 1.0, 1.0);
-        }
-
         // 重置GUI状态
         self.camera_pan_sensitivity = 1.0;
         self.camera_orbit_sensitivity = 1.0;

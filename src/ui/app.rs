@@ -2,100 +2,61 @@ use super::animation::AnimationMethods;
 use super::core::CoreMethods;
 use super::widgets::WidgetMethods;
 use crate::core::renderer::Renderer;
-use crate::io::render_settings::{RenderSettings, parse_vec3};
+use crate::io::render_settings::RenderSettings;
 use crate::material_system::materials::ModelData;
 use crate::scene::scene_utils::Scene;
 use egui::{Color32, ColorImage, RichText, Vec2};
-use nalgebra::Vector3;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// GUI应用状态
 pub struct RasterizerApp {
-    // ===== TOML可配置参数 =====
-    /// 所有TOML可配置的渲染参数
+    // TOML可配置参数
     pub settings: RenderSettings,
 
-    // ===== GUI专用向量字段 =====
-    /// GUI中物体位置控制的向量表示（与settings.object_position同步）
-    pub object_position_vec: Vector3<f32>,
-    /// GUI中物体旋转控制的向量表示（与settings.object_rotation同步，弧度制）
-    pub object_rotation_vec: Vector3<f32>,
-    /// GUI中物体缩放控制的向量表示（与settings.object_scale_xyz同步）
-    pub object_scale_vec: Vector3<f32>,
-
-    // ===== 渲染运行时状态 - 不可配置 =====
-    /// 渲染器实例
+    // 渲染运行时状态
     pub renderer: Renderer,
-    /// 当前加载的场景
     pub scene: Option<Scene>,
-    /// 当前加载的模型数据
     pub model_data: Option<ModelData>,
 
-    // ===== GUI界面状态 - 不可配置 =====
-    /// 渲染结果纹理句柄
+    // GUI界面状态
     pub rendered_image: Option<egui::TextureHandle>,
-    /// 上次渲染耗时
     pub last_render_time: Option<std::time::Duration>,
-    /// 状态消息显示
     pub status_message: String,
-    /// 是否显示错误对话框
     pub show_error_dialog: bool,
-    /// 错误消息内容
     pub error_message: String,
-    /// 主题
     pub is_dark_theme: bool,
 
-    // ===== 实时渲染状态 - 不可配置 =====
-    /// 当前实时帧率
+    // 实时渲染状态
     pub current_fps: f32,
-    /// 帧率历史记录，用于平滑显示
     pub fps_history: Vec<f32>,
-    /// 平均帧率
     pub avg_fps: f32,
-    /// 是否正在实时渲染
     pub is_realtime_rendering: bool,
-    /// 上一帧的时间戳
     pub last_frame_time: Option<std::time::Instant>,
 
-    // ===== 预渲染状态 - 不可配置 =====
-    /// 是否启用预渲染模式
+    // 预渲染状态
     pub pre_render_mode: bool,
-    /// 是否正在预渲染
     pub is_pre_rendering: bool,
-    /// 预渲染的帧集合
     pub pre_rendered_frames: Arc<Mutex<Vec<ColorImage>>>,
-    /// 当前显示的帧索引
     pub current_frame_index: usize,
-    /// 预渲染进度
     pub pre_render_progress: Arc<AtomicUsize>,
-    /// 全局动画计时器，用于跟踪动画总时长
     pub animation_time: f32,
-    /// 预渲染一个完整周期所需的总帧数
     pub total_frames_for_pre_render_cycle: usize,
 
-    // ===== 视频生成状态 - 不可配置 =====
-    /// 是否正在生成视频
+    // 视频生成状态
     pub is_generating_video: bool,
-    /// 视频生成线程句柄
     pub video_generation_thread: Option<std::thread::JoinHandle<(bool, String)>>,
-    /// 视频生成进度
     pub video_progress: Arc<AtomicUsize>,
 
-    // ===== 相机交互设置 =====
-    /// 平移敏感度
+    // 相机交互设置
     pub camera_pan_sensitivity: f32,
-    /// 轨道旋转敏感度
     pub camera_orbit_sensitivity: f32,
-    /// 推拉缩放敏感度
     pub camera_dolly_sensitivity: f32,
 
-    // ===== 相机交互状态 - 不可配置 =====
-    /// 相机交互状态
+    // 相机交互状态
     pub interface_interaction: InterfaceInteraction,
 
-    // ===== 系统状态 - 不可配置 =====
-    /// ffmpeg可用性检查结果
+    // 系统状态
     pub ffmpeg_available: bool,
 }
 
@@ -134,25 +95,6 @@ impl RasterizerApp {
         // 深色主题
         cc.egui_ctx.set_visuals(egui::Visuals::dark());
 
-        // 从settings字符串初始化GUI专用向量字段
-        let object_position_vec = if let Ok(pos) = parse_vec3(&settings.object_position) {
-            pos
-        } else {
-            Vector3::new(0.0, 0.0, 0.0)
-        };
-
-        let object_rotation_vec = if let Ok(rot) = parse_vec3(&settings.object_rotation) {
-            Vector3::new(rot.x.to_radians(), rot.y.to_radians(), rot.z.to_radians())
-        } else {
-            Vector3::new(0.0, 0.0, 0.0)
-        };
-
-        let object_scale_vec = if let Ok(scale) = parse_vec3(&settings.object_scale_xyz) {
-            scale
-        } else {
-            Vector3::new(1.0, 1.0, 1.0)
-        };
-
         // 创建渲染器
         let renderer = Renderer::new(settings.width, settings.height);
 
@@ -162,11 +104,6 @@ impl RasterizerApp {
         Self {
             // ===== TOML可配置参数 =====
             settings,
-
-            // ===== GUI专用向量字段 =====
-            object_position_vec,
-            object_rotation_vec,
-            object_scale_vec,
 
             // ===== 渲染运行时状态 =====
             renderer,
