@@ -508,22 +508,22 @@ impl TomlConfigLoader {
         let mut content = String::new();
 
         // 文件头注释
-        content.push_str("# 🔥 光栅化渲染器配置文件\n");
-        content.push_str("# 基于RenderSettings默认值生成的示例配置\n\n");
+        content.push_str("# 光栅化渲染器配置文件\n");
+        content.push_str("# 由 RenderSettings 默认值生成的示例配置\n\n");
 
         // [files] 部分
         content.push_str("[files]\n");
         if let Some(obj) = &settings.obj {
             content.push_str(&format!("obj = \"{obj}\"\n"));
         } else {
-            content.push_str("# obj = \"path/to/your/model.obj\"  # 取消注释并设置OBJ文件路径\n");
+            content.push_str("# obj = \"path/to/your/model.obj\"  # OBJ文件路径\n");
         }
         content.push_str(&format!("output = \"{}\"\n", settings.output));
         content.push_str(&format!("output_dir = \"{}\"\n", settings.output_dir));
         if let Some(texture) = &settings.texture {
             content.push_str(&format!("texture = \"{texture}\"\n"));
         } else {
-            content.push_str("# texture = \"path/to/texture.jpg\"  # 可选：覆盖MTL文件中的纹理\n");
+            content.push_str("# texture = \"path/to/texture.jpg\"  # 可选：覆盖MTL纹理\n");
         }
         if let Some(bg_image) = &settings.background_image_path {
             content.push_str(&format!("background_image = \"{bg_image}\"\n"));
@@ -582,7 +582,7 @@ impl TomlConfigLoader {
 
         // [[light]] 数组
         if !settings.lights.is_empty() {
-            content.push_str("# 🔥 光源配置 - 默认包含一个方向光\n");
+            content.push_str("# 光源配置\n");
             for light in &settings.lights {
                 content.push_str("[[light]]\n");
                 match light {
@@ -652,7 +652,6 @@ impl TomlConfigLoader {
             "ambient_occlusion = {}\n",
             settings.ambient_occlusion
         ));
-
         content.push_str(&format!("emissive = \"{}\"\n", settings.emissive));
         content.push('\n');
 
@@ -706,28 +705,23 @@ impl TomlConfigLoader {
             "custom_rotation_axis = \"{}\"\n",
             settings.custom_rotation_axis
         ));
-
         content.push('\n');
 
         // [shadow] 部分
-        content.push_str("# 🌒 阴影与环境光遮蔽配置\n");
+        content.push_str("# 阴影与环境光遮蔽配置\n");
         content.push_str("[shadow]\n");
-        content.push_str("# === 阴影映射 (地面阴影) ===\n");
-        content.push_str(&format!(
-            "enable_shadow_mapping = {}\n",
-            settings.enable_shadow_mapping
-        ));
-        content.push_str(&format!("shadow_map_size = {}\n", settings.shadow_map_size));
-        content.push_str(&format!("shadow_bias = {}\n", settings.shadow_bias));
-        content.push_str(&format!("shadow_distance = {}\n", settings.shadow_distance));
-        content.push_str("# enhanced_ao: 启用增强环境光遮蔽\n");
-        content.push_str("# ao_strength: AO强度 (0.0-1.0)\n");
-        content.push_str("# soft_shadows: 启用软阴影\n");
-        content.push_str("# shadow_strength: 软阴影强度 (0.0-1.0)\n");
-        content.push_str("# enable_shadow_mapping: 启用简单阴影映射（仅地面阴影）\n");
-        content.push_str("# shadow_map_size: 阴影贴图尺寸，推荐256或512\n");
-        content.push_str("# shadow_bias: 阴影偏移，避免阴影痤疮\n");
-        content.push_str("# shadow_distance: 阴影渲染距离\n");
+        content.push_str("enable_shadow_mapping = ");
+        content.push_str(&settings.enable_shadow_mapping.to_string());
+        content.push('\n');
+        content.push_str("shadow_map_size = ");
+        content.push_str(&settings.shadow_map_size.to_string());
+        content.push('\n');
+        content.push_str("shadow_bias = ");
+        content.push_str(&settings.shadow_bias.to_string());
+        content.push('\n');
+        content.push_str("shadow_distance = ");
+        content.push_str(&settings.shadow_distance.to_string());
+        content.push('\n');
 
         Ok(content)
     }

@@ -314,8 +314,8 @@ impl RasterizerApp {
                 // 如果相机变化，清除地面缓存（但保留背景缓存）
                 if need_clear_ground_cache {
                     // 只清除地面本体和阴影缓存
-                    self.renderer.frame_buffer.ground_base_cache = None;
-                    self.renderer.frame_buffer.ground_shadow_cache = None;
+                    self.renderer.frame_buffer.invalidate_ground_base_cache();
+                    self.renderer.frame_buffer.invalidate_ground_shadow_cache();
                 }
 
                 // 直接更新settings字符串

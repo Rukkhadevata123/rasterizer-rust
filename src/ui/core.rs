@@ -217,12 +217,12 @@ impl CoreMethods for RasterizerApp {
                 if self.renderer.frame_buffer.width != self.settings.width
                     || self.renderer.frame_buffer.height != self.settings.height
                 {
-                    self.renderer.invalidate_background_cache();
+                    self.renderer.frame_buffer.invalidate_caches();
                 }
 
                 // 强制清除地面本体和阴影缓存
-                self.renderer.frame_buffer.ground_base_cache = None;
-                self.renderer.frame_buffer.ground_shadow_cache = None;
+                self.renderer.frame_buffer.invalidate_ground_base_cache();
+                self.renderer.frame_buffer.invalidate_ground_shadow_cache();
 
                 // 统一同步所有状态
 

@@ -769,8 +769,8 @@ impl WidgetMethods for RasterizerApp {
         let old_bg_image = app.settings.use_background_image;
         ui.checkbox(&mut app.settings.use_background_image, "使用背景图片");
         if app.settings.use_background_image != old_bg_image {
-            app.settings.background_version += 1;
             app.interface_interaction.anything_changed = true;
+            app.renderer.frame_buffer.invalidate_background_cache(); // 失效背景缓存
         }
 
         if app.settings.use_background_image {
@@ -790,8 +790,9 @@ impl WidgetMethods for RasterizerApp {
                         app.settings.background_image_path = Some(path_text.clone());
                         app.status_message = format!("背景图片路径已设置: {path_text}");
                     }
-                    app.settings.background_version += 1;
+
                     app.interface_interaction.anything_changed = true;
+                    app.renderer.frame_buffer.invalidate_background_cache(); // 失效背景缓存
                 }
 
                 if ui.button("浏览...").clicked() {
@@ -804,13 +805,16 @@ impl WidgetMethods for RasterizerApp {
         let old_gradient = app.settings.enable_gradient_background;
         ui.checkbox(&mut app.settings.enable_gradient_background, "使用渐变背景");
         if app.settings.enable_gradient_background != old_gradient {
-            app.settings.background_version += 1;
             app.interface_interaction.anything_changed = true;
+            app.renderer.frame_buffer.invalidate_background_cache(); // 失效背景缓存
         }
 
         if app.settings.enable_gradient_background {
             if app.settings.use_background_image && app.settings.background_image_path.is_some() {
-                ui.label(RichText::new("注意：渐变背景将覆盖在背景图片上").color(Color32::YELLOW));
+                ui.label(
+                    egui::RichText::new("注意：渐变背景将覆盖在背景图片上")
+                        .color(egui::Color32::YELLOW),
+                );
             }
 
             // 使用按需计算的颜色值
@@ -821,8 +825,9 @@ impl WidgetMethods for RasterizerApp {
                     "{},{},{}",
                     top_color_array[0], top_color_array[1], top_color_array[2]
                 );
-                app.settings.background_version += 1;
+
                 app.interface_interaction.anything_changed = true;
+                app.renderer.frame_buffer.invalidate_background_cache(); // 失效背景缓存
             }
             ui.label("渐变顶部颜色");
 
@@ -833,8 +838,9 @@ impl WidgetMethods for RasterizerApp {
                     "{},{},{}",
                     bottom_color_array[0], bottom_color_array[1], bottom_color_array[2]
                 );
-                app.settings.background_version += 1;
+
                 app.interface_interaction.anything_changed = true;
+                app.renderer.frame_buffer.invalidate_background_cache(); // 失效背景缓存
             }
             ui.label("渐变底部颜色");
         }
@@ -843,7 +849,6 @@ impl WidgetMethods for RasterizerApp {
         let old_ground = app.settings.enable_ground_plane;
         ui.checkbox(&mut app.settings.enable_ground_plane, "显示地面平面");
         if app.settings.enable_ground_plane != old_ground {
-            app.settings.ground_settings_version += 1;
             app.interface_interaction.anything_changed = true;
         }
 
@@ -860,7 +865,7 @@ impl WidgetMethods for RasterizerApp {
                     "{},{},{}",
                     ground_color_array[0], ground_color_array[1], ground_color_array[2]
                 );
-                app.settings.ground_settings_version += 1;
+
                 app.interface_interaction.anything_changed = true;
             }
             ui.label("地面颜色");
@@ -874,7 +879,6 @@ impl WidgetMethods for RasterizerApp {
                     )
                     .changed()
                 {
-                    app.settings.ground_settings_version += 1;
                     app.interface_interaction.anything_changed = true;
                 }
 
@@ -882,7 +886,7 @@ impl WidgetMethods for RasterizerApp {
                 if ui.button("自动适配").clicked() {
                     if let Some(optimal_height) = app.calculate_optimal_ground_height() {
                         app.settings.ground_plane_height = optimal_height;
-                        app.settings.ground_settings_version += 1;
+
                         app.interface_interaction.anything_changed = true;
                         app.status_message = format!("地面高度已自动调整为 {optimal_height:.2}");
                     } else {
@@ -903,7 +907,6 @@ impl WidgetMethods for RasterizerApp {
                     if let Ok(from) = parse_point3(&app.settings.camera_from) {
                         scene.active_camera.params.position = from;
                         scene.active_camera.update_matrices();
-                        app.settings.camera_version += 1;
                         app.interface_interaction.anything_changed = true;
                     }
                 }
@@ -920,7 +923,6 @@ impl WidgetMethods for RasterizerApp {
                     if let Ok(at) = parse_point3(&app.settings.camera_at) {
                         scene.active_camera.params.target = at;
                         scene.active_camera.update_matrices();
-                        app.settings.camera_version += 1;
                         app.interface_interaction.anything_changed = true;
                     }
                 }
@@ -937,7 +939,6 @@ impl WidgetMethods for RasterizerApp {
                     if let Ok(up) = parse_vec3(&app.settings.camera_up) {
                         scene.active_camera.params.up = up.normalize();
                         scene.active_camera.update_matrices();
-                        app.settings.camera_version += 1;
                         app.interface_interaction.anything_changed = true;
                     }
                 }
@@ -959,7 +960,6 @@ impl WidgetMethods for RasterizerApp {
                     {
                         *fov_y_degrees = app.settings.camera_fov;
                         scene.active_camera.update_matrices();
-                        app.settings.camera_version += 1;
                         app.interface_interaction.anything_changed = true;
                     }
                 }

@@ -154,15 +154,9 @@ impl Renderer {
             self.generate_shadow_map(scene, settings);
         }
 
-        // 2. 清空帧缓冲区（传递版本号参数）
-        self.frame_buffer.clear(
-            settings.background_version,
-            settings.camera_version,
-            settings.ground_settings_version,
-            settings,
-            &scene.active_camera,
-            self.shadow_map.as_ref(),
-        );
+        // 2. 清空帧缓冲区
+        self.frame_buffer
+            .clear(settings, &scene.active_camera, self.shadow_map.as_ref());
 
         // 3. 几何变换
         let geometry_result = transform_geometry(
@@ -301,10 +295,6 @@ impl Renderer {
         );
 
         (center, ground_extended_radius)
-    }
-
-    pub fn invalidate_background_cache(&mut self) {
-        self.frame_buffer.invalidate_caches();
     }
 }
 

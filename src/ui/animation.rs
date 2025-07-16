@@ -76,13 +76,20 @@ where
         // === 缓存失效策略 ===
         match settings.animation_type {
             AnimationType::CameraOrbit => {
-                thread_renderer.frame_buffer.ground_base_cache = None;
-                thread_renderer.frame_buffer.ground_shadow_cache = None;
+                // 相机轨道动画：地面本体和阴影都依赖相机，必须全部失效
+                thread_renderer.frame_buffer.invalidate_ground_base_cache();
+                thread_renderer
+                    .frame_buffer
+                    .invalidate_ground_shadow_cache();
             }
             AnimationType::ObjectLocalRotation => {
                 if settings.enable_shadow_mapping {
-                    thread_renderer.frame_buffer.ground_shadow_cache = None;
+                    // 物体动画+阴影：只需失效阴影缓存，地面本体可复用
+                    thread_renderer
+                        .frame_buffer
+                        .invalidate_ground_shadow_cache();
                 }
+                // 未开阴影时，地面缓存可复用，无需清理
             }
             AnimationType::None => {}
         }
@@ -262,13 +269,13 @@ impl AnimationMethods for RasterizerApp {
             match self.settings.animation_type {
                 AnimationType::CameraOrbit => {
                     // 相机轨道动画：地面本体和阴影都依赖相机，必须全部失效
-                    self.renderer.frame_buffer.ground_base_cache = None;
-                    self.renderer.frame_buffer.ground_shadow_cache = None;
+                    self.renderer.frame_buffer.invalidate_ground_base_cache();
+                    self.renderer.frame_buffer.invalidate_ground_shadow_cache();
                 }
                 AnimationType::ObjectLocalRotation => {
                     if self.settings.enable_shadow_mapping {
                         // 物体动画+阴影：只需失效阴影缓存，地面本体可复用
-                        self.renderer.frame_buffer.ground_shadow_cache = None;
+                        self.renderer.frame_buffer.invalidate_ground_shadow_cache();
                     }
                     // 未开阴影时，地面缓存可复用，无需清理
                 }
