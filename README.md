@@ -1,253 +1,289 @@
 # Software Rasterization Renderer in Rust
 
-A 3D software rasterizer implementing modern graphics pipeline with PBR materials and TOML configuration.
+A high-performance, multi-threaded 3D software rasterizer built from scratch in Rust. This project implements a modern, PBR-correct rendering pipeline, complete with an interactive GUI, a sophisticated caching system, and animation capabilities.
 
-[![Rust](https://img.shields.io/badge/rust-1.81%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.78%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Overview
 
-This project implements a complete 3D graphics pipeline in software, featuring:
+This project is a comprehensive implementation of a 3D graphics pipeline in pure Rust. It's designed for both performance and educational value, demonstrating how modern rendering features can be built without relying on a GPU.
 
-- **PBR Material System** - Cook-Torrance BRDF with metallic-roughness workflow
-- **Multi-threaded Rasterization** - Parallel triangle processing with intelligent load balancing  
-- **Shadow Mapping** - Basic shadow casting for directional lights
-- **MSAA Anti-aliasing** - Standard sampling patterns (2x/4x/8x)
-- **Interactive GUI** - Real-time parameter adjustment with egui
+### Key Features
+
+* **Dual Shading Models:** Supports both **Physically Based Rendering (PBR)** using the Cook-Torrance BRDF and the classic **Blinn-Phong** model.
+* **Parallel Rasterization:** Employs efficient, triangle-level parallelism using Rayon for high performance on multi-core CPUs.
+* **Dynamic Ground & Background:** Features a procedural, infinite ground plane and a skydome/background pass, which are rendered efficiently and separately from the main scene geometry.
+* **Shadow Mapping:** Implements shadow casting for directional lights onto the procedural ground plane.
+* **Advanced Caching System:** A smart, fine-grained caching mechanism minimizes re-computation during animations, distinguishing between camera movement and object movement to maximize performance.
+* **Interactive GUI:** Built with `egui`, allowing for real-time adjustment of all rendering parameters, materials, lighting, and camera controls.
+* **Animation & Video Export:** Supports camera and object animations, pre-rendering of frames for smooth playback, and video export via `ffmpeg`.
+* **TOML Configuration:** All scene and render settings can be loaded from and saved to human-readable TOML files.
+
+![image](./demo/demo.png)
+
+![demo](./demo/nahida-ui.mp4)
 
 ## Rendering Pipeline
 
+The renderer is architected around a multi-pass process to handle different components of the scene efficiently.
+
 ```mermaid
 graph TD
-    A[3D Model Loading] --> B[Scene Setup]
-    B --> C[Geometry Processing]
-    C --> D[MVP Transformation]
-    D --> E[Triangle Culling]
-    E --> F[Shadow Map Generation]
-    F --> G[Rasterization]
-    G --> H[Fragment Shading]
-    H --> I[Depth Testing]
-    I --> J[MSAA Resolve]
-    J --> K[Frame Buffer]
+    subgraph "Setup"
+        A[Load 3D Model & Textures] --> B[Parse TOML Config]
+        B --> C[Initialize Scene]
+    end
+
+    subgraph "Frame Rendering Loop"
+        D(Start Frame) --> E{Cache Invalidation};
+        E --> F[Pass 1: Shadow Map];
+        F --> G[Pass 2: Background & Ground];
+        G --> H[Pass 3: Main Scene Render];
+        
+        subgraph "Pass 3 Details"
+            H1[Geometry Processing] --> H2[Primitive Assembly];
+            H2 --> H3[Rasterization & Shading];
+        end
+        
+        H --> H1;
+        H3 --> I[Final Image in FrameBuffer];
+    end
+
+    C --> D;
     
-    C --> C1[Vertex Processing]
-    C --> C2[Normal Transformation]
-    
-    G --> G1[Barycentric Interpolation]
-    G --> G2[Pixel Coverage]
-    
-    H --> H1[PBR/Phong Lighting]
-    H --> H2[Texture Sampling]
-    H --> H3[Shadow Testing]
-    
-    style A fill:#e1f5fe
-    style K fill:#c8e6c9
-    style F fill:#fff3e0
-    style H fill:#f3e5f5
+    style A fill:#e3f2fd
+    style C fill:#e8eaf6
+    style F fill:#fffde7,stroke:#fbc02d,stroke-width:2px
+    style G fill:#e0f2f1,stroke:#00796b,stroke-width:2px
+    style H fill:#fce4ec,stroke:#d81b60,stroke-width:2px
+    style I fill:#e8f5e9
 ```
 
-## Multi-threading Strategy
+## Project Structure
+
+The project is organized into logical modules, each responsible for a specific part of the rendering pipeline.
 
 ```mermaid
-graph LR
-    A[Triangle Batch] --> B{Triangle Size Analysis}
-    B -->|Large Triangles| C[Pixel-level Parallelism]
-    B -->|Small Triangles| D[Triangle-level Parallelism]
-    B -->|Mixed Workload| E[Hybrid Strategy]
+graph TD
+    subgraph "Application"
+        Main("main.rs")
+        UI("ui/")
+    end
+
+    subgraph "Rendering Core"
+        Core("core/")
+        Renderer("core/renderer.rs")
+        Rasterizer("core/rasterizer.rs")
+        FrameBuffer("core/frame_buffer.rs")
+        ShadowMap("core/shadow_map.rs")
+    end
     
-    C --> F[Parallel Pixel Processing]
-    D --> G[Parallel Triangle Processing]
-    E --> H[Rayon Work-stealing]
+    subgraph "Geometry & Math"
+        Geometry("geometry/")
+        Transform("geometry/transform.rs")
+        Camera("geometry/camera.rs")
+        Interpolation("geometry/interpolation.rs")
+        Culling("geometry/culling.rs")
+    end
+
+    subgraph "Material & Scene"
+        MaterialSystem("material_system/")
+        Materials("material_system/materials.rs")
+        Light("material_system/light.rs")
+        Texture("material_system/texture.rs")
+        SceneLib("scene/")
+    end
+
+    subgraph "I/O & Utilities"
+        IO("io/")
+        Config("io/config_loader.rs")
+        Model("io/model_loader.rs")
+        Utils("utils/")
+    end
+
+    Main --> UI
+    Main --> Core
+    Main --> IO
+
+    UI --> Core
+    Renderer --> Rasterizer
+    Renderer --> FrameBuffer
+    Renderer --> ShadowMap
+    Core --> Geometry
+    Core --> MaterialSystem
+    Core --> SceneLib
     
-    F --> I[Frame Buffer Write]
-    G --> I
-    H --> I
+    SceneLib --> MaterialSystem
+    IO --> Utils
     
-    style B fill:#fff9c4
-    style I fill:#c8e6c9
+    classDef module fill:#263238,color:#eceff1,stroke:#546e7a,stroke-width:2px;
+    class Main,UI,Core,Geometry,MaterialSystem,SceneLib,IO,Utils module;
 ```
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/Rukkhadevata123/Rasterizer_rust
-cd Rasterizer_rust
+# Clone the repository
+git clone https://github.com/Rukkhadevata123/rasterizer-rust
+cd rasterizer-rust
+
+# Run the application with release optimizations
 cargo run --release
 
-# Use example configuration
-cargo run --release -- --use-example-config
+# To use a specific configuration file
+cargo run --release -- -c path/to/your_config.toml
 
-# Run headless with config
-cargo run --release -- --config scene.toml --headless
-
-# Run complex example
-cargo run --release -- --config complex_config.toml
+# To use a specific configuration file without GUI
+cargo run --release -- -c path/to/your_config.toml --headless
 ```
 
 ## Configuration
 
-All rendering parameters are controlled via TOML files:
+All rendering parameters are controlled via a single TOML file. This allows for easy scene setup and sharing. You can check our `complex_config.toml` .
 
 ```toml
+# Example configuration file (scene.toml)
+
+# --- File paths ---
 [files]
-obj = "models/bunny.obj"
-output = "render"
-texture = "textures/material.jpg"  # optional
+obj = "path/to/model.obj"
+output = "render_output"
+output_dir = "renders"
+texture = "path/to/override_texture.png"  # Optional: Overrides textures from MTL
+background_image_path = "path/to/background.jpg" # Optional
 
+# --- Core Render Settings ---
 [render]
-width = 1920
-height = 1080
-msaa_samples = 4           # 1, 2, 4, or 8
+width = 1280
+height = 720
+projection = "perspective"  # "perspective" or "orthographic"
 use_zbuffer = true
+use_gamma = true
 backface_culling = true
+wireframe = false
 
+# --- Camera Setup ---
 [camera]
-from = "2.5,1.5,4.0"      # camera position
-at = "0,0.5,0"            # look-at target  
-fov = 60.0                # field of view (degrees)
+from = "3.0, 2.0, 5.0"   # Position
+at = "0.0, 0.5, 0.0"     # Look-at target
+up = "0.0, 1.0, 0.0"     # Up vector
+fov = 60.0               # Field of view (degrees)
 
-[material]
-use_pbr = true            # PBR vs Blinn-Phong
-base_color = "0.8,0.7,0.6"
-metallic = 0.0            # 0.0 = dielectric, 1.0 = metallic
-roughness = 0.5           # 0.0 = mirror, 1.0 = rough
-alpha = 1.0               # transparency
+# --- Object Transformation ---
+[object]
+position = "0, 0, 0"
+rotation = "0, 45, 0"    # Rotation in degrees (X, Y, Z)
+scale = 1.0              # Uniform scale
 
+# --- Lighting Environment ---
 [lighting]
-ambient = 0.2
-ambient_color = "0.2,0.3,0.4"
+use_lighting = true
+ambient = 0.1
+ambient_color = "0.1, 0.1, 0.1"
 
+# Define one or more light sources
 [[light]]
 type = "directional"
-direction = "0.3,-0.8,-0.5"
-color = "1.0,0.95,0.8"
-intensity = 0.8
+enabled = true
+direction = "0.5, -1.0, -0.6"
+color = "1.0, 0.98, 0.95"
+intensity = 1.5
 
+[[light]]
+type = "point"
+enabled = true
+position = "0.0, 3.0, 2.0"
+color = "1.0, 0.5, 0.2"
+intensity = 5.0
+
+# --- Material Properties (Global Override) ---
+[material]
+use_pbr = true
+use_phong = false
+base_color = "0.82, 0.67, 0.16" # Used for PBR Albedo or Phong Diffuse
+metallic = 0.1
+roughness = 0.4
+alpha = 1.0
+emissive = "0,0,0"
+
+# --- Shadow Mapping ---
 [shadow]
 enable_shadow_mapping = true
-shadow_map_size = 512
+shadow_map_size = 512       # Higher values = better quality
+shadow_bias = 0.005
 
+# --- Background & Ground ---
 [background]
+enable_gradient_background = true
+gradient_top_color = "0.1, 0.2, 0.4"
+gradient_bottom_color = "0.7, 0.8, 1.0"
 enable_ground_plane = true
-ground_plane_color = "0.3,0.5,0.2"
-ground_plane_height = -1.0
+ground_plane_color = "0.3, 0.3, 0.3"
+ground_plane_height = 0.0
+
+# --- Animation Settings ---
+[animation]
+animate = false
+fps = 30
+rotation_speed = 1.0 # Speed multiplier for realtime rendering
+rotation_cycles = 1.0 # Number of 360-degree rotations for video export
+animation_type = "CameraOrbit" # "CameraOrbit" or "ObjectLocalRotation"
+rotation_axis = "Y" # "X", "Y", "Z", or "Custom"
+custom_rotation_axis = "0,1,0"
 ```
 
-## Technical Implementation
+## Core Concepts Explained
 
-### PBR Rendering
+### Material & Shading System
 
-Implements Cook-Torrance BRDF with energy conservation:
+The material system is designed for flexibility and type safety. Instead of a single, monolithic `Material` struct, the project uses a `Material` enum:
 
 ```rust
-// BRDF = diffuse + specular
-let f_diffuse = k_d * base_color / π;
-let f_specular = (D * G * F) / (4 * (N·L) * (N·V));
-
-// Energy conservation
-let k_d = (1.0 - k_s) * (1.0 - metallic);
+pub enum Material {
+    BlinnPhong(PhongMaterial),
+    PBR(PbrMaterial),
+}
 ```
 
-**Functions:**
+This ensures that material-specific properties (like `metallic` for PBR or `shininess` for Phong) are only present where they belong, preventing invalid states at compile time. The system seamlessly calculates the correct lighting response based on the active material type for each mesh.
 
-- **D**: GGX/Trowbridge-Reitz normal distribution
-- **G**: Smith geometry function with height correlation
-- **F**: Schlick Fresnel approximation
+### Caching and Performance
 
-### Rasterization Pipeline
+To achieve high performance during interactive use and animations, the renderer employs a sophisticated, multi-level caching system for the procedural ground and background.
 
-1. **Geometry Processing** - MVP transformations with parallel vertex processing
-2. **Triangle Setup** - Culling and material binding
-3. **Rasterization** - Barycentric coordinate interpolation with intelligent parallelization
-4. **Pixel Shading** - PBR/Phong lighting with texture sampling
-5. **MSAA Resolve** - Multi-sample anti-aliasing with standard patterns
+* **Background Cache:** The sky/background is computed once and cached. It only becomes invalid if background-related settings are changed.
+* **Ground Base Cache:** The visual properties of the ground (grid lines, colors, fade-out), which depend on the camera's position and orientation, are cached separately.
+* **Ground Shadow Cache:** The shadows cast on the ground are in their own cache.
 
-### MSAA Implementation
+This fine-grained approach enables smart optimizations:
+* **Camera Movement:** Invalidates the ground base and shadow caches, but re-uses the background cache.
+* **Object-Only Animation:** Invalidates only the shadow cache, re-using both the background and ground base caches for maximum efficiency.
 
-Standard sampling patterns:
+This is managed by a clean, event-driven invalidation API (`frame_buffer.invalidate_ground_base_cache()`, `frame_buffer.invalidate_ground_shadow_cache()`) that decouples the application logic from the internal caching implementation.
 
-- **2x**: Diagonal `[(-0.25, -0.25), (0.25, 0.25)]`
-- **4x**: Rotated grid for optimal coverage
-- **8x**: Optimized 8-point distribution
+### GUI and Interaction
 
-## Project Structure
+The application provides a comprehensive GUI for real-time control.
+* **Side Panel:** All settings are organized into logical, collapsible sections for easy navigation.
+* **Render View:** The central view displays the rendered image.
+* **Camera Controls:**
+  * **Drag:** Pan the camera.
+  * **Shift + Drag:** Orbit the camera around its target.
+  * **Scroll Wheel:** Dolly (zoom) the camera forwards and backwards.
 
-```
-src/
-├── core/                     # Core rendering pipeline
-│   ├── renderer.rs          # Main renderer orchestrator
-│   ├── rasterizer.rs        # Triangle rasterization engine
-│   ├── frame_buffer.rs      # Color/depth buffer management
-│   ├── geometry.rs          # Geometry transformation pipeline
-│   └── shadow_map.rs        # Shadow mapping implementation
-├── material_system/          # Material and lighting system
-│   ├── materials.rs         # PBR and Blinn-Phong materials
-│   ├── light.rs             # Light sources (directional/point)
-│   ├── texture.rs           # Texture loading and sampling
-│   └── color.rs             # Color space and gamma correction
-├── geometry/                 # Geometric processing utilities
-│   ├── transform.rs         # MVP transformation pipeline
-│   ├── interpolation.rs     # Barycentric coordinate interpolation
-│   ├── culling.rs           # Triangle culling algorithms
-│   └── camera.rs            # Camera system (perspective/orthographic)
-├── scene/                    # Scene management
-│   ├── scene_utils.rs       # Scene graph and management
-│   └── scene_object.rs      # Individual scene objects
-├── io/                       # File I/O and configuration
-│   ├── config_loader.rs     # TOML configuration parsing
-│   ├── obj_loader.rs        # Wavefront OBJ file parser
-│   ├── model_loader.rs      # Model loading orchestrator
-│   └── render_settings.rs   # Render configuration structure
-├── ui/                       # Interactive GUI (egui-based)
-│   ├── app.rs               # Main application state
-│   ├── widgets.rs           # UI component implementations
-│   ├── animation.rs         # Animation and video generation
-│   └── core.rs              # Core UI functionality
-└── utils/                    # Utility functions
-    ├── render_utils.rs      # Rendering helper functions
-    ├── save_utils.rs        # Image/video output utilities
-    └── model_utils.rs       # Model processing utilities
-```
+## Command-Line Usage
 
-## Command Line Options
+The application can be run in headless mode for batch rendering or integration into scripts.
 
 ```bash
-cargo run --release -- [OPTIONS]
+# Basic headless render using a config file
+cargo run --release -- -c scene.toml --headless
 
--c, --config <FILE>        # TOML configuration file
-    --headless             # Run without GUI
-    --use-example-config   # Generate and use example config
+# Use the example config for a quick test
+cargo run --release -- --use-example-config
 ```
-
-## Graphics Theory
-
-This renderer demonstrates fundamental 3D graphics concepts:
-
-- **Rasterization**: Converting 3D triangles to 2D pixels via barycentric interpolation
-- **Perspective Projection**: 3D to 2D coordinate transformation with proper depth handling
-- **Z-buffering**: Hidden surface removal through per-pixel depth testing
-- **Physically Based Rendering**: Realistic material appearance using Cook-Torrance BRDF
-- **Shadow Mapping**: Depth-based shadow casting from light sources
-- **Multi-sampling**: Edge anti-aliasing through super-sampling techniques
-
-## Performance Characteristics
-
-The renderer uses adaptive parallelization strategies:
-
-- **Large triangles**: Pixel-level parallel processing for maximum utilization
-- **Small triangles**: Triangle-level batching to reduce overhead
-- **Mixed scenes**: Hybrid approach with work-stealing for optimal load balancing
-
-Typical performance on modern hardware:
-
-- **1920x1080**: 30-60 FPS for models with 10K-50K triangles
-- **MSAA 4x**: ~25% performance impact
-- **Shadow mapping**: ~15% performance impact
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-*A software rasterizer showcasing 3D graphics pipeline implementation in Rust.*
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
