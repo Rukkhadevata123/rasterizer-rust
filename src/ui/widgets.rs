@@ -62,6 +62,32 @@ pub trait WidgetMethods {
 impl WidgetMethods for RasterizerApp {
     /// 重构后的侧边栏
     fn draw_side_panel(&mut self, ctx: &Context, ui: &mut egui::Ui) {
+        // 主题切换控件（放在侧边栏顶部）
+        ui.horizontal(|ui| {
+            ui.label("主题：");
+            egui::ComboBox::from_id_salt("theme_switch")
+                .selected_text(if self.is_dark_theme {
+                    "深色"
+                } else {
+                    "浅色"
+                })
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_value(&mut self.is_dark_theme, true, "深色")
+                        .clicked()
+                    {
+                        ctx.set_visuals(egui::Visuals::dark());
+                    }
+                    if ui
+                        .selectable_value(&mut self.is_dark_theme, false, "浅色")
+                        .clicked()
+                    {
+                        ctx.set_visuals(egui::Visuals::light());
+                    }
+                });
+        });
+        ui.separator();
+
         egui::ScrollArea::vertical().show(ui, |ui| {
             // === 核心设置组 ===
             ui.collapsing("📁 文件与输出", |ui| {

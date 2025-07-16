@@ -43,6 +43,8 @@ pub struct RasterizerApp {
     pub show_error_dialog: bool,
     /// 错误消息内容
     pub error_message: String,
+    /// 主题
+    pub is_dark_theme: bool,
 
     // ===== 实时渲染状态 - 不可配置 =====
     /// 当前实时帧率
@@ -177,6 +179,7 @@ impl RasterizerApp {
             status_message: String::new(),
             show_error_dialog: false,
             error_message: String::new(),
+            is_dark_theme: true, // 默认使用深色主题
 
             // ===== 实时渲染状态 =====
             current_fps: 0.0,
