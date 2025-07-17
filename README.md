@@ -26,6 +26,12 @@ Check our Video Demos:
 
 https://github.com/user-attachments/assets/1137feff-b93c-450a-a39f-0bac5608b523
 
+https://github.com/user-attachments/assets/60182597-fd44-49c1-9c26-b723941626ec
+
+60 FPS Pre-Rendered Animation:
+
+https://github.com/user-attachments/assets/ac2b8694-f3bf-46f3-8a0b-bab9a5a35cba
+
 ## Rendering Pipeline
 
 The renderer is architected around a multi-pass process to handle different components of the scene efficiently.
