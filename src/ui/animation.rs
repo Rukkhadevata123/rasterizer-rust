@@ -1,3 +1,4 @@
+use crate::ModelLoader;
 use crate::core::renderer::Renderer;
 use crate::io::render_settings::{AnimationType, RenderSettings, get_animation_axis_vector};
 use crate::scene::scene_utils::Scene;
@@ -145,10 +146,7 @@ impl AnimationMethods for RasterizerApp {
                         return;
                     }
                 };
-                match crate::io::model_loader::ModelLoader::load_and_create_scene(
-                    &obj_path,
-                    &self.settings,
-                ) {
+                match ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
                     Ok((scene, model_data)) => {
                         self.scene = Some(scene);
                         self.model_data = Some(model_data);
@@ -191,10 +189,7 @@ impl AnimationMethods for RasterizerApp {
                     return;
                 }
             };
-            match crate::io::model_loader::ModelLoader::load_and_create_scene(
-                &obj_path,
-                &self.settings,
-            ) {
+            match ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
                 Ok((scene, model_data)) => {
                     self.scene = Some(scene);
                     self.model_data = Some(model_data);
@@ -332,10 +327,7 @@ impl AnimationMethods for RasterizerApp {
                             return;
                         }
                     };
-                    match crate::io::model_loader::ModelLoader::load_and_create_scene(
-                        &obj_path,
-                        &self.settings,
-                    ) {
+                    match ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
                         Ok((scene, model_data)) => {
                             self.scene = Some(scene);
                             self.model_data = Some(model_data);
@@ -539,10 +531,7 @@ impl AnimationMethods for RasterizerApp {
                             return;
                         }
                     };
-                    match crate::io::model_loader::ModelLoader::load_and_create_scene(
-                        &obj_path,
-                        &self.settings,
-                    ) {
+                    match ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
                         Ok((scene, model_data)) => {
                             self.scene = Some(scene);
                             self.model_data = Some(model_data);

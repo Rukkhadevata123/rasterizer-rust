@@ -1,7 +1,10 @@
+use crate::ModelLoader;
 use crate::core::renderer::Renderer;
-use crate::io::render_settings::RenderSettings;
+use crate::geometry::camera::ProjectionType;
+use crate::io::render_settings::{RenderSettings, parse_point3, parse_vec3};
 use crate::material_system::materials::apply_material_parameters;
 use crate::ui::app::RasterizerApp;
+use crate::utils::render_utils::calculate_rotation_parameters;
 use crate::utils::save_utils::save_render_with_settings;
 use egui::{Color32, Context};
 use log::{debug, error, warn};
@@ -112,8 +115,7 @@ impl CoreMethods for RasterizerApp {
         ctx.request_repaint(); // 立即更新状态消息
 
         // 加载模型
-        match crate::io::model_loader::ModelLoader::load_and_create_scene(&obj_path, &self.settings)
-        {
+        match ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
             Ok((scene, model_data)) => {
                 debug!(
                     "场景创建完成: 光源数量={}, 使用光照={}, 环境光强度={}",
@@ -228,20 +230,17 @@ impl CoreMethods for RasterizerApp {
                 scene.set_lights(self.settings.lights.clone());
 
                 // 2. 相机同步
-                if let Ok(from) =
-                    crate::io::render_settings::parse_point3(&self.settings.camera_from)
-                {
+                if let Ok(from) = parse_point3(&self.settings.camera_from) {
                     scene.active_camera.params.position = from;
                 }
-                if let Ok(at) = crate::io::render_settings::parse_point3(&self.settings.camera_at) {
+                if let Ok(at) = parse_point3(&self.settings.camera_at) {
                     scene.active_camera.params.target = at;
                 }
-                if let Ok(up) = crate::io::render_settings::parse_vec3(&self.settings.camera_up) {
+                if let Ok(up) = parse_vec3(&self.settings.camera_up) {
                     scene.active_camera.params.up = up.normalize();
                 }
-                if let crate::geometry::camera::ProjectionType::Perspective {
-                    fov_y_degrees, ..
-                } = &mut scene.active_camera.params.projection
+                if let ProjectionType::Perspective { fov_y_degrees, .. } =
+                    &mut scene.active_camera.params.projection
                 {
                     *fov_y_degrees = self.settings.camera_fov;
                 }
@@ -435,10 +434,7 @@ impl CoreMethods for RasterizerApp {
 
             if self.is_generating_video {
                 let (_, _, frames_per_rotation) =
-                    crate::utils::render_utils::calculate_rotation_parameters(
-                        self.settings.rotation_speed,
-                        self.settings.fps,
-                    );
+                    calculate_rotation_parameters(self.settings.rotation_speed, self.settings.fps);
                 let total_frames =
                     (frames_per_rotation as f32 * self.settings.rotation_cycles) as usize;
                 let progress = self.video_progress.load(Ordering::SeqCst);

@@ -1,3 +1,4 @@
+use crate::Renderer;
 use crate::io::config_loader::TomlConfigLoader;
 use crate::io::model_loader::ModelLoader;
 use crate::io::render_settings::RenderSettings;
@@ -236,8 +237,7 @@ impl RenderUIMethods for RasterizerApp {
         if self.renderer.frame_buffer.width != self.settings.width
             || self.renderer.frame_buffer.height != self.settings.height
         {
-            self.renderer =
-                crate::core::renderer::Renderer::new(self.settings.width, self.settings.height);
+            self.renderer = Renderer::new(self.settings.width, self.settings.height);
         }
 
         // 清除现有场景和渲染结果，强制重新加载

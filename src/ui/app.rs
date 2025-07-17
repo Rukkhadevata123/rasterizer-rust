@@ -5,6 +5,7 @@ use crate::core::renderer::Renderer;
 use crate::io::render_settings::RenderSettings;
 use crate::material_system::materials::Model;
 use crate::scene::scene_utils::Scene;
+use crate::utils::render_utils::calculate_rotation_parameters;
 use egui::{Color32, ColorImage, RichText, Vec2};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -322,11 +323,10 @@ impl eframe::App for RasterizerApp {
                 } else {
                     let progress = self.video_progress.load(Ordering::SeqCst);
 
-                    let (_, _, frames_per_rotation) =
-                        crate::utils::render_utils::calculate_rotation_parameters(
-                            self.settings.rotation_speed,
-                            self.settings.fps,
-                        );
+                    let (_, _, frames_per_rotation) = calculate_rotation_parameters(
+                        self.settings.rotation_speed,
+                        self.settings.fps,
+                    );
                     let total_frames =
                         (frames_per_rotation as f32 * self.settings.rotation_cycles) as usize;
 
