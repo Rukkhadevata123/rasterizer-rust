@@ -51,6 +51,8 @@ pub struct RenderSettings {
     pub use_texture: bool,
     /// 启用gamma矫正
     pub use_gamma: bool,
+    /// 启用ACES色彩管理
+    pub enable_aces: bool,
     /// 启用背面剔除
     pub backface_culling: bool,
     /// 以线框模式渲染
@@ -131,6 +133,14 @@ pub struct RenderSettings {
     pub shadow_bias: f32,
     /// 阴影渲染距离
     pub shadow_distance: f32,
+    /// 是否启用PCF软阴影
+    pub enable_pcf: bool,
+    /// PCF类型
+    pub pcf_type: String,
+    /// PCF采样窗口半径
+    pub pcf_kernel: usize,
+    /// PCF高斯模糊的sigma
+    pub pcf_sigma: f32,
 
     // ===== 背景与环境设置 =====
     /// 启用渐变背景
@@ -230,6 +240,7 @@ impl Default for RenderSettings {
             colorize: false,
             use_texture: true,
             use_gamma: true,
+            enable_aces: false,
             backface_culling: false,
             wireframe: false,
             cull_small_triangles: false,
@@ -279,6 +290,12 @@ impl Default for RenderSettings {
             shadow_map_size: 256,         // 阴影贴图尺寸（较小，只用于地面）
             shadow_bias: 0.001,           // 阴影偏移
             shadow_distance: 20.0,
+
+            // 新增：PCF相关参数
+            enable_pcf: false,           // 是否启用PCF软阴影
+            pcf_type: "Box".to_string(), // PCF类型：Box或 Gauss
+            pcf_kernel: 2,               // PCF采样窗口半径
+            pcf_sigma: 1.0,              // Gauss类型的sigma
 
             // ===== 背景与环境设置 =====
             enable_gradient_background: false,

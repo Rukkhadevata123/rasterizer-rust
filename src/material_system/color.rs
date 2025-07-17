@@ -44,6 +44,26 @@ pub fn srgb_to_linear(srgb_color: &Color) -> Color {
     )
 }
 
+/// 应用ACES色调映射，将高动态范围颜色压缩到显示范围
+///
+/// # 参数
+/// * `color` - 线性RGB颜色值 [0.0-1.0]
+/// # 返回值
+/// 压缩后的RGB颜色值 [0.0-1.0]
+pub fn apply_aces_tonemap(color: &Vector3<f32>) -> Vector3<f32> {
+    // ACES Filmic Curve参数
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    Vector3::new(
+        ((color.x * (a * color.x + b)) / (color.x * (c * color.x + d) + e)).clamp(0.0, 1.0),
+        ((color.y * (a * color.y + b)) / (color.y * (c * color.y + d) + e)).clamp(0.0, 1.0),
+        ((color.z * (a * color.z + b)) / (color.z * (c * color.z + d) + e)).clamp(0.0, 1.0),
+    )
+}
+
 /// 将线性RGB值转换为u8数组，应用gamma矫正
 ///
 /// # 参数

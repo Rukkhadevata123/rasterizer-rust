@@ -16,6 +16,7 @@ use_zbuffer = true
 colorize = false
 use_texture = true
 use_gamma = true
+enable_aces = false
 backface_culling = true
 wireframe = false
 cull_small_triangles = true
@@ -92,9 +93,13 @@ emissive = "0.0,0.0,0.0"
 [shadow]
 # === 阴影映射 (地面阴影) ===
 enable_shadow_mapping = true
-shadow_map_size = 256
+shadow_map_size = 2048
 shadow_bias = 0.001
 shadow_distance = 20.0
+enable_pcf = true
+pcf_type = "Box"
+pcf_kernel = 2
+pcf_sigma = 1.0
 
 [background]
 use_background_image = true

@@ -272,17 +272,18 @@ impl FrameBuffer {
                 if settings.enable_ground_plane {
                     let ground_factor = ground_factors_ref[buffer_index];
                     if ground_factor > 0.0 {
-                        let ground_color = ground_colors_ref[buffer_index];
+                        let mut ground_color = ground_colors_ref[buffer_index];
                         let shadow_factor = shadow_factors_ref[buffer_index];
 
-                        let shadowed_ground_color = ground_color * shadow_factor;
+                        // 让阴影影响地面颜色（包括网格线）
+                        ground_color *= shadow_factor;
 
                         let enhanced_ground_factor = ground_factor.powf(0.65) * 2.0;
                         let final_ground_factor = enhanced_ground_factor.min(0.95);
                         let darkened_background =
                             final_color * (0.8 - final_ground_factor * 0.5).max(0.1);
                         final_color = darkened_background * (1.0 - final_ground_factor)
-                            + shadowed_ground_color * final_ground_factor;
+                            + ground_color * final_ground_factor;
                     }
                 }
 
@@ -531,6 +532,10 @@ pub fn compute_ground_shadow(
                     &intersection,
                     &Matrix4::identity(),
                     settings.shadow_bias,
+                    settings.enable_pcf,
+                    &settings.pcf_type,
+                    settings.pcf_kernel,
+                    settings.pcf_sigma,
                 )
             } else {
                 1.0

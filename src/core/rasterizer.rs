@@ -8,7 +8,7 @@ use crate::geometry::interpolation::{
     interpolate_texcoords, is_inside_triangle,
 };
 use crate::io::render_settings::RenderSettings;
-use crate::material_system::color::{get_random_color, linear_rgb_to_u8};
+use crate::material_system::color::{apply_aces_tonemap, get_random_color, linear_rgb_to_u8};
 use crate::material_system::light::Light;
 use crate::material_system::materials::{Material, Model, Vertex, compute_material_response};
 use crate::material_system::texture::Texture;
@@ -250,7 +250,6 @@ impl Rasterizer {
         if max_x <= min_x || max_y <= min_y {
             return;
         }
-        let use_lighting = settings.use_pbr || settings.use_phong;
         let ambient_contribution = Self::calculate_ambient(triangle);
 
         for y in min_y..max_y {
@@ -263,7 +262,7 @@ impl Rasterizer {
                     pixel_index,
                     x,
                     y,
-                    use_lighting,
+                    settings.use_lighting,
                     &ambient_contribution,
                     depth_buffer,
                     color_buffer,
@@ -346,7 +345,7 @@ impl Rasterizer {
             pixel_y,
             frame_buffer,
         );
-        Self::write_pixel_color(pixel_index, &final_color, color_buffer, settings.use_gamma);
+        Self::write_pixel_color(pixel_index, &final_color, color_buffer, &settings);
     }
 
     fn calculate_color(
@@ -487,11 +486,16 @@ impl Rasterizer {
         pixel_index: usize,
         color: &Vector3<f32>,
         color_buffer: &[AtomicU8],
-        apply_gamma: bool,
+        settings: &RenderSettings,
     ) {
+        let final_color = if settings.enable_aces {
+            apply_aces_tonemap(color)
+        } else {
+            *color
+        };
         let buffer_start_index = pixel_index * 3;
         if buffer_start_index + 2 < color_buffer.len() {
-            let [r, g, b] = linear_rgb_to_u8(color, apply_gamma);
+            let [r, g, b] = linear_rgb_to_u8(&final_color, settings.use_gamma);
             color_buffer[buffer_start_index].store(r, Ordering::Relaxed);
             color_buffer[buffer_start_index + 1].store(g, Ordering::Relaxed);
             color_buffer[buffer_start_index + 2].store(b, Ordering::Relaxed);

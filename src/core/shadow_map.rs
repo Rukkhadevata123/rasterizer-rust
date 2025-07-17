@@ -157,8 +157,7 @@ impl ShadowMap {
 
         for y in min_y..=max_y {
             for x in min_x..=max_x {
-                let pixel_point = Point2::new(x as f32, y as f32);
-
+                let pixel_point = Point2::new(x as f32 + 0.5, y as f32 + 0.5); // ← 推荐这样
                 if let Some(bary) = barycentric_coordinates(
                     pixel_point,
                     triangle_points[0],
@@ -208,6 +207,10 @@ impl ShadowMap {
         world_pos: &Point3<f32>,
         model_matrix: &Matrix4<f32>,
         bias: f32,
+        enable_pcf: bool,
+        pcf_type: &str,
+        pcf_kernel: usize,
+        pcf_sigma: f32,
     ) -> f32 {
         if !self.is_valid {
             return 1.0;
@@ -226,12 +229,42 @@ impl ShadowMap {
         }
 
         let current_depth = light_space_pos.z;
-        let shadow_depth = self.sample_depth(shadow_coords.0, shadow_coords.1);
 
-        if current_depth - bias > shadow_depth {
-            0.2
+        if enable_pcf {
+            let kernel = pcf_kernel as i32;
+            let sigma = pcf_sigma;
+
+            let mut shadow = 0.0;
+            let mut total_weight = 0.0;
+
+            for dx in -kernel..=kernel {
+                for dy in -kernel..=kernel {
+                    let u = shadow_coords.0 + dx as f32 / self.size as f32;
+                    let v = shadow_coords.1 + dy as f32 / self.size as f32;
+
+                    let weight = if pcf_type == "Gauss" {
+                        (-((dx * dx + dy * dy) as f32) / (2.0 * sigma * sigma)).exp()
+                    } else {
+                        1.0 // Box
+                    };
+
+                    let pcf_depth = self.sample_depth(u, v);
+                    if current_depth - bias > pcf_depth {
+                        shadow += weight;
+                    }
+                    total_weight += weight;
+                }
+            }
+            shadow /= total_weight;
+            1.0 - shadow
         } else {
-            1.0
+            // 普通硬阴影
+            let pcf_depth = self.sample_depth(shadow_coords.0, shadow_coords.1);
+            if current_depth - bias > pcf_depth {
+                0.2
+            } else {
+                1.0
+            }
         }
     }
 }

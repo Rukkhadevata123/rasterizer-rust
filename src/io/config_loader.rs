@@ -150,6 +150,9 @@ impl TomlConfigLoader {
         if let Some(use_gamma) = render.get("use_gamma").and_then(|v| v.as_bool()) {
             settings.use_gamma = use_gamma;
         }
+        if let Some(enable_aces) = render.get("enable_aces").and_then(|v| v.as_bool()) {
+            settings.enable_aces = enable_aces;
+        }
         if let Some(backface_culling) = render.get("backface_culling").and_then(|v| v.as_bool()) {
             settings.backface_culling = backface_culling;
         }
@@ -499,6 +502,18 @@ impl TomlConfigLoader {
         if let Some(shadow_distance) = shadow.get("shadow_distance").and_then(|v| v.as_float()) {
             settings.shadow_distance = (shadow_distance as f32).clamp(1.0, 100.0);
         }
+        if let Some(enable_pcf) = shadow.get("enable_pcf").and_then(|v| v.as_bool()) {
+            settings.enable_pcf = enable_pcf;
+        }
+        if let Some(pcf_type) = shadow.get("pcf_type").and_then(|v| v.as_str()) {
+            settings.pcf_type = pcf_type.to_string();
+        }
+        if let Some(pcf_kernel) = shadow.get("pcf_kernel").and_then(|v| v.as_integer()) {
+            settings.pcf_kernel = pcf_kernel as usize;
+        }
+        if let Some(pcf_sigma) = shadow.get("pcf_sigma").and_then(|v| v.as_float()) {
+            settings.pcf_sigma = pcf_sigma as f32;
+        }
         Ok(())
     }
 
@@ -509,7 +524,7 @@ impl TomlConfigLoader {
 
         // 文件头注释
         content.push_str("# 光栅化渲染器配置文件\n");
-        content.push_str("# 由 RenderSettings 默认值生成的示例配置\n\n");
+        content.push_str("# 由 GUI 界面生成并保存的配置\n\n");
 
         // [files] 部分
         content.push_str("[files]\n");
@@ -545,6 +560,7 @@ impl TomlConfigLoader {
             "backface_culling = {}\n",
             settings.backface_culling
         ));
+        content.push_str(&format!("enable_aces = {}\n", settings.enable_aces));
         content.push_str(&format!("wireframe = {}\n", settings.wireframe));
         content.push_str(&format!(
             "cull_small_triangles = {}\n",
@@ -708,7 +724,7 @@ impl TomlConfigLoader {
         content.push('\n');
 
         // [shadow] 部分
-        content.push_str("# 阴影与环境光遮蔽配置\n");
+        content.push_str("# 阴影配置\n");
         content.push_str("[shadow]\n");
         content.push_str("enable_shadow_mapping = ");
         content.push_str(&settings.enable_shadow_mapping.to_string());
@@ -721,6 +737,18 @@ impl TomlConfigLoader {
         content.push('\n');
         content.push_str("shadow_distance = ");
         content.push_str(&settings.shadow_distance.to_string());
+        content.push('\n');
+        content.push_str("enable_pcf = ");
+        content.push_str(&settings.enable_pcf.to_string());
+        content.push('\n');
+        content.push_str("pcf_type = \"");
+        content.push_str(&settings.pcf_type);
+        content.push_str("\"\n");
+        content.push_str("pcf_kernel = ");
+        content.push_str(&settings.pcf_kernel.to_string());
+        content.push('\n');
+        content.push_str("pcf_sigma = ");
+        content.push_str(&settings.pcf_sigma.to_string());
         content.push('\n');
 
         Ok(content)

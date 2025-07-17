@@ -14,7 +14,8 @@ This project is a comprehensive implementation of a 3D graphics pipeline in pure
 * **Dual Shading Models:** Supports both **Physically Based Rendering (PBR)** using the Cook-Torrance BRDF and the classic **Blinn-Phong** model.
 * **Parallel Rasterization:** Employs efficient, triangle-level parallelism using Rayon for high performance on multi-core CPUs.
 * **Dynamic Ground & Background:** Features a procedural, infinite ground plane and a skydome/background pass, which are rendered efficiently and separately from the main scene geometry.
-* **Shadow Mapping:** Implements shadow casting for directional lights onto the procedural ground plane.
+* **Shadow Mapping with PCF:** Implements shadow casting for directional lights with optional **Percentage-Closer Filtering (PCF)** for soft, realistic shadow edges. Supports both Box and Gaussian filtering.
+* **ACES Tone Mapping:** Integrates the industry-standard ACES filmic tone mapping curve to handle high dynamic range (HDR) colors gracefully, preventing over-exposure and producing cinematic results.
 * **Advanced Caching System:** A smart, fine-grained caching mechanism minimizes re-computation during animations, distinguishing between camera movement and object movement to maximize performance.
 * **Interactive GUI:** Built with `egui`, allowing for real-time adjustment of all rendering parameters, materials, lighting, and camera controls.
 * **Animation & Video Export:** Supports camera and object animations, pre-rendering of frames for smooth playback, and video export via `ffmpeg`.
@@ -24,13 +25,13 @@ This project is a comprehensive implementation of a 3D graphics pipeline in pure
 
 Check our Video Demos:
 
-https://github.com/user-attachments/assets/1137feff-b93c-450a-a39f-0bac5608b523
+<https://github.com/user-attachments/assets/1137feff-b93c-450a-a39f-0bac5608b523>
 
-https://github.com/user-attachments/assets/60182597-fd44-49c1-9c26-b723941626ec
+<https://github.com/user-attachments/assets/60182597-fd44-49c1-9c26-b723941626ec>
 
 60 FPS Pre-Rendered Animation:
 
-https://github.com/user-attachments/assets/ac2b8694-f3bf-46f3-8a0b-bab9a5a35cba
+<https://github.com/user-attachments/assets/ac2b8694-f3bf-46f3-8a0b-bab9a5a35cba>
 
 ## Rendering Pipeline
 
@@ -55,7 +56,8 @@ graph TD
         end
         
         H --> H1;
-        H3 --> I[Final Image in FrameBuffer];
+        H3 --> I[Post-Processing: Tone Mapping];
+        I --> J[Final Image in FrameBuffer];
     end
 
     C --> D;
@@ -65,7 +67,8 @@ graph TD
     style F fill:#fffde7,stroke:#fbc02d,stroke-width:2px
     style G fill:#e0f2f1,stroke:#00796b,stroke-width:2px
     style H fill:#fce4ec,stroke:#d81b60,stroke-width:2px
-    style I fill:#e8f5e9
+    style I fill:#ede7f6,stroke:#5e35b1,stroke-width:2px
+    style J fill:#e8f5e9
 ```
 
 ## Project Structure
@@ -141,9 +144,6 @@ cargo run --release
 
 # To use a specific configuration file
 cargo run --release -- -c path/to/your_config.toml
-
-# To use a specific configuration file without GUI
-cargo run --release -- -c path/to/your_config.toml --headless
 ```
 
 ## Configuration
@@ -168,6 +168,7 @@ height = 720
 projection = "perspective"  # "perspective" or "orthographic"
 use_zbuffer = true
 use_gamma = true
+enable_aces = true           # Enable ACES Filmic Tone Mapping
 backface_culling = true
 wireframe = false
 
@@ -218,8 +219,12 @@ emissive = "0,0,0"
 # --- Shadow Mapping ---
 [shadow]
 enable_shadow_mapping = true
-shadow_map_size = 512       # Higher values = better quality
+shadow_map_size = 2048       # Higher values = better quality
 shadow_bias = 0.005
+enable_pcf = true            # Enable soft shadows
+pcf_type = "Gauss"           # "Box" or "Gauss"
+pcf_kernel = 2               # PCF sample radius
+pcf_sigma = 1.5              # Sigma for Gaussian blur
 
 # --- Background & Ground ---
 [background]
@@ -245,16 +250,36 @@ custom_rotation_axis = "0,1,0"
 
 ### Material & Shading System
 
-The material system is designed for flexibility and type safety. Instead of a single, monolithic `Material` struct, the project uses a `Material` enum:
+The material system is designed for flexibility while maintaining a straightforward, unified data structure. Instead of using different structs for different shading models, the project employs a single, monolithic `Material` struct that contains properties for all supported models. An enum, `MaterialType`, acts as a discriminator to control which shading path is executed.
 
 ```rust
+// The enum to select the shading model
 pub enum MaterialType {
     Phong,
     PBR,
 }
+
+// A unified struct holding parameters for all models
+#[derive(Debug, Clone)]
+pub struct Material {
+    pub material_type: MaterialType,    // Discriminator field
+    pub base_color: Vector3<f32>,       // Shared by PBR (Albedo) and Phong (Diffuse)
+    pub alpha: f32,
+    pub texture: Option<Texture>,
+
+    // --- PBR-specific parameters ---
+    pub metallic: f32,
+    pub roughness: f32,
+    
+    // --- Phong-specific parameters ---
+    pub specular: Vector3<f32>,
+    pub shininess: f32,
+    
+    // ... other universal parameters
+}
 ```
 
-This ensures that material-specific properties (like `metallic` for PBR or `shininess` for Phong) are only present where they belong, preventing invalid states at compile time. The system seamlessly calculates the correct lighting response based on the active material type for each mesh.
+This design provides a clear and predictable memory layout. A single dispatch function, `compute_material_response`, inspects the `material_type` field at runtime and seamlessly calculates the correct lighting response based on the active shading model for each mesh. This approach centralizes the shading logic and simplifies the process of applying global material overrides from the UI or configuration files.
 
 ### Caching and Performance
 

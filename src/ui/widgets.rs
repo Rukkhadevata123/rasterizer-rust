@@ -198,9 +198,7 @@ impl WidgetMethods for RasterizerApp {
     fn add_tooltip(response: egui::Response, _ctx: &Context, text: &str) -> egui::Response {
         response.on_hover_ui(|ui| {
             ui.add(egui::Label::new(
-                RichText::new(text)
-                    .size(14.0)
-                    .color(Color32::DARK_GRAY),
+                RichText::new(text).size(14.0).color(Color32::DARK_GRAY),
             ));
         })
     }
@@ -321,8 +319,6 @@ impl WidgetMethods for RasterizerApp {
 
     /// 渲染属性设置面板
     fn ui_render_properties_panel(app: &mut RasterizerApp, ui: &mut egui::Ui, ctx: &Context) {
-        let mut settings_changed = false;
-
         ui.horizontal(|ui| {
             ui.label("投影类型：");
             let old_projection = app.settings.projection.clone();
@@ -337,7 +333,7 @@ impl WidgetMethods for RasterizerApp {
                 "正交",
             );
             if app.settings.projection != old_projection {
-                settings_changed = true;
+                app.interface_interaction.anything_changed = true;
             }
             Self::add_tooltip(resp1, ctx, "使用透视投影（符合人眼观察方式）");
             Self::add_tooltip(resp2, ctx, "使用正交投影（无透视变形）");
@@ -349,17 +345,9 @@ impl WidgetMethods for RasterizerApp {
         let old_zbuffer = app.settings.use_zbuffer;
         let resp1 = ui.checkbox(&mut app.settings.use_zbuffer, "深度缓冲");
         if app.settings.use_zbuffer != old_zbuffer {
-            settings_changed = true;
+            app.interface_interaction.anything_changed = true;
         }
         Self::add_tooltip(resp1, ctx, "启用Z缓冲进行深度测试，处理物体遮挡关系");
-
-        // 光照总开关
-        let old_lighting = app.settings.use_lighting;
-        let resp2 = ui.checkbox(&mut app.settings.use_lighting, "启用光照");
-        if app.settings.use_lighting != old_lighting {
-            settings_changed = true;
-        }
-        Self::add_tooltip(resp2, ctx, "启用光照计算，产生明暗变化");
 
         // 表面颜色设置
         ui.horizontal(|ui| {
@@ -389,7 +377,7 @@ impl WidgetMethods for RasterizerApp {
             }
 
             if app.settings.use_texture != old_texture || app.settings.colorize != old_colorize {
-                settings_changed = true;
+                app.interface_interaction.anything_changed = true;
             }
 
             Self::add_tooltip(
@@ -426,7 +414,7 @@ impl WidgetMethods for RasterizerApp {
             }
 
             if app.settings.use_phong != old_phong || app.settings.use_pbr != old_pbr {
-                settings_changed = true;
+                app.interface_interaction.anything_changed = true;
             }
 
             Self::add_tooltip(phong_response, ctx, "使用 Phong 着色（逐像素着色）和 Blinn-Phong 光照模型\n提供高质量的光照效果，适合大多数场景");
@@ -457,27 +445,15 @@ impl WidgetMethods for RasterizerApp {
                     ui.horizontal(|ui| {
                         ui.label("阴影贴图尺寸:");
                         let old_size = app.settings.shadow_map_size;
-
-                        egui::ComboBox::from_id_salt("shadow_map_size_combo")
-                            .selected_text(format!("{}x{}", app.settings.shadow_map_size, app.settings.shadow_map_size))
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut app.settings.shadow_map_size, 128, "128x128 (快速)");
-                                ui.selectable_value(&mut app.settings.shadow_map_size, 256, "256x256 (推荐)");
-                                ui.selectable_value(&mut app.settings.shadow_map_size, 512, "512x512 (高质量)");
-                                ui.selectable_value(&mut app.settings.shadow_map_size, 1024, "1024x1024 (极高质量)");
-                                ui.selectable_value(&mut app.settings.shadow_map_size, 2048, "2048x2048 (超高质量)");
-                                ui.selectable_value(&mut app.settings.shadow_map_size, 4096, "4096x4096 (专业级)");
-                            });
-
+                        let resp = ui.add(
+                            egui::DragValue::new(&mut app.settings.shadow_map_size)
+                                .speed(128)
+                                .range(128..=10240)
+                        );
                         if app.settings.shadow_map_size != old_size {
                             app.interface_interaction.anything_changed = true;
                         }
-
-                        Self::add_tooltip(
-                            ui.label("ℹ️"),
-                            ctx,
-                            "阴影贴图分辨率\n• 128: 快速渲染，阴影较粗糙\n• 256: 推荐设置，平衡质量和性能\n• 512: 高质量阴影，适中性能影响\n• 1024: 极高质量，显著性能影响\n• 2048: 超高质量，仅适合高端硬件\n• 4096: 专业级质量，需要强大硬件支持"
-                        );
+                        Self::add_tooltip(resp, ctx, "输入阴影贴图分辨率（如4096），越大越清晰但越慢");
                     });
 
                     ui.horizontal(|ui| {
@@ -506,6 +482,52 @@ impl WidgetMethods for RasterizerApp {
                         }
                         Self::add_tooltip(resp, ctx, "阴影渲染的最大距离\n距离越大覆盖范围越广，但阴影精度可能降低");
                     });
+
+                    // 是否启用PCF
+                    let old_enable_pcf = app.settings.enable_pcf;
+                    let resp = ui.checkbox(&mut app.settings.enable_pcf, "启用PCF软阴影");
+                    if app.settings.enable_pcf != old_enable_pcf {
+                        app.interface_interaction.anything_changed = true;
+                    }
+                    Self::add_tooltip(resp, ctx, "开启后阴影边缘会变软，抗锯齿但性能消耗增加");
+
+                    if app.settings.enable_pcf {
+                        // PCF类型选择
+                        let old_pcf_type = app.settings.pcf_type.clone();
+                        egui::ComboBox::from_id_salt("pcf_type_combo")
+                            .selected_text(&app.settings.pcf_type)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut app.settings.pcf_type, "Box".to_string(), "Box");
+                                ui.selectable_value(&mut app.settings.pcf_type, "Gauss".to_string(), "Gauss");
+                            });
+                        if app.settings.pcf_type != old_pcf_type {
+                            app.interface_interaction.anything_changed = true;
+                        }
+
+                        // kernel参数
+                        let old_kernel = app.settings.pcf_kernel;
+                        let resp = ui.add(
+                            egui::Slider::new(&mut app.settings.pcf_kernel, 1..=10)
+                                .text("PCF窗口(kernel)")
+                        );
+                        if app.settings.pcf_kernel != old_kernel {
+                            app.interface_interaction.anything_changed = true;
+                        }
+                        Self::add_tooltip(resp, ctx, "采样窗口半径，越大越软，性能消耗也越高");
+
+                        // Gauss类型时显示sigma
+                        if app.settings.pcf_type == "Gauss" {
+                            let old_sigma = app.settings.pcf_sigma;
+                            let resp = ui.add(
+                                egui::Slider::new(&mut app.settings.pcf_sigma, 0.1..=10.0)
+                                    .text("高斯σ")
+                            );
+                            if (app.settings.pcf_sigma - old_sigma).abs() > f32::EPSILON {
+                                app.interface_interaction.anything_changed = true;
+                            }
+                            Self::add_tooltip(resp, ctx, "高斯采样的σ参数，影响软化范围");
+                        }
+                    }
                 });
 
                 // 阴影映射状态提示
@@ -521,21 +543,33 @@ impl WidgetMethods for RasterizerApp {
         let old_gamma = app.settings.use_gamma;
         let resp7 = ui.checkbox(&mut app.settings.use_gamma, "Gamma校正");
         if app.settings.use_gamma != old_gamma {
-            settings_changed = true;
+            app.interface_interaction.anything_changed = true;
         }
         Self::add_tooltip(resp7, ctx, "应用伽马校正，使亮度显示更准确");
+
+        // ACES色调映射开关
+        let old_aces = app.settings.enable_aces;
+        let resp = ui.checkbox(&mut app.settings.enable_aces, "启用ACES色调映射");
+        if app.settings.enable_aces != old_aces {
+            app.interface_interaction.anything_changed = true;
+        }
+        Self::add_tooltip(
+            resp,
+            ctx,
+            "让高动态范围颜色更自然，避免过曝和死黑，推荐开启",
+        );
 
         let old_backface = app.settings.backface_culling;
         let resp8 = ui.checkbox(&mut app.settings.backface_culling, "背面剔除");
         if app.settings.backface_culling != old_backface {
-            settings_changed = true;
+            app.interface_interaction.anything_changed = true;
         }
         Self::add_tooltip(resp8, ctx, "剔除背向相机的三角形面，提高渲染效率");
 
         let old_wireframe = app.settings.wireframe;
         let resp9 = ui.checkbox(&mut app.settings.wireframe, "线框模式");
         if app.settings.wireframe != old_wireframe {
-            settings_changed = true;
+            app.interface_interaction.anything_changed = true;
         }
         Self::add_tooltip(resp9, ctx, "仅渲染三角形边缘，显示为线框");
 
@@ -544,7 +578,7 @@ impl WidgetMethods for RasterizerApp {
             let old_cull = app.settings.cull_small_triangles;
             let resp = ui.checkbox(&mut app.settings.cull_small_triangles, "剔除小三角形");
             if app.settings.cull_small_triangles != old_cull {
-                settings_changed = true;
+                app.interface_interaction.anything_changed = true;
             }
             Self::add_tooltip(resp, ctx, "忽略投影后面积很小的三角形，提高性能");
 
@@ -557,7 +591,7 @@ impl WidgetMethods for RasterizerApp {
                         .prefix("面积阈值："),
                 );
                 if (app.settings.min_triangle_area - old_area).abs() > f32::EPSILON {
-                    settings_changed = true;
+                    app.interface_interaction.anything_changed = true;
                 }
                 Self::add_tooltip(resp, ctx, "小于此面积的三角形将被剔除（范围0.0-1.0）");
             }
@@ -587,11 +621,6 @@ impl WidgetMethods for RasterizerApp {
                 app.select_texture_file(); // 调用 render_ui.rs 中的方法
             }
         });
-
-        // 统一处理 settings_changed
-        if settings_changed {
-            app.interface_interaction.anything_changed = true;
-        }
     }
 
     /// 物体变换控制面板
@@ -735,8 +764,7 @@ impl WidgetMethods for RasterizerApp {
         if app.settings.enable_ground_plane {
             if app.settings.use_background_image && app.settings.background_image_path.is_some() {
                 ui.label(
-                    RichText::new("注意：地面平面将覆盖在背景图片上")
-                        .color(Color32::DARK_GRAY),
+                    RichText::new("注意：地面平面将覆盖在背景图片上").color(Color32::DARK_GRAY),
                 );
             }
 
