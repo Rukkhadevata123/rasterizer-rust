@@ -198,7 +198,9 @@ impl WidgetMethods for RasterizerApp {
     fn add_tooltip(response: egui::Response, _ctx: &Context, text: &str) -> egui::Response {
         response.on_hover_ui(|ui| {
             ui.add(egui::Label::new(
-                RichText::new(text).size(14.0).color(Color32::LIGHT_YELLOW),
+                RichText::new(text)
+                    .size(14.0)
+                    .color(Color32::DARK_GRAY),
             ));
         })
     }
@@ -510,7 +512,7 @@ impl WidgetMethods for RasterizerApp {
                 if app.settings.lights.iter().any(|light| matches!(light, Light::Directional { enabled: true, .. })) {
                     ui.label(RichText::new("✅ 检测到方向光源，阴影映射可用").color(Color32::LIGHT_GREEN).size(12.0));
                 } else {
-                    ui.label(RichText::new("⚠️ 需要至少一个启用的方向光源").color(Color32::YELLOW).size(12.0));
+                    ui.label(RichText::new("⚠️ 需要至少一个启用的方向光源").color(Color32::DARK_GRAY).size(12.0));
                 }
             }
         });
@@ -691,7 +693,7 @@ impl WidgetMethods for RasterizerApp {
             if app.settings.use_background_image && app.settings.background_image_path.is_some() {
                 ui.label(
                     egui::RichText::new("注意：渐变背景将覆盖在背景图片上")
-                        .color(egui::Color32::YELLOW),
+                        .color(Color32::DARK_GRAY),
                 );
             }
 
@@ -732,7 +734,10 @@ impl WidgetMethods for RasterizerApp {
 
         if app.settings.enable_ground_plane {
             if app.settings.use_background_image && app.settings.background_image_path.is_some() {
-                ui.label(RichText::new("注意：地面平面将覆盖在背景图片上").color(Color32::YELLOW));
+                ui.label(
+                    RichText::new("注意：地面平面将覆盖在背景图片上")
+                        .color(Color32::DARK_GRAY),
+                );
             }
 
             // 使用按需计算的地面颜色
@@ -924,7 +929,7 @@ impl WidgetMethods for RasterizerApp {
                 ui.label(
                     RichText::new("注意: 需要在中央渲染区域操作")
                         .size(12.0)
-                        .color(Color32::YELLOW),
+                        .color(Color32::DARK_GRAY),
                 );
             });
         });

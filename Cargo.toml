@@ -1,6 +1,6 @@
 [package]
 name = "rasterizer"
-version = "2.14.0"
+version = "2.14.1"
 edition = "2024"
 authors = ["Rukkhadevata123 <3083913301@qq.com>"]
 description = "🎨 TOML驱动的高性能软件光栅化渲染器 - 现代化GUI界面与专业级相机交互"

@@ -22,7 +22,7 @@ This project is a comprehensive implementation of a 3D graphics pipeline in pure
 
 ![image](./demo/demo.png)
 
-Check our Video Demo:
+Check our Video Demos:
 
 https://github.com/user-attachments/assets/1137feff-b93c-450a-a39f-0bac5608b523
 
