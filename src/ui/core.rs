@@ -186,7 +186,7 @@ impl CoreMethods for RasterizerApp {
             let color = Color32::BLACK;
             ctx.load_texture(
                 "rendered_image",
-                egui::ColorImage::new([width, height], color),
+                egui::ColorImage::new([width, height], vec![color; width * height]),
                 egui::TextureOptions::default(),
             )
         });

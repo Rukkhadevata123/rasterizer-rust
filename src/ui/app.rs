@@ -397,7 +397,7 @@ impl eframe::App for RasterizerApp {
                     Vec2::new(220.0, 20.0),
                 );
 
-                ui.allocate_new_ui(
+                ui.scope_builder(
                     egui::UiBuilder::new()
                         .max_rect(overlay_rect)
                         .layout(egui::Layout::right_to_left(egui::Align::BOTTOM)),

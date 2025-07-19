@@ -1,12 +1,12 @@
 [package]
 name = "rasterizer"
-version = "2.15.0"
+version = "2.15.1"
 edition = "2024"
 authors = ["Rukkhadevata123 <3083913301@qq.com>"]
 description = "🎨 TOML驱动的高性能软件光栅化渲染器 - 现代化GUI界面与专业级相机交互"
 license = "MIT"
 repository = "https://github.com/Rukkhadevata123/Rasterizer_rust"
-keywords = ["graphics", "rasterizer", "rendering", "3d", "gui"]
+keywords = ["graphics", "rasterizer", "rendering", "three-d", "gui"]
 categories = ["graphics", "multimedia", "visualization"]
 
 [dependencies]
@@ -17,12 +17,11 @@ nalgebra = "0.33"
 clap = { version = "4.5", features = ["derive"] }
 atomic_float = "1"
 tobj = "4"
-egui = "0.31"
-eframe = "0.31"
+egui = "0.32"
+eframe = "0.32"
 native-dialog = "0.9.0"
 chrono = "0.4"
-serde = "1.0"
-toml = "0.8"
+toml = "0.9"
 log = "0.4"
 env_logger = "0.11"
 
