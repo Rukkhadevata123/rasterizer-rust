@@ -345,7 +345,7 @@ impl Rasterizer {
             pixel_y,
             frame_buffer,
         );
-        Self::write_pixel_color(pixel_index, &final_color, color_buffer, &settings);
+        Self::write_pixel_color(pixel_index, &final_color, color_buffer, settings);
     }
 
     fn calculate_color(
