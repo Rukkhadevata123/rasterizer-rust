@@ -46,6 +46,11 @@ impl Rasterizer {
             screen_coords[i] = ndc_to_screen(ndc.x, ndc.y, self.width as f32, self.height as f32);
         }
 
+        // Precompute NDC z values for depth interpolation
+        let z0_ndc = clip_coords[0].z / clip_coords[0].w;
+        let z1_ndc = clip_coords[1].z / clip_coords[1].w;
+        let z2_ndc = clip_coords[2].z / clip_coords[2].w;
+
         // 2. Backface Culling (Optional, simple 2D cross product check)
         // If the triangle area is negative (or positive depending on winding order), skip it.
         // For now, we skip this to ensure we see something (double-sided).
@@ -67,6 +72,9 @@ impl Rasterizer {
         // 4. Pixel Loop
         for y in start_y..=end_y {
             for x in start_x..=end_x {
+                // TODO: Anti-Aliasing Support
+                // Instead of sampling just the center (x+0.5, y+0.5),
+                // sample multiple sub-pixels (e.g., 4 samples) and average the results.
                 let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
 
                 // a. Calculate Barycentric Coordinates
@@ -81,17 +89,12 @@ impl Rasterizer {
                         // c. Interpolate Depth (Z-Buffering)
                         // Calculate NDC Z (z/w) for each vertex.
                         // TODO: Optimize
-                        // Note: In a highly optimized rasterizer, these divisions should be done 
-                        // once per triangle (outside the pixel loop), not per pixel.
-                        let z0 = clip_coords[0].z / clip_coords[0].w;
-                        let z1 = clip_coords[1].z / clip_coords[1].w;
-                        let z2 = clip_coords[2].z / clip_coords[2].w;
 
                         // Linearly interpolate NDC depth.
                         // Mathematically, while View-Space Z is NOT linear in screen space,
                         // NDC Z (which is roughly A + B/Z_view) IS linear in screen space.
                         // So linear barycentric interpolation is the correct way to calculate depth for the Z-buffer.
-                        let z_ndc = z0 * bary.x + z1 * bary.y + z2 * bary.z;
+                        let z_ndc = z0_ndc * bary.x + z1_ndc * bary.y + z2_ndc * bary.z;
 
                         // Map NDC z [-1, 1] to [0, 1] for depth buffer
                         let depth = z_ndc * 0.5 + 0.5;

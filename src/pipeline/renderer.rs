@@ -1,6 +1,6 @@
 use crate::core::framebuffer::FrameBuffer;
-use crate::core::rasterizer::Rasterizer;
 use crate::core::pipeline::Shader;
+use crate::core::rasterizer::Rasterizer;
 use crate::scene::mesh::Mesh;
 
 /// The high-level renderer that orchestrates the pipeline stages.
@@ -32,7 +32,7 @@ impl Renderer {
         // TODO: Optimization - Vertex Cache?
         // Currently we process vertices per triangle, which is inefficient for shared vertices.
         // A better approach is to transform all vertices first, then index them.
-        
+
         // 1. Vertex Processing & Primitive Assembly Loop
         // Iterate over indices in chunks of 3 (triangles)
         for chunk in mesh.indices.chunks(3) {
