@@ -2379,476 +2379,1329 @@ impl WidgetMethods for RasterizerApp {
         }
     }
 }
-pub mod model_utils;
-pub mod render_utils;
-pub mod save_utils;
-use crate::material_system::materials::Model;
-use nalgebra::{Point3, Vector3};
 
-/// 归一化和中心化模型顶点
-pub fn normalize_and_center_model(model_data: &mut Model) -> (Vector3<f32>, f32) {
-    if model_data.meshes.is_empty() {
-        return (Vector3::zeros(), 1.0);
-    }
-
-    // 计算所有顶点的边界框或质心
-    let mut min_coord = Point3::new(f32::MAX, f32::MAX, f32::MAX);
-    let mut max_coord = Point3::new(f32::MIN, f32::MIN, f32::MIN);
-    let mut vertex_sum = Vector3::zeros();
-    let mut vertex_count = 0;
-
-    for mesh in &model_data.meshes {
-        for vertex in &mesh.vertices {
-            min_coord = min_coord.inf(&vertex.position);
-            max_coord = max_coord.sup(&vertex.position);
-            vertex_sum += vertex.position.coords;
-            vertex_count += 1;
-        }
-    }
-
-    if vertex_count == 0 {
-        return (Vector3::zeros(), 1.0);
-    }
-
-    let center = vertex_sum / (vertex_count as f32);
-    let extent = max_coord - min_coord;
-    let max_extent = extent.x.max(extent.y).max(extent.z);
-
-    let scale_factor = if max_extent > 1e-6 {
-        1.6 / max_extent // 缩放以大致适合[-0.8, 0.8]立方体（类似于Python的0.8因子）
-    } else {
-        1.0
-    };
-
-    // 对所有顶点应用变换
-    for mesh in &mut model_data.meshes {
-        for vertex in &mut mesh.vertices {
-            vertex.position = Point3::from((vertex.position.coords - center) * scale_factor);
-        }
-    }
-
-    (center, scale_factor)
+/// 场景统计信息
+#[derive(Debug, Clone)]
+pub struct SceneStats {
+    pub vertex_count: usize,
+    pub triangle_count: usize,
+    pub material_count: usize,
+    pub mesh_count: usize,
+    pub light_count: usize,
 }
+use crate::ModelLoader;
 use crate::core::renderer::Renderer;
-use crate::io::render_settings::{
-    AnimationType, RenderSettings, RotationAxis, get_animation_axis_vector,
-};
-use crate::scene::scene_utils::Scene;
+use crate::geometry::camera::ProjectionType;
+use crate::io::render_settings::{RenderSettings, parse_point3, parse_vec3};
+use crate::material_system::materials::apply_material_parameters;
+use crate::ui::app::RasterizerApp;
+use crate::utils::render_utils::calculate_rotation_parameters;
 use crate::utils::save_utils::save_render_with_settings;
-use log::{debug, info};
-use nalgebra::Vector3;
-use std::time::Instant;
+use egui::{Color32, Context};
+use log::{debug, error, warn};
+use std::fs;
+use std::path::Path;
+use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
-const BASE_SPEED: f32 = 60.0; // 1s旋转60度
+use super::app::InterfaceInteraction;
 
-/// 渲染单帧并保存结果
-pub fn render_single_frame(
-    scene: &mut Scene,
-    renderer: &mut Renderer,
-    settings: &RenderSettings,
-    output_name: &str,
-) -> Result<(), String> {
-    let frame_start_time = Instant::now();
-    debug!("渲染帧: {output_name}");
+/// 核心业务逻辑方法
+///
+/// 该trait包含应用的核心功能：
+/// - 渲染和加载逻辑
+/// - 状态转换与管理
+/// - 错误处理
+/// - 性能统计
+/// - 资源管理
+pub trait CoreMethods {
+    // === 核心渲染和加载 ===
 
-    // 直接渲染场景，无需额外同步
-    renderer.render_scene(scene, settings);
+    /// 渲染当前场景 - 统一渲染入口
+    fn render(&mut self, ctx: &Context);
 
-    // 保存输出图像
-    debug!("保存 {output_name} 的输出图像...");
-    save_render_with_settings(renderer, settings, Some(output_name))?;
+    /// 在UI中显示渲染结果
+    fn display_render_result(&mut self, ctx: &Context);
 
-    debug!(
-        "帧 {} 渲染完成，耗时 {:?}",
-        output_name,
-        frame_start_time.elapsed()
-    );
-    Ok(())
+    /// 如果任何事情发生变化，执行重新渲染
+    fn render_if_anything_changed(&mut self, ctx: &Context);
+
+    /// 保存当前渲染结果为截图
+    fn take_screenshot(&mut self) -> Result<String, String>;
+
+    /// 智能计算地面平面的最佳高度
+    fn calculate_optimal_ground_height(&self) -> Option<f32>;
+
+    // === 状态管理 ===
+
+    /// 设置错误信息
+    fn set_error(&mut self, message: String);
+
+    /// 将应用状态重置为默认值
+    fn reset_to_defaults(&mut self);
+
+    /// 切换预渲染模式开启/关闭状态
+    fn toggle_pre_render_mode(&mut self);
+
+    /// 清空预渲染的动画帧缓冲区
+    fn clear_pre_rendered_frames(&mut self);
+
+    // === 状态查询 ===
+
+    /// 检查是否可以清除预渲染缓冲区
+    fn can_clear_buffer(&self) -> bool;
+
+    /// 检查是否可以切换预渲染模式
+    fn can_toggle_pre_render(&self) -> bool;
+
+    /// 检查是否可以开始或停止动画渲染
+    fn can_render_animation(&self) -> bool;
+
+    /// 检查是否可以生成视频
+    fn can_generate_video(&self) -> bool;
+
+    // === 动画状态管理 ===
+
+    /// 开始实时渲染动画
+    fn start_animation_rendering(&mut self) -> Result<(), String>;
+
+    /// 停止实时渲染动画
+    fn stop_animation_rendering(&mut self);
+
+    // === 性能统计 ===
+
+    /// 更新帧率统计信息
+    fn update_fps_stats(&mut self, frame_time: Duration);
+
+    /// 获取格式化的帧率显示文本和颜色
+    fn get_fps_display(&self) -> (String, Color32);
+
+    // === 资源管理 ===
+
+    /// 执行资源清理操作
+    fn cleanup_resources(&mut self);
 }
 
-/// 执行单个步骤的场景动画
-pub fn animate_scene_step(
-    scene: &mut Scene,
-    animation_type: &AnimationType,
-    rotation_axis: &Vector3<f32>,
-    rotation_delta_rad: f32,
-) {
-    match animation_type {
-        AnimationType::CameraOrbit => {
-            let mut camera = scene.active_camera.clone();
-            camera.orbit(rotation_axis, rotation_delta_rad);
-            scene.set_camera(camera);
+impl CoreMethods for RasterizerApp {
+    // === 核心渲染和加载实现 ===
+
+    /// 渲染当前场景
+    fn render(&mut self, ctx: &Context) {
+        // 验证参数
+        if let Err(e) = self.settings.validate() {
+            self.set_error(e);
+            return;
         }
-        AnimationType::ObjectLocalRotation => {
-            scene.object.rotate(rotation_axis, rotation_delta_rad);
+
+        // 获取OBJ路径
+        let obj_path = match &self.settings.obj {
+            Some(path) => path.clone(),
+            None => {
+                self.set_error("错误: 未指定OBJ文件路径".to_string());
+                return;
+            }
+        };
+
+        self.status_message = format!("正在加载 {obj_path}...");
+        ctx.request_repaint(); // 立即更新状态消息
+
+        // 加载模型
+        match ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
+            Ok((scene, model_data)) => {
+                debug!(
+                    "场景创建完成: 光源数量={}, 使用光照={}, 环境光强度={}",
+                    scene.lights.len(),
+                    self.settings.use_lighting,
+                    self.settings.ambient
+                );
+
+                // 直接设置场景和模型数据
+                self.scene = Some(scene);
+                self.model_data = Some(model_data);
+
+                self.status_message = "模型加载成功，开始渲染...".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("加载模型失败: {e}"));
+                return;
+            }
         }
-        AnimationType::None => { /* 无动画 */ }
+
+        self.status_message = "模型加载成功，开始渲染...".to_string();
+        ctx.request_repaint();
+
+        // 确保输出目录存在
+        let output_dir = self.settings.output_dir.clone();
+        if let Err(e) = fs::create_dir_all(&output_dir) {
+            self.set_error(format!("创建输出目录失败: {e}"));
+            return;
+        }
+
+        // 渲染
+        let start_time = Instant::now();
+
+        if let Some(scene) = &mut self.scene {
+            // 渲染到帧缓冲区
+            self.renderer.render_scene(scene, &self.settings);
+
+            // 保存输出文件
+            if let Err(e) = save_render_with_settings(&self.renderer, &self.settings, None) {
+                warn!("保存渲染结果时发生错误: {e}");
+            }
+
+            // 更新状态
+            self.last_render_time = Some(start_time.elapsed());
+            let output_dir = self.settings.output_dir.clone();
+            let output_name = self.settings.output.clone();
+            let elapsed = self.last_render_time.unwrap();
+            self.status_message =
+                format!("渲染完成，耗时 {elapsed:.2?}，已保存到 {output_dir}/{output_name}");
+
+            // 在UI中显示渲染结果
+            self.display_render_result(ctx);
+        }
+    }
+
+    /// 在UI中显示渲染结果
+    fn display_render_result(&mut self, ctx: &Context) {
+        // 从渲染器获取图像数据
+        let color_data = self.renderer.frame_buffer.get_color_buffer_bytes();
+
+        // 确保分辨率与渲染器匹配
+        let width = self.renderer.frame_buffer.width;
+        let height = self.renderer.frame_buffer.height;
+
+        // 创建或更新纹理
+        let rendered_texture = self.rendered_image.get_or_insert_with(|| {
+            // 创建一个全黑的空白图像
+            let color = Color32::BLACK;
+            ctx.load_texture(
+                "rendered_image",
+                egui::ColorImage::new([width, height], vec![color; width * height]),
+                egui::TextureOptions::default(),
+            )
+        });
+
+        // 将RGB数据转换为RGBA格式
+        let mut rgba_data = Vec::with_capacity(color_data.len() / 3 * 4);
+        for i in (0..color_data.len()).step_by(3) {
+            if i + 2 < color_data.len() {
+                rgba_data.push(color_data[i]); // R
+                rgba_data.push(color_data[i + 1]); // G
+                rgba_data.push(color_data[i + 2]); // B
+                rgba_data.push(255); // A (完全不透明)
+            }
+        }
+
+        // 更新纹理，使用渲染器的实际大小
+        rendered_texture.set(
+            egui::ColorImage::from_rgba_unmultiplied([width, height], &rgba_data),
+            egui::TextureOptions::default(),
+        );
+    }
+
+    /// 统一同步入口
+    fn render_if_anything_changed(&mut self, ctx: &Context) {
+        if self.interface_interaction.anything_changed && self.scene.is_some() {
+            if let Some(scene) = &mut self.scene {
+                // 检测渲染尺寸变化
+                if self.renderer.frame_buffer.width != self.settings.width
+                    || self.renderer.frame_buffer.height != self.settings.height
+                {
+                    self.renderer.frame_buffer.invalidate_caches();
+                }
+
+                // 强制清除地面本体和阴影缓存
+                self.renderer.frame_buffer.invalidate_ground_base_cache();
+                self.renderer.frame_buffer.invalidate_ground_shadow_cache();
+
+                // 统一同步所有状态
+
+                // 1. 光源同步
+                scene.set_lights(self.settings.lights.clone());
+
+                // 2. 相机同步
+                if let Ok(from) = parse_point3(&self.settings.camera_from) {
+                    scene.active_camera.params.position = from;
+                }
+                if let Ok(at) = parse_point3(&self.settings.camera_at) {
+                    scene.active_camera.params.target = at;
+                }
+                if let Ok(up) = parse_vec3(&self.settings.camera_up) {
+                    scene.active_camera.params.up = up.normalize();
+                }
+                if let ProjectionType::Perspective { fov_y_degrees, .. } =
+                    &mut scene.active_camera.params.projection
+                {
+                    *fov_y_degrees = self.settings.camera_fov;
+                }
+                scene.active_camera.update_matrices();
+
+                // 3. 物体变换同步
+                let (position, rotation_rad, scale) =
+                    self.settings.get_object_transform_components();
+                let final_scale = if self.settings.object_scale != 1.0 {
+                    scale * self.settings.object_scale
+                } else {
+                    scale
+                };
+                scene.set_object_transform(position, rotation_rad, final_scale);
+
+                // 4. 材质参数同步
+                apply_material_parameters(&mut scene.object.model, &self.settings);
+
+                // 5. 环境光同步
+                scene.set_ambient(self.settings.ambient, self.settings.get_ambient_color_vec());
+
+                // 6. 执行渲染
+                self.renderer.render_scene(scene, &self.settings);
+            }
+
+            self.display_render_result(ctx);
+            self.interface_interaction.anything_changed = false;
+        }
+    }
+
+    /// 保存当前渲染结果为截图
+    fn take_screenshot(&mut self) -> Result<String, String> {
+        // 确保输出目录存在
+        if let Err(e) = fs::create_dir_all(&self.settings.output_dir) {
+            return Err(format!("创建输出目录失败: {e}"));
+        }
+
+        // 生成唯一的文件名（基于时间戳）
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| format!("获取时间戳失败: {e}"))?
+            .as_secs();
+
+        let snapshot_name = format!("{}_snapshot_{}", self.settings.output, timestamp);
+
+        // 检查是否有可用的渲染结果
+        if self.rendered_image.is_none() {
+            return Err("没有可用的渲染结果".to_string());
+        }
+
+        // 使用共享的渲染工具函数保存截图
+        save_render_with_settings(&self.renderer, &self.settings, Some(&snapshot_name))?;
+
+        // 返回颜色图像的路径
+        let color_path =
+            Path::new(&self.settings.output_dir).join(format!("{snapshot_name}_color.png"));
+        Ok(color_path.to_string_lossy().to_string())
+    }
+
+    fn calculate_optimal_ground_height(&self) -> Option<f32> {
+        let scene = self.scene.as_ref()?;
+        let model_data = self.model_data.as_ref()?;
+
+        let mut min_y = f32::INFINITY;
+        let mut has_vertices = false;
+
+        // 计算模型在当前变换下的最低点
+        for mesh in &model_data.meshes {
+            for vertex in &mesh.vertices {
+                let world_pos = scene.object.transform.transform_point(&vertex.position);
+                min_y = min_y.min(world_pos.y);
+                has_vertices = true;
+            }
+        }
+
+        if !has_vertices {
+            return None;
+        }
+
+        // 智能策略：让物体贴地，避免浮空
+        let ground_height = if self.settings.enable_shadow_mapping {
+            // 阴影映射时：让物体稍微"嵌入"地面，确保阴影可见但物体不浮空
+            min_y - 0.01 // 非常小的负偏移，让物体微微贴地
+        } else {
+            // 无阴影时：让物体完全贴地
+            min_y
+        };
+
+        Some(ground_height)
+    }
+
+    // === 状态管理实现 ===
+
+    /// 设置错误信息
+    fn set_error(&mut self, message: String) {
+        error!("{message}");
+        self.status_message = format!("错误: {message}");
+    }
+
+    /// 重置应用状态到默认值
+    fn reset_to_defaults(&mut self) {
+        // 保留当前的文件路径设置
+        let obj_path = self.settings.obj.clone();
+        let output_dir = self.settings.output_dir.clone();
+        let output_name = self.settings.output.clone();
+
+        let new_settings = RenderSettings {
+            obj: obj_path,
+            output_dir,
+            output: output_name,
+            ..Default::default()
+        };
+
+        // 如果渲染尺寸变化，重新创建渲染器
+        if self.renderer.frame_buffer.width != new_settings.width
+            || self.renderer.frame_buffer.height != new_settings.height
+        {
+            self.renderer = Renderer::new(new_settings.width, new_settings.height);
+            self.rendered_image = None;
+        }
+
+        self.settings = new_settings;
+
+        // 重置GUI状态
+        self.camera_pan_sensitivity = 1.0;
+        self.camera_orbit_sensitivity = 1.0;
+        self.camera_dolly_sensitivity = 1.0;
+        self.interface_interaction = InterfaceInteraction::default();
+
+        // 重置其他状态
+        self.is_realtime_rendering = false;
+        self.is_pre_rendering = false;
+        self.is_generating_video = false;
+        self.pre_render_mode = false;
+        self.animation_time = 0.0;
+        self.current_frame_index = 0;
+        self.last_frame_time = None;
+
+        // 清空预渲染缓冲区
+        if let Ok(mut frames) = self.pre_rendered_frames.lock() {
+            frames.clear();
+        }
+
+        self.pre_render_progress.store(0, Ordering::SeqCst);
+        self.video_progress.store(0, Ordering::SeqCst);
+
+        // 重置 FPS 统计
+        self.current_fps = 0.0;
+        self.fps_history.clear();
+        self.avg_fps = 0.0;
+
+        self.status_message = "已重置应用状态，光源已恢复默认设置".to_string();
+    }
+
+    /// 切换预渲染模式
+    fn toggle_pre_render_mode(&mut self) {
+        // 统一的状态检查
+        if self.is_pre_rendering || self.is_generating_video || self.is_realtime_rendering {
+            self.status_message = "无法更改渲染模式: 请先停止正在进行的操作".to_string();
+            return;
+        }
+
+        // 切换模式
+        self.pre_render_mode = !self.pre_render_mode;
+
+        if self.pre_render_mode {
+            // 确保旋转速度合理
+            if self.settings.rotation_speed.abs() < 0.01 {
+                self.settings.rotation_speed = 1.0;
+            }
+            self.status_message = "已启用预渲染模式，开始动画渲染时将预先计算所有帧".to_string();
+        } else {
+            self.status_message = "已禁用预渲染模式，缓冲区中的预渲染帧仍可使用".to_string();
+        }
+    }
+
+    /// 清空预渲染帧缓冲区
+    fn clear_pre_rendered_frames(&mut self) {
+        // 统一的状态检查逻辑
+        if self.is_realtime_rendering || self.is_pre_rendering {
+            self.status_message = "无法清除缓冲区: 请先停止动画渲染或等待预渲染完成".to_string();
+            return;
+        }
+
+        // 执行清除操作
+        let had_frames = !self.pre_rendered_frames.lock().unwrap().is_empty();
+        if had_frames {
+            self.pre_rendered_frames.lock().unwrap().clear();
+            self.current_frame_index = 0;
+            self.pre_render_progress.store(0, Ordering::SeqCst);
+
+            if self.is_generating_video {
+                let (_, _, frames_per_rotation) =
+                    calculate_rotation_parameters(self.settings.rotation_speed, self.settings.fps);
+                let total_frames =
+                    (frames_per_rotation as f32 * self.settings.rotation_cycles) as usize;
+                let progress = self.video_progress.load(Ordering::SeqCst);
+                let percent = (progress as f32 / total_frames as f32 * 100.0).round();
+
+                self.status_message =
+                    format!("生成视频中... ({progress}/{total_frames}，{percent:.0}%)");
+            } else {
+                self.status_message = "已清空预渲染缓冲区".to_string();
+            }
+        } else {
+            self.status_message = "缓冲区已为空".to_string();
+        }
+    }
+
+    // === 状态查询实现 ===
+
+    fn can_clear_buffer(&self) -> bool {
+        !self.pre_rendered_frames.lock().unwrap().is_empty()
+            && !self.is_realtime_rendering
+            && !self.is_pre_rendering
+    }
+
+    fn can_toggle_pre_render(&self) -> bool {
+        !self.is_pre_rendering && !self.is_generating_video && !self.is_realtime_rendering
+    }
+
+    fn can_render_animation(&self) -> bool {
+        !self.is_generating_video
+    }
+
+    fn can_generate_video(&self) -> bool {
+        !self.is_realtime_rendering && !self.is_generating_video && self.ffmpeg_available
+    }
+
+    // === 动画状态管理实现 ===
+
+    fn start_animation_rendering(&mut self) -> Result<(), String> {
+        if self.is_generating_video {
+            return Err("无法开始动画: 视频正在生成中".to_string());
+        }
+
+        self.is_realtime_rendering = true;
+        self.last_frame_time = None;
+        self.current_fps = 0.0;
+        self.fps_history.clear();
+        self.avg_fps = 0.0;
+        self.status_message = "开始动画渲染...".to_string();
+
+        Ok(())
+    }
+
+    fn stop_animation_rendering(&mut self) {
+        self.is_realtime_rendering = false;
+        self.status_message = "已停止动画渲染".to_string();
+    }
+
+    // === 性能统计实现 ===
+
+    fn update_fps_stats(&mut self, frame_time: Duration) {
+        const FPS_HISTORY_SIZE: usize = 30;
+        let current_fps = 1.0 / frame_time.as_secs_f32();
+        self.current_fps = current_fps;
+
+        // 更新 FPS 历史
+        self.fps_history.push(current_fps);
+        if self.fps_history.len() > FPS_HISTORY_SIZE {
+            self.fps_history.remove(0); // 移除最早的记录
+        }
+
+        // 计算平均 FPS
+        if !self.fps_history.is_empty() {
+            let sum: f32 = self.fps_history.iter().sum();
+            self.avg_fps = sum / self.fps_history.len() as f32;
+        }
+    }
+
+    fn get_fps_display(&self) -> (String, Color32) {
+        // 根据 FPS 水平选择颜色
+        let fps_color = if self.avg_fps >= 30.0 {
+            Color32::from_rgb(50, 220, 50) // 绿色
+        } else if self.avg_fps >= 15.0 {
+            Color32::from_rgb(220, 180, 50) // 黄色
+        } else {
+            Color32::from_rgb(220, 50, 50) // 红色
+        };
+
+        (format!("FPS: {:.1}", self.avg_fps), fps_color)
+    }
+
+    // === 资源管理实现 ===
+
+    fn cleanup_resources(&mut self) {
+        // 实际的资源清理逻辑
+
+        // 1. 限制FPS历史记录大小，防止内存泄漏
+        if self.fps_history.len() > 60 {
+            self.fps_history.drain(0..30); // 保留最近30帧的数据
+        }
+
+        // 2. 清理已完成的视频生成线程
+        if let Some(handle) = &self.video_generation_thread {
+            if handle.is_finished() {
+                // 线程已完成，标记需要在主循环中处理
+                debug!("检测到已完成的视频生成线程，等待主循环处理");
+            }
+        }
+
+        // 3. 在空闲状态下进行额外清理
+        if !self.is_realtime_rendering && !self.is_generating_video && !self.is_pre_rendering {
+            // 清理可能的临时资源
+            if self.rendered_image.is_some() && self.last_render_time.is_none() {
+                // 如果有渲染结果但没有最近的渲染时间，说明可能是陈旧的结果
+                // 这里可以添加更多清理逻辑
+            }
+
+            // 清理预渲染进度计数器（如果没有预渲染帧）
+            if self.pre_rendered_frames.lock().unwrap().is_empty() {
+                self.pre_render_progress.store(0, Ordering::SeqCst);
+            }
+        }
     }
 }
+pub mod animation;
+pub mod app;
+pub mod core;
+pub mod render_ui;
+pub mod widgets;
+use crate::Renderer;
+use crate::io::config_loader::TomlConfigLoader;
+use crate::io::model_loader::ModelLoader;
+use crate::io::render_settings::RenderSettings;
+use crate::ui::app::RasterizerApp;
+use log::debug;
+use native_dialog::FileDialogBuilder;
 
-/// 计算旋转增量的辅助函数
-pub fn calculate_rotation_delta(rotation_speed: f32, dt: f32) -> f32 {
-    (rotation_speed * dt * BASE_SPEED).to_radians()
+/// 渲染UI交互方法的特质
+///
+/// 该trait专门处理与文件选择和UI交互相关的功能：
+/// - 文件选择对话框
+/// - 背景图片处理
+/// - 输出目录选择
+/// - 配置文件管理
+pub trait RenderUIMethods {
+    /// 选择OBJ文件
+    fn select_obj_file(&mut self);
+
+    /// 选择纹理文件
+    fn select_texture_file(&mut self);
+
+    /// 选择背景图片
+    fn select_background_image(&mut self);
+
+    /// 选择输出目录
+    fn select_output_dir(&mut self);
+
+    /// 加载配置文件
+    fn load_config_file(&mut self);
+
+    /// 保存配置文件
+    fn save_config_file(&mut self);
+
+    /// 应用加载的配置到GUI
+    fn apply_loaded_config(&mut self, settings: RenderSettings);
 }
 
-/// 计算有效旋转速度及旋转周期
-pub fn calculate_rotation_parameters(rotation_speed: f32, fps: usize) -> (f32, f32, usize) {
-    // 计算有效旋转速度 (度/秒)
-    let mut effective_rotation_speed_dps = rotation_speed * BASE_SPEED;
+impl RenderUIMethods for RasterizerApp {
+    /// 选择OBJ文件
+    fn select_obj_file(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("选择OBJ模型文件")
+            .add_filter("OBJ模型", ["obj"])
+            .open_single_file()
+            .show();
 
-    // 确保旋转速度不会太小
-    if effective_rotation_speed_dps.abs() < 0.001 {
-        effective_rotation_speed_dps = 0.1_f32.copysign(rotation_speed.signum());
-        if effective_rotation_speed_dps == 0.0 {
-            effective_rotation_speed_dps = 0.1;
+        match result {
+            Ok(Some(path)) => {
+                if let Some(path_str) = path.to_str() {
+                    self.settings.obj = Some(path_str.to_string());
+                    self.status_message = format!("已选择模型: {path_str}");
+
+                    // OBJ文件变化需要重新加载场景和重新渲染
+                    self.interface_interaction.anything_changed = true;
+                    self.scene = None; // 清除现有场景，强制重新加载
+                    self.rendered_image = None; // 清除渲染结果
+                }
+            }
+            Ok(None) => {
+                self.status_message = "文件选择被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("文件选择器错误: {e}"));
+            }
         }
     }
 
-    // 计算完成一圈需要的秒数
-    let seconds_per_rotation = 360.0 / effective_rotation_speed_dps.abs();
+    /// 选择纹理文件
+    fn select_texture_file(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("选择纹理文件")
+            .add_filter("图像文件", ["png", "jpg", "jpeg", "bmp", "tga"])
+            .open_single_file()
+            .show();
 
-    // 计算一圈需要的帧数
-    let frames_for_one_rotation = (seconds_per_rotation * fps as f32).ceil() as usize;
+        match result {
+            Ok(Some(path)) => {
+                if let Some(path_str) = path.to_str() {
+                    self.settings.texture = Some(path_str.to_string());
+                    self.status_message = format!("已选择纹理: {path_str}");
 
-    (
-        effective_rotation_speed_dps,
-        seconds_per_rotation,
-        frames_for_one_rotation,
-    )
+                    // 纹理变化需要重新渲染
+                    self.interface_interaction.anything_changed = true;
+                }
+            }
+            Ok(None) => {
+                self.status_message = "纹理选择被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("纹理选择错误: {e}"));
+            }
+        }
+    }
+
+    /// 选择背景图片
+    fn select_background_image(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("选择背景图片")
+            .add_filter("图片文件", ["png", "jpg", "jpeg", "bmp"])
+            .open_single_file()
+            .show();
+
+        match result {
+            Ok(Some(path)) => {
+                if let Some(path_str) = path.to_str() {
+                    // 只设置背景图片路径，不再直接加载到 settings
+                    self.settings.background_image_path = Some(path_str.to_string());
+                    self.settings.use_background_image = true;
+
+                    // 使用 ModelLoader 验证背景图片是否有效
+                    match ModelLoader::validate_resources(&self.settings) {
+                        Ok(_) => {
+                            self.status_message = format!("背景图片配置成功: {path_str}");
+
+                            // 清除已渲染的图像，强制重新渲染以应用新背景
+                            self.rendered_image = None;
+
+                            debug!("背景图片路径已设置: {path_str}");
+                            debug!("背景图片将在下次渲染时由 FrameBuffer 自动加载");
+                        }
+                        Err(e) => {
+                            // 验证失败，重置背景设置
+                            self.set_error(format!("背景图片验证失败: {e}"));
+                            self.settings.background_image_path = None;
+                            self.settings.use_background_image = false;
+                        }
+                    }
+                }
+            }
+            Ok(None) => {
+                self.status_message = "图片选择被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("文件选择器错误: {e}"));
+            }
+        }
+    }
+
+    /// 选择输出目录
+    fn select_output_dir(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("选择输出目录")
+            .open_single_dir()
+            .show();
+
+        match result {
+            Ok(Some(path)) => {
+                if let Some(path_str) = path.to_str() {
+                    self.settings.output_dir = path_str.to_string();
+                    self.status_message = format!("已选择输出目录: {path_str}");
+                }
+            }
+            Ok(None) => {
+                self.status_message = "目录选择被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("目录选择器错误: {e}"));
+            }
+        }
+    }
+
+    /// 加载配置文件
+    fn load_config_file(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("加载配置文件")
+            .add_filter("TOML配置文件", ["toml"])
+            .open_single_file()
+            .show();
+
+        match result {
+            Ok(Some(path)) => {
+                if let Some(path_str) = path.to_str() {
+                    match TomlConfigLoader::load_from_file(path_str) {
+                        Ok(loaded_settings) => {
+                            self.apply_loaded_config(loaded_settings);
+                            self.status_message = format!("配置已加载: {path_str}");
+                        }
+                        Err(e) => {
+                            self.set_error(format!("配置加载失败: {e}"));
+                        }
+                    }
+                }
+            }
+            Ok(None) => {
+                self.status_message = "配置加载被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("文件选择器错误: {e}"));
+            }
+        }
+    }
+
+    /// 保存配置文件
+    fn save_config_file(&mut self) {
+        let result = FileDialogBuilder::default()
+            .set_title("保存配置文件")
+            .add_filter("TOML配置文件", ["toml"])
+            .save_single_file()
+            .show();
+
+        match result {
+            Ok(Some(path)) => {
+                let mut save_path = path;
+
+                // 自动添加.toml扩展名（如果没有）
+                if save_path.extension().is_none() {
+                    save_path.set_extension("toml");
+                }
+
+                if let Some(path_str) = save_path.to_str() {
+                    match TomlConfigLoader::save_to_file(&self.settings, path_str) {
+                        Ok(_) => {
+                            self.status_message = format!("配置已保存: {path_str}");
+                        }
+                        Err(e) => {
+                            self.set_error(format!("配置保存失败: {e}"));
+                        }
+                    }
+                }
+            }
+            Ok(None) => {
+                self.status_message = "配置保存被取消".to_string();
+            }
+            Err(e) => {
+                self.set_error(format!("文件选择器错误: {e}"));
+            }
+        }
+    }
+
+    /// 应用加载的配置到GUI
+    fn apply_loaded_config(&mut self, loaded_settings: RenderSettings) {
+        // 直接替换settings，无需同步GUI专用向量字段
+        self.settings = loaded_settings;
+
+        // 如果分辨率变化，重新创建渲染器
+        if self.renderer.frame_buffer.width != self.settings.width
+            || self.renderer.frame_buffer.height != self.settings.height
+        {
+            self.renderer = Renderer::new(self.settings.width, self.settings.height);
+        }
+
+        // 清除现有场景和渲染结果，强制重新加载
+        self.scene = None;
+        self.rendered_image = None;
+        self.interface_interaction.anything_changed = true;
+
+        debug!("配置已应用到GUI界面");
+    }
+}
+use crate::ModelLoader;
+use crate::core::renderer::Renderer;
+use crate::io::render_settings::{AnimationType, RenderSettings, get_animation_axis_vector};
+use crate::scene::scene_utils::Scene;
+use crate::utils::render_utils::{
+    animate_scene_step, calculate_rotation_delta, calculate_rotation_parameters,
+};
+use crate::utils::save_utils::save_image;
+use egui::{ColorImage, Context, TextureOptions};
+use log::debug;
+use std::fs;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use super::app::RasterizerApp;
+use super::core::CoreMethods;
+
+/// 将ColorImage转换为PNG数据
+pub fn frame_to_png_data(image: &ColorImage) -> Vec<u8> {
+    // ColorImage是RGBA格式，我们需要转换为RGB格式
+    let mut rgb_data = Vec::with_capacity(image.width() * image.height() * 3);
+    for pixel in &image.pixels {
+        rgb_data.push(pixel.r());
+        rgb_data.push(pixel.g());
+        rgb_data.push(pixel.b());
+    }
+    rgb_data
 }
 
-/// 执行完整的动画渲染循环
-pub fn run_animation_loop(
-    scene: &mut Scene,
-    renderer: &mut Renderer,
+/// 渲染一圈的动画帧
+///
+/// # 参数
+/// * `scene_copy` - 场景的克隆
+/// * `settings` - 渲染参数
+/// * `progress_arc` - 进度计数器
+/// * `ctx_clone` - UI上下文，用于更新界面
+/// * `width` - 渲染宽度
+/// * `height` - 渲染高度
+/// * `on_frame_rendered` - 帧渲染完成后的回调函数，参数为(帧序号, RGB颜色数据)
+///
+/// # 返回值
+/// 渲染的总帧数
+fn render_one_rotation_cycle<F>(
+    mut scene_copy: Scene,
     settings: &RenderSettings,
-) -> Result<(), String> {
-    // 使用通用函数计算旋转参数
+    progress_arc: &Arc<AtomicUsize>,
+    ctx_clone: &Context,
+    width: usize,
+    height: usize,
+    mut on_frame_rendered: F,
+) -> usize
+where
+    F: FnMut(usize, Vec<u8>),
+{
+    let mut thread_renderer = Renderer::new(width, height);
     let (effective_rotation_speed_dps, _, frames_to_render) =
         calculate_rotation_parameters(settings.rotation_speed, settings.fps);
 
-    // 根据用户要求的旋转圈数计算实际帧数
-    let total_frames = (frames_to_render as f32 * settings.rotation_cycles) as usize;
-
-    info!(
-        "开始动画渲染 ({} 帧, {:.2} 秒)...",
-        total_frames,
-        total_frames as f32 / settings.fps as f32
-    );
-    info!(
-        "动画类型: {:?}, 旋转轴类型: {:?}, 速度: {:.1}度/秒",
-        settings.animation_type, settings.rotation_axis, effective_rotation_speed_dps
-    );
-
-    // 计算旋转方向
     let rotation_axis_vec = get_animation_axis_vector(settings);
-    if settings.rotation_axis == RotationAxis::Custom {
-        debug!("自定义旋转轴: {rotation_axis_vec:?}");
-    }
+    let rotation_increment_rad_per_frame =
+        (360.0 / frames_to_render as f32).to_radians() * effective_rotation_speed_dps.signum();
 
-    // 计算每帧的旋转角度
-    let rotation_per_frame_rad =
-        (360.0 / frames_to_render as f32).to_radians() * settings.rotation_speed.signum();
+    for frame_num in 0..frames_to_render {
+        progress_arc.store(frame_num, Ordering::SeqCst);
 
-    // 渲染所有帧
-    for frame_num in 0..total_frames {
-        let frame_start_time = Instant::now();
-        debug!("--- 准备帧 {} / {} ---", frame_num + 1, total_frames);
-
-        // 第一帧通常不旋转，保留原始状态
         if frame_num > 0 {
             animate_scene_step(
-                scene,
+                &mut scene_copy,
                 &settings.animation_type,
                 &rotation_axis_vec,
-                rotation_per_frame_rad,
+                rotation_increment_rad_per_frame,
             );
         }
 
-        // 渲染和保存当前帧
-        let frame_output_name = format!("frame_{frame_num:03}");
-        render_single_frame(scene, renderer, settings, &frame_output_name)?;
+        // === 缓存失效策略 ===
+        match settings.animation_type {
+            AnimationType::CameraOrbit => {
+                // 相机轨道动画：地面本体和阴影都依赖相机，必须全部失效
+                thread_renderer.frame_buffer.invalidate_ground_base_cache();
+                thread_renderer
+                    .frame_buffer
+                    .invalidate_ground_shadow_cache();
+            }
+            AnimationType::ObjectLocalRotation => {
+                if settings.enable_shadow_mapping {
+                    // 物体动画+阴影：只需失效阴影缓存，地面本体可复用
+                    thread_renderer
+                        .frame_buffer
+                        .invalidate_ground_shadow_cache();
+                }
+                // 未开阴影时，地面缓存可复用，无需清理
+            }
+            AnimationType::None => {}
+        }
 
-        debug!(
-            "帧 {} 渲染完成，耗时 {:?}",
-            frame_output_name,
-            frame_start_time.elapsed()
-        );
+        thread_renderer.render_scene(&mut scene_copy, settings);
+        let color_data_rgb = thread_renderer.frame_buffer.get_color_buffer_bytes();
+        on_frame_rendered(frame_num, color_data_rgb);
+
+        if frame_num % (frames_to_render.max(1) / 20).max(1) == 0 {
+            ctx_clone.request_repaint();
+        }
     }
 
-    info!(
-        "动画渲染完成。总时长：{:.2}秒",
-        total_frames as f32 / settings.fps as f32
-    );
-    Ok(())
-}
-use crate::core::renderer::Renderer;
-use crate::io::render_settings::RenderSettings;
-use crate::material_system::color::apply_colormap_jet;
-use image::ColorType;
-use log::{debug, info, warn};
-use std::path::Path;
+    progress_arc.store(frames_to_render, Ordering::SeqCst);
+    ctx_clone.request_repaint();
 
-/// 保存RGB图像数据到PNG文件
-pub fn save_image(path: &str, data: &[u8], width: u32, height: u32) {
-    match image::save_buffer(path, data, width, height, ColorType::Rgb8) {
-        Ok(_) => info!("图像已保存到 {path}"),
-        Err(e) => warn!("保存图像到 {path} 时出错: {e}"),
-    }
+    frames_to_render
 }
 
-/// 将深度缓冲数据归一化到指定的百分位数范围
-pub fn normalize_depth(depth_buffer: &[f32], min_percentile: f32, max_percentile: f32) -> Vec<f32> {
-    // 1. 收集所有有限的深度值
-    let mut finite_depths: Vec<f32> = depth_buffer
-        .iter()
-        .filter(|&&d| d.is_finite())
-        .cloned()
-        .collect();
+/// 动画与视频生成相关方法的特质
+pub trait AnimationMethods {
+    /// 执行实时渲染循环
+    fn perform_realtime_rendering(&mut self, ctx: &Context);
 
-    let mut min_clip: f32;
-    let mut max_clip: f32;
+    /// 在后台生成视频
+    fn start_video_generation(&mut self, ctx: &Context);
 
-    // 2. 使用百分位数确定归一化范围
-    if finite_depths.len() >= 2 {
-        finite_depths.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
+    /// 启动预渲染过程
+    fn start_pre_rendering(&mut self, ctx: &Context);
 
-        let min_idx = ((min_percentile / 100.0 * (finite_depths.len() - 1) as f32).round()
-            as usize)
-            .clamp(0, finite_depths.len() - 1);
-        let max_idx = ((max_percentile / 100.0 * (finite_depths.len() - 1) as f32).round()
-            as usize)
-            .clamp(0, finite_depths.len() - 1);
+    /// 处理预渲染帧
+    fn handle_pre_rendering_tasks(&mut self, ctx: &Context);
 
-        min_clip = finite_depths[min_idx];
-        max_clip = finite_depths[max_idx];
+    /// 播放预渲染帧
+    fn play_pre_rendered_frames(&mut self, ctx: &Context);
+}
 
-        if (max_clip - min_clip).abs() < 1e-6 {
-            min_clip = *finite_depths.first().unwrap();
-            max_clip = *finite_depths.last().unwrap();
-            if (max_clip - min_clip).abs() < 1e-6 {
-                max_clip = min_clip + 1.0;
+impl AnimationMethods for RasterizerApp {
+    /// 执行实时渲染循环
+    fn perform_realtime_rendering(&mut self, ctx: &Context) {
+        // 如果启用了预渲染模式且没有预渲染帧，才进入预渲染
+        if self.pre_render_mode
+            && !self.is_pre_rendering
+            && self.pre_rendered_frames.lock().unwrap().is_empty()
+        {
+            // 检查模型是否已加载
+            if self.scene.is_none() {
+                let obj_path = match &self.settings.obj {
+                    Some(path) => path.clone(),
+                    None => {
+                        self.set_error("错误: 未指定OBJ文件路径".to_string());
+                        self.stop_animation_rendering();
+                        return;
+                    }
+                };
+                match ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
+                    Ok((scene, model_data)) => {
+                        self.scene = Some(scene);
+                        self.model_data = Some(model_data);
+                        self.start_pre_rendering(ctx);
+                        return;
+                    }
+                    Err(e) => {
+                        self.set_error(format!("加载模型失败: {e}"));
+                        self.stop_animation_rendering();
+                        return;
+                    }
+                }
+            } else {
+                self.start_pre_rendering(ctx);
+                return;
             }
         }
-        debug!(
-            "使用百分位数归一化深度: [{min_percentile:.1}%, {max_percentile:.1}%] -> [{min_clip:.3}, {max_clip:.3}]"
-        );
-    } else {
-        warn!("没有足够的有限深度值进行百分位裁剪。使用默认范围 [0.1, 10.0]");
-        min_clip = 0.1;
-        max_clip = 10.0;
-    }
 
-    let range = max_clip - min_clip;
-    let inv_range = if range > 1e-6 { 1.0 / range } else { 0.0 };
+        // 如果正在预渲染，处理预渲染任务
+        if self.is_pre_rendering {
+            self.handle_pre_rendering_tasks(ctx);
+            return;
+        }
 
-    depth_buffer
-        .iter()
-        .map(|&depth| {
-            if depth.is_finite() {
-                ((depth.clamp(min_clip, max_clip) - min_clip) * inv_range).clamp(0.0, 1.0)
-            } else {
-                1.0
+        // 如果启用预渲染模式且有预渲染帧，播放预渲染帧
+        if self.pre_render_mode && !self.pre_rendered_frames.lock().unwrap().is_empty() {
+            self.play_pre_rendered_frames(ctx);
+            return;
+        }
+
+        // === 常规实时渲染（未启用预渲染模式或预渲染复选框未勾选） ===
+
+        // 确保场景已加载
+        if self.scene.is_none() {
+            let obj_path = match &self.settings.obj {
+                Some(path) => path.clone(),
+                None => {
+                    self.set_error("错误: 未指定OBJ文件路径".to_string());
+                    self.stop_animation_rendering();
+                    return;
+                }
+            };
+            match ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
+                Ok((scene, model_data)) => {
+                    self.scene = Some(scene);
+                    self.model_data = Some(model_data);
+                    // 注意：这里不再自动跳转到预渲染，而是继续执行实时渲染
+                    self.status_message = "模型加载成功，开始实时渲染...".to_string();
+                }
+                Err(e) => {
+                    self.set_error(format!("加载模型失败: {e}"));
+                    self.stop_animation_rendering();
+                    return;
+                }
             }
-        })
-        .collect()
-}
+        }
 
-/// 保存渲染结果（彩色图像和可选的深度图）
-#[allow(clippy::too_many_arguments)]
-pub fn save_render_result(
-    color_data: &[u8],
-    depth_data: Option<&[f32]>,
-    width: usize,
-    height: usize,
-    output_dir: &str,
-    output_name: &str,
-    settings: &RenderSettings,
-    save_depth: bool,
-) -> Result<(), String> {
-    // 保存彩色图像
-    let color_path = Path::new(output_dir)
-        .join(format!("{output_name}_color.png"))
-        .to_str()
-        .ok_or_else(|| "创建彩色输出路径字符串失败".to_string())?
-        .to_string();
+        // 检查渲染器尺寸，但避免不必要的缓存清除
+        if self.renderer.frame_buffer.width != self.settings.width
+            || self.renderer.frame_buffer.height != self.settings.height
+        {
+            self.renderer
+                .resize(self.settings.width, self.settings.height);
+            self.rendered_image = None;
+            debug!(
+                "重新创建渲染器，尺寸: {}x{}",
+                self.settings.width, self.settings.height
+            );
+        }
 
-    save_image(&color_path, color_data, width as u32, height as u32);
+        let now = Instant::now();
+        let dt = if let Some(last_time) = self.last_frame_time {
+            now.duration_since(last_time).as_secs_f32()
+        } else {
+            1.0 / 60.0 // 默认 dt
+        };
+        if let Some(last_time) = self.last_frame_time {
+            let frame_time = now.duration_since(last_time);
+            self.update_fps_stats(frame_time);
+        }
+        self.last_frame_time = Some(now);
 
-    // 保存深度图（如果启用）
-    if settings.use_zbuffer && save_depth {
-        if let Some(depth_data_raw) = depth_data {
-            let depth_normalized = normalize_depth(depth_data_raw, 1.0, 99.0);
-            let depth_colored = apply_colormap_jet(
-                &depth_normalized
-                    .iter()
-                    .map(|&d| 1.0 - d) // 反转：越近 = 越热
-                    .collect::<Vec<_>>(),
-                width,
-                height,
-                settings.use_gamma,
+        if self.is_realtime_rendering && self.settings.rotation_speed.abs() < 0.01 {
+            self.settings.rotation_speed = 1.0; // 确保实时渲染时有旋转速度
+        }
+
+        self.animation_time += dt;
+
+        if let Some(scene) = &mut self.scene {
+            // 动画过程中不清除缓存
+            // 物体动画不影响背景和地面（相机不动），所以缓存仍然有效
+
+            // 使用通用函数计算旋转增量
+            let rotation_delta_rad = calculate_rotation_delta(self.settings.rotation_speed, dt);
+            let rotation_axis_vec = get_animation_axis_vector(&self.settings);
+
+            // 使用通用函数执行动画步骤
+            animate_scene_step(
+                scene,
+                &self.settings.animation_type,
+                &rotation_axis_vec,
+                rotation_delta_rad,
             );
 
-            let depth_path = Path::new(output_dir)
-                .join(format!("{output_name}_depth.png"))
-                .to_str()
-                .ok_or_else(|| "创建深度输出路径字符串失败".to_string())?
-                .to_string();
+            debug!(
+                "实时渲染中: FPS={:.1}, 动画类型={:?}, 轴={:?}, 旋转速度={}, 角度增量={:.3}rad, Phong={}",
+                self.avg_fps,
+                self.settings.animation_type,
+                self.settings.rotation_axis,
+                self.settings.rotation_speed,
+                rotation_delta_rad,
+                self.settings.use_phong
+            );
 
-            save_image(&depth_path, &depth_colored, width as u32, height as u32);
-        }
-    }
-
-    Ok(())
-}
-
-/// 从渲染器中获取数据并保存渲染结果
-pub fn save_render_with_settings(
-    renderer: &Renderer,
-    settings: &RenderSettings,
-    output_name: Option<&str>,
-) -> Result<(), String> {
-    let color_data = renderer.frame_buffer.get_color_buffer_bytes();
-    let depth_data = if settings.save_depth {
-        Some(renderer.frame_buffer.get_depth_buffer_f32())
-    } else {
-        None
-    };
-
-    let width = renderer.frame_buffer.width;
-    let height = renderer.frame_buffer.height;
-    let output_name = output_name.unwrap_or(&settings.output);
-
-    save_render_result(
-        &color_data,
-        depth_data.as_deref(),
-        width,
-        height,
-        &settings.output_dir,
-        output_name,
-        settings,
-        settings.save_depth,
-    )
-}
-use log::{error, info, warn};
-use std::fs;
-use std::time::Instant;
-
-mod core;
-mod geometry;
-mod io;
-mod material_system;
-mod scene;
-mod ui;
-mod utils;
-
-use crate::ui::app::start_gui;
-use core::renderer::Renderer;
-use io::model_loader::ModelLoader;
-use io::simple_cli::SimpleCli;
-use utils::render_utils::{render_single_frame, run_animation_loop};
-
-fn main() -> Result<(), String> {
-    // 初始化日志系统
-    env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Debug)
-        .filter_module("eframe", log::LevelFilter::Warn) // 只显示 eframe 的警告和错误
-        .filter_module("egui_glow", log::LevelFilter::Warn) // 只显示 egui_glow 的警告和错误
-        .filter_module("egui_winit", log::LevelFilter::Warn) // 只显示 egui_winit 的警告和错误
-        .filter_module("winit", log::LevelFilter::Warn) // 只显示 winit 的警告和错误
-        .filter_module("wgpu", log::LevelFilter::Warn) // 只显示 wgpu 的警告和错误
-        .filter_module("glutin", log::LevelFilter::Warn) // 只显示 glutin 的警告和错误
-        .filter_module("sctk", log::LevelFilter::Warn) // 只显示 sctk 的警告和错误
-        .format_timestamp(None)
-        .format_level(true)
-        .init();
-
-    info!("🎨 光栅化渲染器启动");
-
-    let (settings, should_start_gui) = SimpleCli::process()?;
-
-    // 判断是否应该启动GUI模式
-    if should_start_gui {
-        info!("启动GUI模式...");
-        if let Err(err) = start_gui(settings) {
-            error!("GUI启动失败: {err}");
-            return Err("GUI启动失败".to_string());
-        }
-        return Ok(());
-    }
-
-    // 无头渲染模式 - 需要OBJ文件
-    if settings.obj.is_none() {
-        error!("无头模式需要指定OBJ文件路径");
-        return Err("缺少OBJ文件路径".to_string());
-    }
-
-    let start_time = Instant::now();
-    let obj_path = settings.obj.as_ref().unwrap();
-
-    // 确保输出目录存在
-    fs::create_dir_all(&settings.output_dir).map_err(|e| {
-        error!("创建输出目录 '{}' 失败：{}", settings.output_dir, e);
-        "创建输出目录失败".to_string()
-    })?;
-
-    // 验证资源
-    info!("验证资源...");
-    if let Err(e) = ModelLoader::validate_resources(&settings) {
-        warn!("{e}");
-    }
-
-    // 加载模型和创建场景
-    let (mut scene, _model_data) = ModelLoader::load_and_create_scene(obj_path, &settings)
-        .map_err(|e| {
-            error!("模型加载失败: {e}");
-            "模型加载失败".to_string()
-        })?;
-
-    // 创建渲染器
-    let mut renderer = Renderer::new(settings.width, settings.height);
-
-    // 渲染动画或单帧
-    if settings.animate {
-        run_animation_loop(&mut scene, &mut renderer, &settings).map_err(|e| {
-            error!("动画渲染失败: {e}");
-            "动画渲染失败".to_string()
-        })?;
-    } else {
-        info!("--- 开始单帧渲染 ---");
-        info!("分辨率: {}x{}", settings.width, settings.height);
-        info!("投影类型: {}", settings.projection);
-        info!(
-            "光照: {} ({} 个光源)",
-            if settings.use_lighting {
-                "启用"
-            } else {
-                "禁用"
-            },
-            settings.lights.len()
-        );
-        info!("材质: {}", settings.get_lighting_description());
-
-        if settings.use_background_image {
-            if let Some(bg_path) = &settings.background_image_path {
-                info!("背景图片: {bg_path}");
+            match self.settings.animation_type {
+                AnimationType::CameraOrbit => {
+                    // 相机轨道动画：地面本体和阴影都依赖相机，必须全部失效
+                    self.renderer.frame_buffer.invalidate_ground_base_cache();
+                    self.renderer.frame_buffer.invalidate_ground_shadow_cache();
+                }
+                AnimationType::ObjectLocalRotation => {
+                    if self.settings.enable_shadow_mapping {
+                        // 物体动画+阴影：只需失效阴影缓存，地面本体可复用
+                        self.renderer.frame_buffer.invalidate_ground_shadow_cache();
+                    }
+                    // 未开阴影时，地面缓存可复用，无需清理
+                }
+                AnimationType::None => {}
             }
-        }
-        if settings.enable_gradient_background {
-            info!("渐变背景: 启用");
-        }
-        if settings.enable_ground_plane {
-            info!("地面平面: 启用");
-        }
 
-        render_single_frame(&mut scene, &mut renderer, &settings, &settings.output).map_err(
-            |e| {
-                error!("单帧渲染失败: {e}");
-                "单帧渲染失败".to_string()
-            },
-        )?;
+            self.renderer.render_scene(scene, &self.settings);
+            self.display_render_result(ctx);
+            ctx.request_repaint();
+        }
     }
 
-    info!("总执行时间：{:?}", start_time.elapsed());
-    Ok(())
-}
+    fn start_video_generation(&mut self, ctx: &Context) {
+        if !self.ffmpeg_available {
+            self.set_error("无法生成视频：未检测到ffmpeg。请安装ffmpeg后重试。".to_string());
+            return;
+        }
+        if self.is_generating_video {
+            self.status_message = "视频已在生成中，请等待完成...".to_string();
+            return;
+        }
+
+        // 使用 CoreMethods 验证参数
+        match self.settings.validate() {
+            Ok(_) => {
+                let output_dir = self.settings.output_dir.clone();
+                if let Err(e) = fs::create_dir_all(&output_dir) {
+                    self.set_error(format!("创建输出目录失败: {e}"));
+                    return;
+                }
+                let frames_dir = format!(
+                    "{}/temp_frames_{}",
+                    output_dir,
+                    chrono::Utc::now().timestamp_millis()
+                );
+                if let Err(e) = fs::create_dir_all(&frames_dir) {
+                    self.set_error(format!("创建帧目录失败: {e}"));
+                    return;
+                }
+
+                // 计算旋转参数，获取视频帧数
+                let (_, _, frames_per_rotation) =
+                    calculate_rotation_parameters(self.settings.rotation_speed, self.settings.fps);
+
+                let total_frames =
+                    (frames_per_rotation as f32 * self.settings.rotation_cycles) as usize;
+
+                // 如果场景未加载，尝试加载
+                if self.scene.is_none() {
+                    let obj_path = match &self.settings.obj {
+                        Some(path) => path.clone(),
+                        None => {
+                            self.set_error("错误: 未指定OBJ文件路径".to_string());
+                            return;
+                        }
+                    };
+                    match ModelLoader::load_and_create_scene(&obj_path, &self.settings) {
+                        Ok((scene, model_data)) => {
+                            self.scene = Some(scene);
+                            self.model_data = Some(model_data);
+                            self.status_message = "模型加载成功，开始生成视频...".to_string();
+                        }
+                        Err(e) => {
+                            self.set_error(format!("加载模型失败，无法生成视频: {e}"));
+                            return;
+                        }
+                    }
+                }
+
+                let settings_for_thread = self.settings.clone();
+                let video_progress_arc = self.video_progress.clone();
+                let fps = self.settings.fps;
+                let scene_clone = self.scene.as_ref().expect("场景已检查").clone();
+
+                // 检查是否有预渲染帧
+                let has_pre_rendered_frames = {
+                    let frames_guard = self.pre_rendered_frames.lock().unwrap();
+                    !frames_guard.is_empty()
+                };
+
+                // 如果没有预渲染帧，那么我们需要同时为预渲染缓冲区生成帧
+                let frames_for_pre_render = if !has_pre_rendered_frames {
+                    Some(self.pre_rendered_frames.clone())
+                } else {
+                    None
+                };
+
+                // 设置渲染状态
+                self.is_generating_video = true;
+                video_progress_arc.store(0, Ordering::SeqCst);
+
+                // 更新状态消息
+                self.status_message = format!(
+                    "开始生成视频 (0/{} 帧，{:.1} 秒时长)...",
+                    total_frames,
+                    total_frames as f32 / fps as f32
+                );
+
+                ctx.request_repaint();
+                let ctx_clone = ctx.clone();
+                let video_filename = format!("{}.mp4", settings_for_thread.output);
+                let video_output_path = format!("{output_dir}/{video_filename}");
+                let frames_dir_clone = frames_dir.clone();
+
+                // 如果有预渲染帧，复制到线程中
+                let pre_rendered_frames_clone = if has_pre_rendered_frames {
+                    let frames_guard = self.pre_rendered_frames.lock().unwrap();
+                    Some(frames_guard.clone())
+                } else {
+                    None
+                };
+
+                let thread_handle = thread::spawn(move || {
+                    let width = settings_for_thread.width;
+                    let height = settings_for_thread.height;
+                    let mut rendered_frames = Vec::new();
+
+                    // 使用预渲染帧或重新渲染
+                    if let Some(frames) = pre_rendered_frames_clone {
+                        // 使用预渲染帧
+                        let pre_rendered_count = frames.len();
+
+                        for frame_num in 0..total_frames {
+                            video_progress_arc.store(frame_num, Ordering::SeqCst);
+
+                            // 计算当前帧在哪个圈和圈内的位置
+                            let cycle_position = frame_num % frames_per_rotation;
+
+                            // 将圈内位置映射到预渲染帧索引
+                            // 这处理了预渲染帧数量可能与理论帧数不匹配的情况
+                            let pre_render_idx =
+                                (cycle_position * pre_rendered_count) / frames_per_rotation;
+
+                            let frame = &frames[pre_render_idx.min(pre_rendered_count - 1)]; // 避免越界访问
+
+                            // 将ColorImage转换为PNG并保存
+                            let frame_path = format!("{frames_dir_clone}/frame_{frame_num:04}.png");
+                            let color_data = frame_to_png_data(frame);
+                            save_image(&frame_path, &color_data, width as u32, height as u32);
+
+                            if frame_num % (total_frames.max(1) / 20).max(1) == 0 {
+                                ctx_clone.request_repaint();
+                            }
+                        }
+                    } else {
+                        // 使用通用渲染函数渲染一圈或部分圈
+                        let frames_arc = frames_for_pre_render.clone();
+
+                        let rendered_frame_count = render_one_rotation_cycle(
+                            scene_clone,
+                            &settings_for_thread,
+                            &video_progress_arc,
+                            &ctx_clone,
+                            width,
+                            height,
+                            |frame_num, color_data_rgb| {
+                                // 保存RGB数据用于后续复用
+                                rendered_frames.push(color_data_rgb.clone());
+
+                                // 同时为视频保存PNG文件
+                                let frame_path =
+                                    format!("{frames_dir_clone}/frame_{frame_num:04}.png");
+                                save_image(
+                                    &frame_path,
+                                    &color_data_rgb,
+                                    width as u32,
+                                    height as u32,
+                                );
+
+                                // 如果需要同时保存到预渲染缓冲区
+                                if let Some(ref frames_arc) = frames_arc {
+                                    // 转换为RGBA格式以用于预渲染帧
+                                    let mut rgba_data = Vec::with_capacity(width * height * 4);
+                                    for chunk in color_data_rgb.chunks_exact(3) {
+                                        rgba_data.extend_from_slice(chunk);
+                                        rgba_data.push(255); // Alpha
+                                    }
+                                    let color_image = ColorImage::from_rgba_unmultiplied(
+                                        [width, height],
+                                        &rgba_data,
+                                    );
+                                    frames_arc.lock().unwrap().push(color_image);
+                                }
+                            },
+                        );
+
+                        // 如果需要多于一圈，使用前面渲染的帧复用
+                        if rendered_frame_count < total_frames {
+                            for frame_num in rendered_frame_count..total_frames {
+                                video_progress_arc.store(frame_num, Ordering::SeqCst);
+
+                                // 复用之前渲染的帧
+                                let source_frame_idx = frame_num % rendered_frame_count;
+                                let source_data = &rendered_frames[source_frame_idx];
+
+                                // 保存为图片文件
+                                let frame_path =
+                                    format!("{frames_dir_clone}/frame_{frame_num:04}.png");
+                                save_image(&frame_path, source_data, width as u32, height as u32);
+
+                                if frame_num % (total_frames.max(1) / 20).max(1) == 0 {
+                                    ctx_clone.request_repaint();
+                                }
+                            }
+                        }
+                    }
+
+                    video_progress_arc.store(total_frames, Ordering::SeqCst);
+                    ctx_clone.request_repaint();
+
+                    // 使用ffmpeg将帧序列合成为视频，并解决阻塞问题
+                    let frames_pattern = format!("{frames_dir_clone}/frame_%04d.png");
+                    let ffmpeg_status = std::process::Command::new("ffmpeg")
+                        .args([
+                            "-y",
+                            "-framerate",
+                            &fps.to_string(),
+                            "-i",
+                            &frames_pattern,
+                            "-c:v",
+                            "libx264",
+                            "-pix_fmt",
+                            "yuv420p",
+                            "-crf",
+                            "23",
+                            &video_output_path,
+                        ])
+                        .status();
