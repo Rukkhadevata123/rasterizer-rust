@@ -11,6 +11,9 @@ pub struct FrameBuffer {
     /// Depth buffer (Z-buffer).
     /// Stores depth values (usually 0.0 to 1.0, or view-space Z).
     pub depth_buffer: Vec<f32>,
+    // TODO: Implement Anti-Aliasing (SSAA/MSAA).
+    // Idea: Store a buffer that is 2x or 4x larger than the output resolution.
+    // When saving/displaying, downsample (average) the pixels to smooth edges.
 }
 
 impl FrameBuffer {
