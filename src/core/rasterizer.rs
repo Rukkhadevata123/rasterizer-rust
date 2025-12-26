@@ -6,9 +6,20 @@ use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
 use crate::core::pipeline::Shader;
 use crate::scene::material::Material;
 use nalgebra::{Point2, Vector4};
+use rayon::prelude::*;
 
 /// The Rasterizer is responsible for drawing geometric primitives onto the FrameBuffer.
-pub struct Rasterizer;
+pub struct Rasterizer {
+    pub cull_mode: CullMode,
+    pub wireframe: bool,
+}
+
+#[derive(PartialEq)]
+pub enum CullMode {
+    Back,
+    Front,
+    None,
+}
 
 impl Default for Rasterizer {
     fn default() -> Self {
@@ -18,7 +29,14 @@ impl Default for Rasterizer {
 
 impl Rasterizer {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            cull_mode: CullMode::Back,
+            wireframe: false,
+        }
+    }
+
+    pub fn set_cull_mode(&mut self, mode: CullMode) {
+        self.cull_mode = mode;
     }
 
     pub fn rasterize_triangle<S: Shader>(
@@ -54,9 +72,6 @@ impl Rasterizer {
         }
 
         // Check Z axis (Near/Far)
-        // Note: Depending on projection matrix, Z range is usually [-w, w] or [0, w].
-        // Assuming standard OpenGL-style [-w, w] here.
-        // TODO: may check
         if (v0.z > v0.w && v1.z > v1.w && v2.z > v2.w)
             || (v0.z < -v0.w && v1.z < -v1.w && v2.z < -v2.w)
         {
@@ -87,12 +102,20 @@ impl Rasterizer {
         let edge2 = v2 - v1;
         let signed_area = edge1.x * edge2.y - edge1.y * edge2.x;
 
-        // Assuming CCW winding order. If area is positive, it's facing away (or towards, depending on Y-axis).
-        // In our screen space (+Y down), CCW produces negative area for front-facing?
-        // Let's stick to the logic that worked for you: if signed_area >= 0.0, cull.
-        // TODO: Need to be an optional choice
-        if signed_area >= 0.0 {
-            return;
+        match self.cull_mode {
+            CullMode::Back => {
+                if signed_area >= 0.0 {
+                    return;
+                }
+            }
+            CullMode::Front => {
+                if signed_area <= 0.0 {
+                    return;
+                }
+            }
+            CullMode::None => {
+                // Pass
+            }
         }
 
         // Precompute NDC z values for depth interpolation
@@ -118,8 +141,7 @@ impl Rasterizer {
         let end_y = (max_y.min(framebuffer.buffer_height as i32 - 1)) as usize;
 
         // 4. Pixel Loop
-        // TODO: Parallelize this loop for performance
-        for y in start_y..=end_y {
+        (start_y..=end_y).into_par_iter().for_each(|y| {
             for x in start_x..=end_x {
                 let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
 
@@ -130,10 +152,17 @@ impl Rasterizer {
                     screen_coords[2],
                 ) && is_inside_triangle(bary)
                 {
+                    if self.wireframe {
+                        // This value can be tuned to control line thickness
+                        let threshold = 0.02;
+                        if bary.x > threshold && bary.y > threshold && bary.z > threshold {
+                            continue;
+                        }
+                    }
+
                     let z_ndc = z0_ndc * bary.x + z1_ndc * bary.y + z2_ndc * bary.z;
                     let depth = z_ndc * 0.5 + 0.5;
 
-                    // Use atomic depth test. Only if it passes do we calculate color and write.
                     if framebuffer.depth_test_and_update(x, y, depth) {
                         let interpolated_varying = perspective_correct_interpolate(
                             bary,
@@ -146,13 +175,11 @@ impl Rasterizer {
                         );
 
                         let color = shader.fragment(interpolated_varying, material);
-
-                        // Use thread-safe pixel setter (uses locks internally)
                         framebuffer.set_pixel_safe(x, y, color);
                     }
                 }
             }
-        }
+        });
     }
 
     fn compute_bounding_box(&self, points: &[Point2<f32>; 3]) -> (i32, i32, i32, i32) {

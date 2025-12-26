@@ -1,0 +1,81 @@
+[render]
+# --- Output & Quality ---
+width = 3840
+height = 2160
+output = "output_toml.png"
+samples = 2
+exposure = 1.0
+
+# --- Environment & Background ---
+ambient_light = [0.1, 0.1, 0.1]
+# background_image = "assets/background.jpg"
+# background_color = [0.05, 0.05, 0.05]
+background_gradient_top = [0.2, 0.2, 0.3]
+background_gradient_bottom = [0.05, 0.05, 0.1]
+
+# --- Shadow System ---
+use_shadows = true
+shadow_map_size = 4096
+shadow_ortho_size = 8.0
+shadow_bias = 0.01
+use_pcf = true
+pcf_kernel_size = 2
+
+# --- Pipeline & Debug ---
+cull_mode = "back" # Options: "none", "front", "back"
+wireframe = false
+
+[camera]
+projection = "perspective" # Options: "perspective", "orthographic"
+position = [0.0, 4.0, 5.0]
+target = [0.0, 0.0, 0.0]
+up = [0.0, 1.0, 0.0]
+fov = 45.0
+# ortho_height = 10.0
+near = 0.1
+far = 100.0
+
+[ground]
+enabled = true
+size = 10.0
+albedo = [0.8, 0.8, 0.8]
+metallic = 0.0
+roughness = 0.8
+
+[[lights]]
+type = "directional"
+direction = [-1.0, -2.0, -1.0]
+color = [1.0, 0.95, 0.8]
+intensity = 3.5
+
+[[lights]]
+type = "point"
+position = [-3.0, 2.0, 2.0]
+color = [0.1, 0.1, 0.3]
+intensity = 1.0
+attenuation = [1.0, 0.09, 0.032]
+
+# The Cow (Spot)
+[[objects]]
+path = "assets/spot/spot_triangulated.obj"
+position = [-1.0, 0.0, 0.5]
+rotation = [0.0, 30.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+albedo = [1.00, 0.76, 0.33]
+metallic = 1.0
+roughness = 0.3
+ao = 0.99
+emissive = [0.01, 0.02, 0.03]
+emissive_intensity = 0.7
+# albedo_texture = "assets/spot/spot_texture.png"
+# metallic_roughness_texture = "assets/spot/spot_mr.png" # Not exported
+# normal_texture = "assets/spot/spot_normal.png"         # Not implement TBN
+
+# The Sphere
+[[objects]]
+path = "assets/simple/sphere.obj"
+position = [1.5, 0.5, -1.0]
+scale = [1.5, 1.5, 1.5]
+albedo = [0.1, 0.1, 0.8]
+metallic = 0.0
+roughness = 0.4

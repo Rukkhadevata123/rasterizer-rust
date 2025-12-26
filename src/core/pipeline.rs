@@ -5,7 +5,10 @@ use std::ops::{Add, Mul};
 
 /// Trait representing data that can be interpolated (e.g., Colors, Normals, UVs).
 /// Requires Copy, Addition, and Multiplication by scalar (f32).
-pub trait Interpolatable: Copy + Clone + Add<Output = Self> + Mul<f32, Output = Self> {}
+pub trait Interpolatable:
+    Copy + Clone + Add<Output = Self> + Mul<f32, Output = Self> + Send + Sync
+{
+}
 
 // Implement Interpolatable for common types automatically
 impl<T> Interpolatable for T where T: Copy + Add<Output = T> + Mul<f32, Output = T> + Send + Sync {}

@@ -1,5 +1,4 @@
-use log::warn;
-use nalgebra::{Matrix3, Matrix4, Point2, Point3, Vector3, Vector4};
+use nalgebra::{Matrix4, Point2, Point3, Vector3, Vector4};
 
 //=================================
 // Transform Matrix Factory
@@ -142,64 +141,11 @@ impl TransformFactory {
             0.0,           0.0,           0.0,          1.0,
         )
     }
-
-    /// Creates an MVP matrix (Model-View-Projection).
-    pub fn model_view_projection(
-        model: &Matrix4<f32>,
-        view: &Matrix4<f32>,
-        projection: &Matrix4<f32>,
-    ) -> Matrix4<f32> {
-        projection * view * model
-    }
-
-    /// Creates an MV matrix (Model-View).
-    pub fn model_view(model: &Matrix4<f32>, view: &Matrix4<f32>) -> Matrix4<f32> {
-        view * model
-    }
 }
 
 //=================================
 // Core Transformation Functions
 //=================================
-
-/// Computes the Normal Matrix (Transpose of the Inverse of the Model-View matrix).
-/// Used to transform normal vectors correctly.
-#[inline]
-pub fn compute_normal_matrix(model_view_matrix: &Matrix4<f32>) -> Matrix3<f32> {
-    model_view_matrix.try_inverse().map_or_else(
-        || {
-            warn!("Model-View matrix is not invertible, using identity for normals.");
-            Matrix3::identity()
-        },
-        |inv| inv.transpose().fixed_view::<3, 3>(0, 0).into_owned(),
-    )
-}
-
-/// Transforms a 3D point using a 4x4 matrix.
-/// Performs homogeneous division.
-#[inline]
-pub fn transform_point(point: &Point3<f32>, matrix: &Matrix4<f32>) -> Point3<f32> {
-    let homogeneous_point = point.to_homogeneous();
-    let transformed_homogeneous = matrix * homogeneous_point;
-
-    // Perform perspective division
-    if transformed_homogeneous.w.abs() < 1e-9 {
-        Point3::new(
-            transformed_homogeneous.x,
-            transformed_homogeneous.y,
-            transformed_homogeneous.z,
-        )
-    } else {
-        Point3::from(transformed_homogeneous.xyz() / transformed_homogeneous.w)
-    }
-}
-
-/// Transforms a normal vector using a 3x3 normal matrix.
-/// The result is normalized.
-#[inline]
-pub fn transform_normal(normal: &Vector3<f32>, normal_matrix: &Matrix3<f32>) -> Vector3<f32> {
-    (normal_matrix * normal).normalize()
-}
 
 /// Performs perspective division: Clip Space -> NDC.
 #[inline]
@@ -220,18 +166,4 @@ pub fn ndc_to_screen(ndc_x: f32, ndc_y: f32, width: f32, height: f32) -> Point2<
         (ndc_x + 1.0) * 0.5 * width,
         (1.0 - (ndc_y + 1.0) * 0.5) * height,
     )
-}
-
-/// Full transformation from Clip Space to Screen Space.
-/// Combines perspective division and viewport transform.
-#[inline]
-pub fn clip_to_screen(clip: &Vector4<f32>, width: f32, height: f32) -> Point2<f32> {
-    let ndc = apply_perspective_division(clip);
-    ndc_to_screen(ndc.x, ndc.y, width, height)
-}
-
-/// Transforms a 3D point to Homogeneous Clip Space.
-#[inline]
-pub fn point_to_clip(point: &Point3<f32>, matrix: &Matrix4<f32>) -> Vector4<f32> {
-    matrix * point.to_homogeneous()
 }

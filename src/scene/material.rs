@@ -3,37 +3,15 @@ use nalgebra::Vector3;
 use std::sync::Arc;
 
 /// Defines how an object interacts with light.
+/// Unified to PBR workflow.
 #[derive(Debug, Clone)]
 pub enum Material {
-    Phong(PhongMaterial),
     Pbr(PbrMaterial),
 }
 
 impl Default for Material {
     fn default() -> Self {
-        Material::Phong(PhongMaterial::default())
-    }
-}
-
-/// Parameters for the Phong lighting model.
-#[derive(Debug, Clone)]
-pub struct PhongMaterial {
-    pub diffuse_color: Vector3<f32>,
-    pub specular_color: Vector3<f32>,
-    pub ambient_color: Vector3<f32>,
-    pub shininess: f32,
-    pub diffuse_texture: Option<Arc<Texture>>,
-}
-
-impl Default for PhongMaterial {
-    fn default() -> Self {
-        Self {
-            diffuse_color: Vector3::new(0.8, 0.8, 0.8),
-            specular_color: Vector3::new(1.0, 1.0, 1.0),
-            ambient_color: Vector3::new(0.1, 0.1, 0.1),
-            shininess: 32.0,
-            diffuse_texture: None,
-        }
+        Material::Pbr(PbrMaterial::default())
     }
 }
 
@@ -53,7 +31,7 @@ pub struct PbrMaterial {
 
     // Textures (Optional)
     pub albedo_texture: Option<Arc<Texture>>,
-    pub metallic_roughness_texture: Option<Arc<Texture>>, // Usually packed: G=Roughness, B=Metallic
+    pub metallic_roughness_texture: Option<Arc<Texture>>,
     pub normal_texture: Option<Arc<Texture>>,
 }
 
