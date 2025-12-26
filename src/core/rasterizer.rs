@@ -118,6 +118,7 @@ impl Rasterizer {
         let end_y = (max_y.min(framebuffer.buffer_height as i32 - 1)) as usize;
 
         // 4. Pixel Loop
+        // TODO: Parallelize this loop for performance
         for y in start_y..=end_y {
             for x in start_x..=end_x {
                 let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
