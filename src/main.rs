@@ -1,12 +1,13 @@
 use nalgebra::{Point3, Vector3};
 use rasterizer_rust::core::math::transform::TransformFactory;
 use rasterizer_rust::io::obj_loader::load_obj;
-use rasterizer_rust::pipeline::renderer::Renderer;
+use rasterizer_rust::pipeline::renderer::{ClearOptions, Renderer};
 use rasterizer_rust::pipeline::shaders::phong::PhongShader;
 use rasterizer_rust::scene::camera::Camera;
 use rasterizer_rust::scene::light::Light;
 use rasterizer_rust::scene::material::Material;
 use rasterizer_rust::scene::mesh::Mesh;
+use rasterizer_rust::scene::texture::Texture;
 use rasterizer_rust::scene::utils::normalize_and_center_model;
 use std::path::Path;
 
@@ -99,14 +100,31 @@ fn main() {
     shader.lights = lights;
     shader.ambient_light = Vector3::new(0.05, 0.05, 0.05); // Dim ambient
 
+    // Option A: Load a background image (if you have one)
+    let bg_texture = Texture::load("assets/background.jpg").ok(); // Returns Option<Texture>
+    if bg_texture.is_some() {
+        println!("Loaded background image.");
+    }
+
+    // Option B: Define a nice gradient (Sky Blue -> Ground Gray)
+    let gradient_top = Vector3::new(0.5, 0.7, 1.0); // Sky Blue
+    let gradient_bottom = Vector3::new(0.2, 0.2, 0.2); // Dark Gray
+
     // 7. Render
-    println!("Starting render with multiple lights...");
-    renderer.clear(Vector3::new(0.05, 0.05, 0.05)); // Dark background to see lights better
+    println!("Starting render...");
+
+    // Use the new clear method
+    renderer.clear_with_options(ClearOptions {
+        color: Vector3::new(0.1, 0.1, 0.1),              // Fallback
+        gradient: Some((gradient_top, gradient_bottom)), // Use Gradient
+        texture: bg_texture.as_ref(), // Use Texture if loaded (overrides gradient)
+        depth: f32::INFINITY,
+    });
 
     renderer.draw_model(&model, &shader);
 
     // 8. Save Result
-    let output_path = "output_multilight.png";
+    let output_path = "output_gradient.png";
     save_buffer_to_image(&renderer.framebuffer, output_path);
     println!("Render saved to {}", output_path);
 }

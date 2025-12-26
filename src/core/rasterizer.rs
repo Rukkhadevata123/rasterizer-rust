@@ -127,27 +127,26 @@ impl Rasterizer {
                     screen_coords[0],
                     screen_coords[1],
                     screen_coords[2],
-                ) {
-                    if is_inside_triangle(bary) {
-                        let z_ndc = z0_ndc * bary.x + z1_ndc * bary.y + z2_ndc * bary.z;
-                        let depth = z_ndc * 0.5 + 0.5;
+                ) && is_inside_triangle(bary)
+                {
+                    let z_ndc = z0_ndc * bary.x + z1_ndc * bary.y + z2_ndc * bary.z;
+                    let depth = z_ndc * 0.5 + 0.5;
 
-                        if framebuffer.depth_test(x, y, depth) {
-                            let interpolated_varying = perspective_correct_interpolate(
-                                bary,
-                                varyings[0],
-                                varyings[1],
-                                varyings[2],
-                                w_values[0],
-                                w_values[1],
-                                w_values[2],
-                            );
+                    if framebuffer.depth_test(x, y, depth) {
+                        let interpolated_varying = perspective_correct_interpolate(
+                            bary,
+                            varyings[0],
+                            varyings[1],
+                            varyings[2],
+                            w_values[0],
+                            w_values[1],
+                            w_values[2],
+                        );
 
-                            let color = shader.fragment(interpolated_varying, material);
+                        let color = shader.fragment(interpolated_varying, material);
 
-                            framebuffer.set_pixel(x, y, color);
-                            framebuffer.set_depth(x, y, depth);
-                        }
+                        framebuffer.set_pixel(x, y, color);
+                        framebuffer.set_depth(x, y, depth);
                     }
                 }
             }
