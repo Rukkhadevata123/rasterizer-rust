@@ -1,27 +1,19 @@
 use crate::core::geometry::Vertex;
 use crate::core::pipeline::Shader;
 use crate::scene::material::{Material, PhongMaterial};
-use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
+use nalgebra::{Matrix3, Matrix4, Point3, Vector2, Vector3, Vector4};
 use std::ops::{Add, Mul};
 
 /// Data that needs to be interpolated across the triangle surface.
-/// Passed from Vertex Shader -> Rasterizer -> Fragment Shader.
 #[derive(Clone, Copy, Debug)]
 pub struct PhongVarying {
-    /// Normal vector in World Space.
     pub normal: Vector3<f32>,
-    /// Position in World Space (needed for calculating View Vector and Light Vector).
     pub world_pos: Point3<f32>,
-    /// Texture coordinates (UV).
     pub uv: Vector2<f32>,
 }
 
-// Implement math operations required for barycentric interpolation.
-// Note: nalgebra's Point3 doesn't support addition with Point3 directly,
-// so we handle it via coordinates.
 impl Add for PhongVarying {
     type Output = Self;
-
     fn add(self, other: Self) -> Self {
         Self {
             normal: self.normal + other.normal,
@@ -33,7 +25,6 @@ impl Add for PhongVarying {
 
 impl Mul<f32> for PhongVarying {
     type Output = Self;
-
     fn mul(self, scalar: f32) -> Self {
         Self {
             normal: self.normal * scalar,
@@ -43,13 +34,16 @@ impl Mul<f32> for PhongVarying {
     }
 }
 
-/// A standard Phong lighting shader.
+/// A Blinn-Phong lighting shader.
 /// Calculates Ambient + Diffuse + Specular components.
 pub struct PhongShader {
     // Matrices
     pub model_matrix: Matrix4<f32>,
     pub view_matrix: Matrix4<f32>,
     pub projection_matrix: Matrix4<f32>,
+
+    // Precomputed Normal Matrix (Inverse Transpose of Model 3x3)
+    pub normal_matrix: Matrix3<f32>,
 
     // Lighting (Global)
     pub light_dir: Vector3<f32>,
@@ -59,7 +53,7 @@ pub struct PhongShader {
     // Camera
     pub camera_pos: Point3<f32>,
 
-    // Fallback Material (used if no material is passed to fragment)
+    // Fallback Material
     pub fallback_material: PhongMaterial,
 }
 
@@ -70,10 +64,17 @@ impl PhongShader {
         projection: Matrix4<f32>,
         camera_pos: Point3<f32>,
     ) -> Self {
+        // Calculate Normal Matrix: (Model_3x3 ^ -1) ^ T
+        // This handles non-uniform scaling correctly.
+        let model_3x3 = model.fixed_view::<3, 3>(0, 0).into_owned();
+        // try_inverse might fail if scale is 0, fallback to original
+        let normal_matrix = model_3x3.try_inverse().unwrap_or(model_3x3).transpose();
+
         Self {
             model_matrix: model,
             view_matrix: view,
             projection_matrix: projection,
+            normal_matrix,
             camera_pos,
             light_dir: Vector3::new(1.0, 1.0, 1.0).normalize(),
             light_color: Vector3::new(1.0, 1.0, 1.0),
@@ -92,23 +93,21 @@ impl Shader for PhongShader {
         let world_pos = Point3::from_homogeneous(world_pos_homo).unwrap();
 
         // 2. Transform Normal to World Space
-        // TODO: For non-uniform scaling, we should use the Inverse Transpose of the Model Matrix.
-        // For uniform scaling and rotation, the upper-left 3x3 of Model Matrix is sufficient.
-        let normal_matrix = self.model_matrix.fixed_view::<3, 3>(0, 0);
-        let world_normal = (normal_matrix * vertex.normal).normalize();
+        // Use the precomputed Normal Matrix for correct non-uniform scaling handling
+        let world_normal = (self.normal_matrix * vertex.normal).normalize();
 
         // 3. Transform Position to Clip Space (MVP)
         let mvp = self.projection_matrix * self.view_matrix * self.model_matrix;
         let clip_pos = mvp * vertex.position.to_homogeneous();
 
-        // 4. Pass data to Fragment Shader
-        let varying = PhongVarying {
-            normal: world_normal,
-            world_pos,
-            uv: vertex.texcoord,
-        };
-
-        (clip_pos, varying)
+        (
+            clip_pos,
+            PhongVarying {
+                normal: world_normal,
+                world_pos,
+                uv: vertex.texcoord,
+            },
+        )
     }
 
     fn fragment(&self, varying: Self::Varying, material: Option<&Material>) -> Vector3<f32> {
@@ -136,16 +135,21 @@ impl Shader for PhongShader {
             .ambient_intensity
             .component_mul(&mat_props.ambient_color);
 
-        // Diffuse
+        // Diffuse (Lambertian)
         let diff = normal.dot(&light_dir).max(0.0);
         let diffuse = self.light_color.component_mul(&diffuse_color) * diff;
 
-        // Specular
-        let reflect_dir = (normal * (2.0 * normal.dot(&light_dir)) - light_dir).normalize();
-        let spec = view_dir
-            .dot(&reflect_dir)
-            .max(0.0)
-            .powf(mat_props.shininess);
+        // Specular (Blinn-Phong)
+        // Calculate Halfway Vector
+        let halfway_dir = (light_dir + view_dir).normalize();
+
+        // N dot H
+        let spec_angle = normal.dot(&halfway_dir).max(0.0);
+
+        // Note: Blinn-Phong highlights are usually "softer" than Phong.
+        // To get a similar visual size to Phong, shininess usually needs to be 2x-4x larger.
+        let spec = spec_angle.powf(mat_props.shininess);
+
         let specular = self.light_color.component_mul(&mat_props.specular_color) * spec;
 
         // Combine
