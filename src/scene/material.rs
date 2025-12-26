@@ -6,7 +6,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub enum Material {
     Phong(PhongMaterial),
-    // TODO: Future: PBR(PbrMaterial)
+    Pbr(PbrMaterial),
 }
 
 impl Default for Material {
@@ -18,17 +18,10 @@ impl Default for Material {
 /// Parameters for the Phong lighting model.
 #[derive(Debug, Clone)]
 pub struct PhongMaterial {
-    /// Base color of the surface.
     pub diffuse_color: Vector3<f32>,
-    /// Color of the specular highlight.
     pub specular_color: Vector3<f32>,
-    /// Ambient color factor.
     pub ambient_color: Vector3<f32>,
-    /// Shininess exponent (higher = smaller, sharper highlight).
     pub shininess: f32,
-
-    /// Optional diffuse texture map.
-    /// If present, it overrides `diffuse_color`.
     pub diffuse_texture: Option<Arc<Texture>>,
 }
 
@@ -40,6 +33,41 @@ impl Default for PhongMaterial {
             ambient_color: Vector3::new(0.1, 0.1, 0.1),
             shininess: 32.0,
             diffuse_texture: None,
+        }
+    }
+}
+
+/// Parameters for Physically Based Rendering (Metallic-Roughness workflow).
+#[derive(Debug, Clone)]
+pub struct PbrMaterial {
+    /// Albedo (Base Color).
+    pub albedo: Vector3<f32>,
+    /// Metallic (0.0 = dielectric, 1.0 = metal).
+    pub metallic: f32,
+    /// Roughness (0.0 = smooth, 1.0 = rough).
+    pub roughness: f32,
+    /// Ambient Occlusion factor.
+    pub ao: f32,
+    /// Emissive color (light emitted by the surface).
+    pub emissive: Vector3<f32>,
+
+    // Textures (Optional)
+    pub albedo_texture: Option<Arc<Texture>>,
+    pub metallic_roughness_texture: Option<Arc<Texture>>, // Usually packed: G=Roughness, B=Metallic
+    pub normal_texture: Option<Arc<Texture>>,
+}
+
+impl Default for PbrMaterial {
+    fn default() -> Self {
+        Self {
+            albedo: Vector3::new(1.0, 1.0, 1.0),
+            metallic: 0.0,  // Non-metal
+            roughness: 0.5, // Medium roughness
+            ao: 1.0,
+            emissive: Vector3::zeros(),
+            albedo_texture: None,
+            metallic_roughness_texture: None,
+            normal_texture: None,
         }
     }
 }

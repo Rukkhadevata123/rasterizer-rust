@@ -1,3 +1,4 @@
+/// TODO: not only obj files
 use crate::core::geometry::Vertex;
 use crate::scene::material::{Material, PhongMaterial};
 use crate::scene::mesh::Mesh;
