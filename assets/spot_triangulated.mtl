@@ -1,0 +1,6 @@
+newmtl SpotMaterial  # 定义一个新材质，名字可以自定
+Ka 0.2 0.2 0.2     # 环境光反射率 (Ambient) - 可选
+Kd 0.8 0.8 0.8     # 漫反射率 (Diffuse) - 可选，纹理会覆盖这个颜色
+Ks 0.0 0.0 0.0     # 高光反射率 (Specular) - 可选
+Ns 10.0            # 高光指数 (Shininess) - 可选
+map_Kd spot_texture.png # 指定漫反射纹理贴图
