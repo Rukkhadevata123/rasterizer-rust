@@ -30,7 +30,7 @@ fn main() {
     env_logger::init();
 
     // --- CONFIGURATION ---
-    let width = 3840; // Reduced for video speed
+    let width = 3840;
     let height = 2160;
     let total_frames = 240; // 4 seconds at 60fps
     let output_video = "output_shadow_orbit.mp4";
@@ -40,8 +40,6 @@ fn main() {
     if !Path::new(temp_dir).exists() {
         fs::create_dir(temp_dir).expect("Failed to create temp directory");
     }
-
-    let mut renderer = Renderer::new(width, height, 2); // 2x SSAA
 
     // --- SCENE SETUP ---
     let mut scene_objects: Vec<SceneObject> = Vec::new();
@@ -62,7 +60,7 @@ fn main() {
         ground_transform,
     ));
 
-    // 2. Spot (PBR - Gold)
+    // 2. Spot (PBR - Gold) - Index 1
     if let Ok(mut model) = load_obj("assets/spot/spot_triangulated.obj") {
         let (_, _) = normalize_and_center_model(&mut model);
         if !model.materials.is_empty() {
@@ -75,6 +73,7 @@ fn main() {
                 ..Default::default()
             });
         }
+        // Initial transform
         let transform = TransformFactory::translation(&Vector3::new(-1.0, 0.0, 0.5))
             * TransformFactory::rotation_y(30.0_f32.to_radians());
         scene_objects.push(SceneObject::new(model, transform));
@@ -97,7 +96,7 @@ fn main() {
         scene_objects.push(SceneObject::new(model, transform));
     }
 
-    // --- LIGHTS & SHADOW SETUP ---
+    // --- LIGHTS SETUP ---
     let light_pos = Point3::new(5.0, 10.0, 5.0);
     let light_target = Point3::new(0.0, 0.0, 0.0);
     let light_up = Vector3::new(0.0, 1.0, 0.0);
@@ -112,56 +111,68 @@ fn main() {
         ),
     ];
 
-    // Shadow Map Setup
-    let shadow_map_size = 4096;
-    let mut shadow_renderer = Renderer::new(shadow_map_size, shadow_map_size, 1);
+    // Pre-calculate Light Matrices (Static Light)
     let light_view = TransformFactory::view(&light_pos, &light_target, &light_up);
     let ortho_size = 8.0;
     let light_proj =
         TransformFactory::orthographic(-ortho_size, ortho_size, -ortho_size, ortho_size, 0.1, 30.0);
     let light_space_matrix = light_proj * light_view;
 
-    // --- PASS 1: RENDER SHADOW MAP (ONCE) ---
-    // Since lights and objects don't move, we only need to render the shadow map once!
-    println!("Pass 1: Rendering Shadow Map (Static)...");
-    shadow_renderer.clear_with_options(ClearOptions {
-        depth: f32::INFINITY,
-        ..Default::default()
-    });
-
-    for obj in &scene_objects {
-        let shader = ShadowShader::new(obj.transform, light_view, light_proj);
-        shadow_renderer.draw_model(&obj.model, &shader);
-    }
-
-    let shadow_depth_data: Vec<f32> = shadow_renderer
-        .framebuffer
-        .depth_buffer
-        .iter()
-        .map(|atomic| f32::from_bits(atomic.load(Ordering::Relaxed)))
-        .collect();
-    let shadow_map_arc = Arc::new(shadow_depth_data);
-
-    // --- PASS 2: RENDER LOOP (Parallelized) ---
+    // --- RENDER LOOP (Parallelized) ---
     println!(
         "Starting parallel render loop for {} frames...",
         total_frames
     );
+
     let bg_texture = Texture::load("assets/background.jpg").ok();
-    let bg_texture_arc = Arc::new(bg_texture); // Wrap in Arc for sharing
+    let bg_texture_arc = Arc::new(bg_texture);
     let gradient_top = Vector3::new(0.1, 0.1, 0.15);
     let gradient_bottom = Vector3::new(0.02, 0.02, 0.02);
 
-    // Use into_par_iter to render frames in parallel
     (0..total_frames).into_par_iter().for_each(|frame| {
-        // Each thread needs its own renderer because FrameBuffer is not thread-safe for writing
-        let mut local_renderer = Renderer::new(width, height, 2);
+        // --- ANIMATION CALCULATION ---
+        // Camera Orbit
+        let cam_angle = (frame as f32 / total_frames as f32) * std::f32::consts::PI * 2.0;
+        let cam_radius = 6.0;
+        let cam_x = cam_angle.sin() * cam_radius;
+        let cam_z = cam_angle.cos() * cam_radius;
 
-        // 1. Update Camera (Orbit)
-        let angle = (frame as f32 / total_frames as f32) * std::f32::consts::PI * 2.0;
-        let radius = 6.0;
-        let cam_x = angle.sin() * radius;
-        let cam_z = angle.cos() * radius;
+        // Object Rotation (Spot/Cow)
+        // Rotate 2 full circles in opposite direction
+        let cow_angle = -(frame as f32 / total_frames as f32) * std::f32::consts::PI * 2.0 * 2.0;
+        let cow_rotation = TransformFactory::rotation_y(cow_angle);
+
+        // --- PASS 1: SHADOW MAP (Dynamic) ---
+        // We must render shadow map per frame because the object is moving!
+        let shadow_map_size = 2048; // Reduced size for performance inside loop
+        let mut shadow_renderer = Renderer::new(shadow_map_size, shadow_map_size, 1);
+
+        shadow_renderer.clear_with_options(ClearOptions {
+            depth: f32::INFINITY,
+            ..Default::default()
+        });
+
+        for (i, obj) in scene_objects.iter().enumerate() {
+            let mut model_matrix = obj.transform;
+            // Apply rotation to Spot (Index 1)
+            if i == 1 {
+                model_matrix = model_matrix * cow_rotation;
+            }
+
+            let shader = ShadowShader::new(model_matrix, light_view, light_proj);
+            shadow_renderer.draw_model(&obj.model, &shader);
+        }
+
+        let shadow_depth_data: Vec<f32> = shadow_renderer
+            .framebuffer
+            .depth_buffer
+            .iter()
+            .map(|atomic| f32::from_bits(atomic.load(Ordering::Relaxed)))
+            .collect();
+        let shadow_map_arc = Arc::new(shadow_depth_data);
+
+        // --- PASS 2: MAIN SCENE ---
+        let mut local_renderer = Renderer::new(width, height, 2);
 
         let camera = Camera::new_perspective(
             Point3::new(cam_x, 4.0, cam_z),
@@ -173,7 +184,6 @@ fn main() {
             100.0,
         );
 
-        // 2. Clear Buffer
         local_renderer.clear_with_options(ClearOptions {
             color: Vector3::new(0.0, 0.0, 0.0),
             gradient: Some((gradient_top, gradient_bottom)),
@@ -181,8 +191,13 @@ fn main() {
             depth: f32::INFINITY,
         });
 
-        // 3. Draw Objects
-        for obj in &scene_objects {
+        for (i, obj) in scene_objects.iter().enumerate() {
+            let mut model_matrix = obj.transform;
+            // Apply SAME rotation to Spot (Index 1)
+            if i == 1 {
+                model_matrix = model_matrix * cow_rotation;
+            }
+
             let is_pbr = if let Some(mat) = obj.model.materials.first() {
                 matches!(mat, Material::Pbr(_))
             } else {
@@ -191,7 +206,7 @@ fn main() {
 
             if is_pbr {
                 let mut shader = PbrShader::new(
-                    obj.transform,
+                    model_matrix, // Use dynamic transform
                     camera.view_matrix(),
                     camera.projection_matrix(),
                     camera.position,
@@ -205,7 +220,7 @@ fn main() {
                 local_renderer.draw_model(&obj.model, &shader);
             } else {
                 let mut shader = PhongShader::new(
-                    obj.transform,
+                    model_matrix, // Use dynamic transform
                     camera.view_matrix(),
                     camera.projection_matrix(),
                     camera.position,
@@ -220,7 +235,7 @@ fn main() {
             }
         }
 
-        // 4. Save Frame
+        // Save Frame
         let filename = format!("{}/frame_{:03}.png", temp_dir, frame);
         save_buffer_to_image(&local_renderer.framebuffer, &filename);
 
