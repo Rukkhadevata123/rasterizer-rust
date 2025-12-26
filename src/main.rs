@@ -40,15 +40,28 @@ fn main() {
     );
 
     // 4. Setup Camera (Using the Camera struct!)
-    let mut camera = Camera::new(
-        Point3::new(0.0, 0.5, 3.0),   // Position: Slightly up and back
-        Point3::new(0.0, 0.0, 0.0),   // Target: Center
-        Vector3::new(0.0, 1.0, 0.0),  // Up
-        45.0_f32.to_radians(),        // FOV
-        width as f32 / height as f32, // Aspect Ratio
-        0.1,                          // Near
-        100.0,                        // Far
+    let mut camera = Camera::new_perspective(
+        Point3::new(0.0, 0.5, 3.0),
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        45.0_f32.to_radians(),
+        width as f32 / height as f32,
+        0.1,
+        100.0,
     );
+
+    // 或者，如果你想测试正交投影 (物体不会随距离变小)：
+    /*
+    let mut camera = Camera::new_orthographic(
+        Point3::new(0.0, 0.5, 3.0),
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        2.0, // 视野高度为 2.0 个单位
+        width as f32 / height as f32,
+        0.1,
+        100.0,
+    );
+    */
 
     // 5. Setup Lights (Multi-light setup!)
     let lights = vec![

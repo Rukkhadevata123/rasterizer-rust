@@ -33,10 +33,39 @@ impl Rasterizer {
         let width = framebuffer.buffer_width as f32;
         let height = framebuffer.buffer_height as f32;
 
+        let v0 = &clip_coords[0];
+        let v1 = &clip_coords[1];
+        let v2 = &clip_coords[2];
+
+        // Check X axis (Left/Right)
+        // If all x > w, it's to the right of the screen.
+        // If all x < -w, it's to the left of the screen.
+        if (v0.x > v0.w && v1.x > v1.w && v2.x > v2.w)
+            || (v0.x < -v0.w && v1.x < -v1.w && v2.x < -v2.w)
+        {
+            return;
+        }
+
+        // Check Y axis (Top/Bottom)
+        if (v0.y > v0.w && v1.y > v1.w && v2.y > v2.w)
+            || (v0.y < -v0.w && v1.y < -v1.w && v2.y < -v2.w)
+        {
+            return;
+        }
+
+        // Check Z axis (Near/Far)
+        // Note: Depending on projection matrix, Z range is usually [-w, w] or [0, w].
+        // Assuming standard OpenGL-style [-w, w] here.
+        // TODO: may check
+        if (v0.z > v0.w && v1.z > v1.w && v2.z > v2.w)
+            || (v0.z < -v0.w && v1.z < -v1.w && v2.z < -v2.w)
+        {
+            return;
+        }
+
         // If any vertex is behind the camera (w <= epsilon), discard the triangle.
-        // A proper rasterizer would "clip" the triangle (cut it into smaller ones),
-        // but discarding is the simplest way to prevent "exploding" vertices.
-        if clip_coords[0].w <= 1e-6 || clip_coords[1].w <= 1e-6 || clip_coords[2].w <= 1e-6 {
+        // This is a crude "clipping" replacement to prevent math errors.
+        if v0.w <= 1e-6 || v1.w <= 1e-6 || v2.w <= 1e-6 {
             return;
         }
 
