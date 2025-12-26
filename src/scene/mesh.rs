@@ -7,11 +7,17 @@ pub struct Mesh {
     pub vertices: Vec<Vertex>,
     /// List of indices defining triangles (3 indices per triangle).
     pub indices: Vec<u32>,
+    /// Index into the Model's material list.
+    pub material_id: usize,
 }
 
 impl Mesh {
-    pub fn new(vertices: Vec<Vertex>, indices: Vec<u32>) -> Self {
-        Self { vertices, indices }
+    pub fn new(vertices: Vec<Vertex>, indices: Vec<u32>, material_id: usize) -> Self {
+        Self {
+            vertices,
+            indices,
+            material_id,
+        }
     }
 
     /// Creates a simple triangle mesh for testing purposes.
@@ -38,6 +44,7 @@ impl Mesh {
 
         let indices = vec![0, 1, 2];
 
-        Self::new(vertices, indices)
+        // Use material ID 0 (default)
+        Self::new(vertices, indices, 0)
     }
 }

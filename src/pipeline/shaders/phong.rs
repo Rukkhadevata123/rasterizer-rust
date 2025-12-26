@@ -1,5 +1,6 @@
 use crate::core::geometry::Vertex;
 use crate::core::pipeline::Shader;
+use crate::scene::material::{Material, PhongMaterial};
 use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
 use std::ops::{Add, Mul};
 
@@ -45,34 +46,24 @@ impl Mul<f32> for PhongVarying {
 /// A standard Phong lighting shader.
 /// Calculates Ambient + Diffuse + Specular components.
 pub struct PhongShader {
-    // --- Transformation Matrices ---
+    // Matrices
     pub model_matrix: Matrix4<f32>,
     pub view_matrix: Matrix4<f32>,
     pub projection_matrix: Matrix4<f32>,
 
-    // --- Lighting Parameters ---
-    /// Direction TO the light source (normalized).
+    // Lighting (Global)
     pub light_dir: Vector3<f32>,
-    /// Color/Intensity of the light.
     pub light_color: Vector3<f32>,
-    /// Ambient light color/intensity.
     pub ambient_intensity: Vector3<f32>,
 
-    // --- Camera ---
-    /// Camera position in World Space (needed for Specular calculation).
+    // Camera
     pub camera_pos: Point3<f32>,
 
-    // --- Material Properties ---
-    /// Base color of the object.
-    pub diffuse_color: Vector3<f32>,
-    /// Color of the specular highlight.
-    pub specular_color: Vector3<f32>,
-    /// Shininess factor (higher = smaller, sharper highlight).
-    pub shininess: f32,
+    // Fallback Material (used if no material is passed to fragment)
+    pub fallback_material: PhongMaterial,
 }
 
 impl PhongShader {
-    /// Creates a new PhongShader with default material and lighting values.
     pub fn new(
         model: Matrix4<f32>,
         view: Matrix4<f32>,
@@ -84,14 +75,10 @@ impl PhongShader {
             view_matrix: view,
             projection_matrix: projection,
             camera_pos,
-            // Default lighting (Directional light from top-right)
             light_dir: Vector3::new(1.0, 1.0, 1.0).normalize(),
             light_color: Vector3::new(1.0, 1.0, 1.0),
             ambient_intensity: Vector3::new(0.1, 0.1, 0.1),
-            // Default material (Greyish)
-            diffuse_color: Vector3::new(0.8, 0.8, 0.8),
-            specular_color: Vector3::new(1.0, 1.0, 1.0),
-            shininess: 32.0,
+            fallback_material: PhongMaterial::default(),
         }
     }
 }
@@ -124,38 +111,45 @@ impl Shader for PhongShader {
         (clip_pos, varying)
     }
 
-    fn fragment(&self, varying: Self::Varying) -> Vector3<f32> {
-        // 1. Re-normalize interpolated normal (interpolation can shorten vectors)
+    fn fragment(&self, varying: Self::Varying, material: Option<&Material>) -> Vector3<f32> {
+        // 1. Determine Material Properties
+        let mat_props = if let Some(Material::Phong(m)) = material {
+            m
+        } else {
+            &self.fallback_material
+        };
+
+        // 2. Sample Texture or use Color
+        let diffuse_color = if let Some(texture) = &mat_props.diffuse_texture {
+            texture.sample(varying.uv.x, varying.uv.y)
+        } else {
+            mat_props.diffuse_color
+        };
+
+        // 3. Lighting Calculation
         let normal = varying.normal.normalize();
         let view_dir = (self.camera_pos - varying.world_pos).normalize();
         let light_dir = self.light_dir.normalize();
 
-        // 2. Ambient Component
-        // Ambient = Ka * Ia
-        let ambient = self.ambient_intensity.component_mul(&self.diffuse_color);
+        // Ambient
+        let ambient = self
+            .ambient_intensity
+            .component_mul(&mat_props.ambient_color);
 
-        // 3. Diffuse Component (Lambertian)
-        // Diffuse = Kd * I * max(0, N dot L)
+        // Diffuse
         let diff = normal.dot(&light_dir).max(0.0);
-        let diffuse = self.light_color.component_mul(&self.diffuse_color) * diff;
+        let diffuse = self.light_color.component_mul(&diffuse_color) * diff;
 
-        // 4. Specular Component (Phong Reflection Model)
-        // Reflect direction: R = 2 * (N dot L) * N - L
-        // Note: nalgebra's reflect might differ, so we implement manually for clarity.
-        // We want the reflection of the light vector around the normal.
-        // Since light_dir points TO the light, we reverse it for reflection calculation if using standard formula,
-        // OR we use: R = 2(N.L)N - L
-        // TODO: Check if correct
+        // Specular
         let reflect_dir = (normal * (2.0 * normal.dot(&light_dir)) - light_dir).normalize();
+        let spec = view_dir
+            .dot(&reflect_dir)
+            .max(0.0)
+            .powf(mat_props.shininess);
+        let specular = self.light_color.component_mul(&mat_props.specular_color) * spec;
 
-        // Specular = Ks * I * max(0, V dot R)^shininess
-        let spec = view_dir.dot(&reflect_dir).max(0.0).powf(self.shininess);
-        let specular = self.light_color.component_mul(&self.specular_color) * spec;
-
-        // 5. Combine results
+        // Combine
         let result = ambient + diffuse + specular;
-
-        // 6. Simple Tone Mapping / Clamping (ensure values are in [0, 1])
         Vector3::new(result.x.min(1.0), result.y.min(1.0), result.z.min(1.0))
     }
 }

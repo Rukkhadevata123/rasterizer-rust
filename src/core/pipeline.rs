@@ -1,13 +1,11 @@
 use crate::core::geometry::Vertex;
+use crate::scene::material::Material;
 use nalgebra::{Vector3, Vector4};
 use std::ops::{Add, Mul};
 
 /// Trait representing data that can be interpolated (e.g., Colors, Normals, UVs).
 /// Requires Copy, Addition, and Multiplication by scalar (f32).
-pub trait Interpolatable:
-    Copy + Add<Output = Self> + Mul<f32, Output = Self> + Send + Sync
-{
-}
+pub trait Interpolatable: Copy + Clone + Add<Output = Self> + Mul<f32, Output = Self> {}
 
 // Implement Interpolatable for common types automatically
 impl<T> Interpolatable for T where T: Copy + Add<Output = T> + Mul<f32, Output = T> + Send + Sync {}
@@ -35,10 +33,11 @@ pub trait Shader: Send + Sync {
     ///
     /// # Arguments
     /// * `varying` - The interpolated data for the current pixel.
+    /// * `material` - Optional material properties for shading calculations.
     ///
     /// # Returns
     /// * `Vector3<f32>` - The final RGB color (usually linear space, 0.0-1.0).
     ///   Return `None` (or handle discard logic internally) to discard the pixel (alpha masking).
     ///   For simplicity here, we return Vector3, assuming alpha blending is handled by the pipeline.
-    fn fragment(&self, varying: Self::Varying) -> Vector3<f32>;
+    fn fragment(&self, varying: Self::Varying, material: Option<&Material>) -> Vector3<f32>;
 }
