@@ -48,11 +48,6 @@ impl Renderer {
         }
     }
 
-    /// Clears the framebuffer.
-    pub fn clear(&mut self, color: nalgebra::Vector3<f32>) {
-        self.framebuffer.clear(color, f32::INFINITY);
-    }
-
     /// Clears the framebuffer using advanced options (Gradient, Texture).
     pub fn clear_with_options(&mut self, options: ClearOptions) {
         // 1. Clear Depth Buffer

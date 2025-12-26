@@ -22,8 +22,3 @@ impl Vertex {
         }
     }
 }
-
-/// Represents a triangle consisting of 3 vertices.
-pub struct Triangle<'a> {
-    pub vertices: [&'a Vertex; 3],
-}
