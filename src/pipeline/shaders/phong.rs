@@ -4,6 +4,7 @@ use crate::scene::light::Light;
 use crate::scene::material::{Material, PhongMaterial};
 use nalgebra::{Matrix3, Matrix4, Point3, Vector2, Vector3, Vector4};
 use std::ops::{Add, Mul};
+use std::sync::Arc;
 
 /// Data that needs to be interpolated across the triangle surface.
 #[derive(Clone, Copy, Debug)]
@@ -50,6 +51,12 @@ pub struct PhongShader {
     // Camera
     pub camera_pos: Point3<f32>,
 
+    // Shadow Mapping Fields
+    pub shadow_map: Option<Arc<Vec<f32>>>,
+    pub shadow_map_size: usize,
+    pub light_space_matrix: Matrix4<f32>,
+    pub shadow_bias: f32,
+
     // Fallback Material
     pub fallback_material: PhongMaterial,
 }
@@ -72,8 +79,72 @@ impl PhongShader {
             camera_pos,
             lights: Vec::new(), // Initialize empty
             ambient_light: Vector3::new(0.1, 0.1, 0.1),
+            shadow_map: None,
+            shadow_map_size: 0,
+            light_space_matrix: Matrix4::identity(),
+            shadow_bias: 0.005,
             fallback_material: PhongMaterial::default(),
         }
+    }
+
+    // --- Shadow Calculation ---
+    fn calculate_shadow(&self, world_pos: &Point3<f32>, n_dot_l: f32) -> f32 {
+        if self.shadow_map.is_none() {
+            return 1.0;
+        }
+        let shadow_map = self.shadow_map.as_ref().unwrap();
+
+        // 1. Transform world position to light space
+        let light_space_pos = self.light_space_matrix * world_pos.to_homogeneous();
+
+        // 2. Perspective divide
+        let proj_coords = light_space_pos.xyz() / light_space_pos.w;
+
+        // 3. Transform to [0, 1] range
+        let u = proj_coords.x * 0.5 + 0.5;
+        let v = 1.0 - (proj_coords.y * 0.5 + 0.5); // Flip Y
+
+        // FIX: Remap Z from [-1, 1] to [0, 1]
+        let current_depth = proj_coords.z * 0.5 + 0.5;
+
+        // Check if outside shadow map
+        if u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0 || current_depth > 1.0 {
+            return 1.0;
+        }
+
+        // Adaptive bias based on surface angle
+        let bias = self.shadow_bias.max(0.05 * (1.0 - n_dot_l));
+
+        // PCF (Percentage Closer Filtering) for soft shadows
+        let mut shadow = 0.0;
+        let texel_size = 1.0 / self.shadow_map_size as f32;
+        let kernel_size = 1; // 3x3 kernel
+
+        for x in -kernel_size..=kernel_size {
+            for y in -kernel_size..=kernel_size {
+                let pcf_u = u + x as f32 * texel_size;
+                let pcf_v = v + y as f32 * texel_size;
+
+                // Clamp coordinates
+                let map_x = (pcf_u * (self.shadow_map_size - 1) as f32)
+                    .clamp(0.0, (self.shadow_map_size - 1) as f32)
+                    as usize;
+                let map_y = (pcf_v * (self.shadow_map_size - 1) as f32)
+                    .clamp(0.0, (self.shadow_map_size - 1) as f32)
+                    as usize;
+                let index = map_y * self.shadow_map_size + map_x;
+
+                let pcf_depth = shadow_map[index];
+                // Use the remapped current_depth here
+                shadow += if current_depth - bias > pcf_depth {
+                    0.0
+                } else {
+                    1.0
+                };
+            }
+        }
+
+        shadow / ((kernel_size * 2 + 1 as i32).pow(2) as f32)
     }
 }
 
@@ -126,14 +197,23 @@ impl Shader for PhongShader {
         let mut total_diffuse = Vector3::zeros();
         let mut total_specular = Vector3::zeros();
 
-        for light in &self.lights {
+        for (i, light) in self.lights.iter().enumerate() {
             // Get direction and intensity (radiance) from the light source
             let light_dir = light.get_direction_to_light(&varying.world_pos);
             let light_intensity = light.get_intensity(&varying.world_pos);
 
-            // Diffuse (Lambertian)
             let n_dot_l = normal.dot(&light_dir).max(0.0);
-            let diffuse_term = light_intensity.component_mul(&diffuse_color) * n_dot_l;
+
+            // --- SHADOW CALCULATION ---
+            // Only apply shadow for the first light (assuming it's the main directional light)
+            let shadow = if i == 0 {
+                self.calculate_shadow(&varying.world_pos, n_dot_l)
+            } else {
+                1.0
+            };
+
+            // Diffuse (Lambertian)
+            let diffuse_term = light_intensity.component_mul(&diffuse_color) * n_dot_l * shadow;
             total_diffuse += diffuse_term;
 
             // Specular (Blinn-Phong)
@@ -143,7 +223,7 @@ impl Shader for PhongShader {
                 let spec_factor = n_dot_h.powf(mat_props.shininess);
 
                 let specular_term =
-                    light_intensity.component_mul(&mat_props.specular_color) * spec_factor;
+                    light_intensity.component_mul(&mat_props.specular_color) * spec_factor * shadow;
                 total_specular += specular_term;
             }
         }
@@ -154,7 +234,9 @@ impl Shader for PhongShader {
         // 6. Combine
         let result = ambient + total_diffuse + total_specular;
 
-        // Simple Tone Mapping / Clamping
-        Vector3::new(result.x.min(1.0), result.y.min(1.0), result.z.min(1.0))
+        // Simple Tone Mapping / Clamping (Usually done in post-process, but Phong often clamps here)
+        // Since we use ACES in main.rs, we can return HDR values here too.
+        // TODO: Check this
+        result
     }
 }
