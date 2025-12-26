@@ -60,27 +60,6 @@ impl FrameBuffer {
         }
     }
 
-    pub fn resize(&mut self, width: usize, height: usize, sample_count: usize) {
-        if self.width == width && self.height == height && self.sample_count == sample_count {
-            return;
-        }
-        *self = Self::new(width, height, sample_count);
-    }
-
-    pub fn clear(&mut self, clear_color: Vector3<f32>, clear_depth: f32) {
-        // Unsafe access is safe here because clear() requires &mut self (exclusive access)
-        let color_buf = unsafe { &mut *self.color_buffer.get() };
-        color_buf.fill(clear_color);
-
-        let depth_bits = clear_depth.to_bits();
-        // For clearing, we can use relaxed ordering or just iterate mutably if we had &mut Vec
-        // But since it's AtomicU32, we iterate.
-        // TODO: Optimization: use par_iter if clearing is slow, but usually it's fast enough.
-        for d in &mut self.depth_buffer {
-            *d.get_mut() = depth_bits;
-        }
-    }
-
     #[inline(always)]
     pub fn in_bounds(&self, x: usize, y: usize) -> bool {
         x < self.buffer_width && y < self.buffer_height

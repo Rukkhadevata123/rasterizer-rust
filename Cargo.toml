@@ -2,6 +2,12 @@
 name = "rasterizer-rust"
 version = "0.1.0"
 edition = "2024"
+authors = ["Rukkhadevata123 <rukkhadevata@foxmail.com>"]
+description = "TODO"
+license = "MIT"
+repository = "https://github.com/Rukkhadevata123/rasterizer-rust"
+keywords = ["graphics", "rasterizer", "rendering", "three-d", "gui"]
+categories = ["graphics", "multimedia", "visualization"]
 
 [dependencies]
 nalgebra = "0.34"
@@ -10,3 +16,7 @@ log = "0.4"
 image = "0.25"
 tobj = "4"
 rayon = "1.11"
+
+[[bin]]
+name = "rasterizer"
+path = "src/main.rs"
