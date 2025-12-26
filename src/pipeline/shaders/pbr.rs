@@ -55,6 +55,8 @@ pub struct PbrShader {
     pub shadow_map_size: usize,
     pub light_space_matrix: Matrix4<f32>,
     pub shadow_bias: f32,
+    pub use_pcf: bool,
+    pub pcf_kernel_size: i32,
 
     // Fallback if material is missing or wrong type
     pub fallback_material: PbrMaterial,
@@ -82,6 +84,8 @@ impl PbrShader {
             shadow_map_size: 0,
             light_space_matrix: Matrix4::identity(),
             shadow_bias: 0.005,
+            use_pcf: true,
+            pcf_kernel_size: 1,
             fallback_material: PbrMaterial::default(),
         }
     }
@@ -107,17 +111,30 @@ impl PbrShader {
         let current_depth = proj_coords.z * 0.5 + 0.5;
 
         // Check if outside shadow map
-        if u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0 || current_depth > 1.0 {
+        if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) || current_depth > 1.0 {
             return 1.0;
         }
 
         // Adaptive bias based on surface angle
         let bias = self.shadow_bias.max(0.05 * (1.0 - n_dot_l));
 
+        if !self.use_pcf {
+            let map_x = (u * (self.shadow_map_size - 1) as f32)
+                .clamp(0.0, (self.shadow_map_size - 1) as f32) as usize;
+            let map_y = (v * (self.shadow_map_size - 1) as f32)
+                .clamp(0.0, (self.shadow_map_size - 1) as f32) as usize;
+            let index = map_y * self.shadow_map_size + map_x;
+            return if current_depth - bias > shadow_map[index] {
+                0.0
+            } else {
+                1.0
+            };
+        }
+
         // PCF (Percentage Closer Filtering) for soft shadows
         let mut shadow = 0.0;
         let texel_size = 1.0 / self.shadow_map_size as f32;
-        let kernel_size = 1; // 3x3 kernel
+        let kernel_size = self.pcf_kernel_size;
 
         for x in -kernel_size..=kernel_size {
             for y in -kernel_size..=kernel_size {
@@ -143,7 +160,7 @@ impl PbrShader {
             }
         }
 
-        shadow / ((kernel_size * 2 + 1 as i32).pow(2) as f32)
+        shadow / ((kernel_size * 2 + 1_i32).pow(2) as f32)
     }
 
     // --- PBR Helper Functions ---
@@ -305,8 +322,6 @@ impl Shader for PbrShader {
         // TODO: IBL
         let ambient = self.ambient_light.component_mul(&albedo) * ao;
 
-        let color = ambient + lo + mat.emissive;
-
-        color
+        ambient + lo + mat.emissive
     }
 }

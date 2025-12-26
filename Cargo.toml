@@ -16,6 +16,9 @@ log = "0.4"
 image = "0.25"
 tobj = "4"
 rayon = "1.11"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.9"
+clap = { version = "4.5", features = ["derive"] }
 
 [[bin]]
 name = "rasterizer"
