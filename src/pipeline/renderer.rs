@@ -4,6 +4,31 @@ use crate::core::rasterizer::Rasterizer;
 use crate::scene::material::Material;
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
+use crate::scene::texture::Texture;
+use nalgebra::Vector3;
+
+/// Options for clearing the framebuffer.
+pub struct ClearOptions<'a> {
+    /// Fallback solid color if no gradient/texture is used.
+    pub color: Vector3<f32>,
+    /// Optional gradient (Top Color, Bottom Color).
+    pub gradient: Option<(Vector3<f32>, Vector3<f32>)>,
+    /// Optional background image. Overrides gradient if present.
+    pub texture: Option<&'a Texture>,
+    /// Depth value to clear to (usually f32::INFINITY).
+    pub depth: f32,
+}
+
+impl Default for ClearOptions<'_> {
+    fn default() -> Self {
+        Self {
+            color: Vector3::new(0.0, 0.0, 0.0),
+            gradient: None,
+            texture: None,
+            depth: f32::INFINITY,
+        }
+    }
+}
 
 /// The high-level renderer that orchestrates the pipeline stages.
 pub struct Renderer {
@@ -25,6 +50,40 @@ impl Renderer {
     /// Clears the framebuffer.
     pub fn clear(&mut self, color: nalgebra::Vector3<f32>) {
         self.framebuffer.clear(color, f32::INFINITY);
+    }
+
+    /// Clears the framebuffer using advanced options (Gradient, Texture).
+    pub fn clear_with_options(&mut self, options: ClearOptions) {
+        // 1. Clear Depth Buffer (Fast fill)
+        self.framebuffer.depth_buffer.fill(options.depth);
+
+        // 2. Clear Color Buffer (Pixel by Pixel for Gradient/Texture)
+        let width = self.framebuffer.buffer_width;
+        let height = self.framebuffer.buffer_height;
+
+        // Iterate over the internal buffer dimensions (handling SSAA implicitly)
+        for y in 0..height {
+            // Calculate V coordinate (0.0 at top, 1.0 at bottom)
+            let v = y as f32 / height as f32;
+
+            for x in 0..width {
+                let u = x as f32 / width as f32;
+
+                let color = if let Some(tex) = options.texture {
+                    // Sample background texture
+                    tex.sample(u, v) // v is 0 at top, texture sample handles Y-flip if needed
+                } else if let Some((top, bottom)) = options.gradient {
+                    // Linear interpolation for gradient
+                    top.lerp(&bottom, v)
+                } else {
+                    // Solid color
+                    options.color
+                };
+
+                // Write directly to framebuffer
+                self.framebuffer.set_pixel(x, y, color);
+            }
+        }
     }
 
     /// Draws a complete model containing multiple meshes.
