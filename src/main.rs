@@ -1,22 +1,27 @@
+pub mod core;
+pub mod io;
+pub mod pipeline;
+pub mod scene;
+
+use core::math::transform::TransformFactory;
+use io::obj_loader::load_obj;
 use nalgebra::{Point3, Vector3};
-use rasterizer_rust::core::math::transform::TransformFactory;
-use rasterizer_rust::io::obj_loader::load_obj;
-use rasterizer_rust::pipeline::renderer::{ClearOptions, Renderer};
-use rasterizer_rust::pipeline::shaders::phong::PhongShader;
-use rasterizer_rust::scene::camera::Camera;
-use rasterizer_rust::scene::light::Light;
-use rasterizer_rust::scene::material::Material;
-use rasterizer_rust::scene::mesh::Mesh;
-use rasterizer_rust::scene::texture::Texture;
-use rasterizer_rust::scene::utils::normalize_and_center_model;
+use pipeline::renderer::{ClearOptions, Renderer};
+use pipeline::shaders::phong::PhongShader;
+use scene::camera::Camera;
+use scene::light::Light;
+use scene::material::Material;
+use scene::mesh::Mesh;
+use scene::texture::Texture;
+use scene::utils::normalize_and_center_model;
 use std::path::Path;
 
 fn main() {
     env_logger::init();
 
     // 1. Setup Renderer
-    let width = 800;
-    let height = 600;
+    let width = 3840;
+    let height = 2160;
     let mut renderer = Renderer::new(width, height, 2); // 2x SSAA
 
     // 2. Load Scene Data
@@ -29,7 +34,7 @@ fn main() {
         Err(e) => {
             println!("Failed to load model '{}': {}", obj_path, e);
             let mesh = Mesh::create_test_triangle();
-            rasterizer_rust::scene::model::Model::new(vec![mesh], vec![Material::default()])
+            scene::model::Model::new(vec![mesh], vec![Material::default()])
         }
     };
 
@@ -42,7 +47,7 @@ fn main() {
 
     // 4. Setup Camera (Using the Camera struct!)
     let mut camera = Camera::new_perspective(
-        Point3::new(0.0, 0.5, 3.0),
+        Point3::new(0.0, 0.5, 2.5),
         Point3::new(0.0, 0.0, 0.0),
         Vector3::new(0.0, 1.0, 0.0),
         45.0_f32.to_radians(),
@@ -129,7 +134,7 @@ fn main() {
     println!("Render saved to {}", output_path);
 }
 
-fn save_buffer_to_image(fb: &rasterizer_rust::core::framebuffer::FrameBuffer, path: &str) {
+fn save_buffer_to_image(fb: &core::framebuffer::FrameBuffer, path: &str) {
     let mut img_buf = image::ImageBuffer::new(fb.width as u32, fb.height as u32);
 
     for (x, y, pixel) in img_buf.enumerate_pixels_mut() {
