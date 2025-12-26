@@ -30,9 +30,9 @@ fn main() {
     env_logger::init();
 
     // --- CONFIGURATION ---
-    let width = 1920; // Reduced for video speed
-    let height = 1080;
-    let total_frames = 120; // 4 seconds at 30fps
+    let width = 3840; // Reduced for video speed
+    let height = 2160;
+    let total_frames = 240; // 4 seconds at 60fps
     let output_video = "output_shadow_orbit.mp4";
     let temp_dir = "frames";
 
@@ -113,7 +113,7 @@ fn main() {
     ];
 
     // Shadow Map Setup
-    let shadow_map_size = 1024;
+    let shadow_map_size = 4096;
     let mut shadow_renderer = Renderer::new(shadow_map_size, shadow_map_size, 1);
     let light_view = TransformFactory::view(&light_pos, &light_target, &light_up);
     let ortho_size = 8.0;
@@ -159,7 +159,7 @@ fn main() {
 
         // 1. Update Camera (Orbit)
         let angle = (frame as f32 / total_frames as f32) * std::f32::consts::PI * 2.0;
-        let radius = 8.0;
+        let radius = 6.0;
         let cam_x = angle.sin() * radius;
         let cam_z = angle.cos() * radius;
 
@@ -234,7 +234,7 @@ fn main() {
     let status = Command::new("ffmpeg")
         .arg("-y")
         .arg("-framerate")
-        .arg("30")
+        .arg("60")
         .arg("-i")
         .arg(format!("{}/frame_%03d.png", temp_dir))
         .arg("-c:v")
