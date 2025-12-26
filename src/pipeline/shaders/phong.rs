@@ -1,5 +1,6 @@
 use crate::core::geometry::Vertex;
 use crate::core::pipeline::Shader;
+use crate::scene::light::Light;
 use crate::scene::material::{Material, PhongMaterial};
 use nalgebra::{Matrix3, Matrix4, Point3, Vector2, Vector3, Vector4};
 use std::ops::{Add, Mul};
@@ -34,21 +35,17 @@ impl Mul<f32> for PhongVarying {
     }
 }
 
-/// A Blinn-Phong lighting shader.
-/// Calculates Ambient + Diffuse + Specular components.
+/// A Blinn-Phong lighting shader supporting multiple lights.
 pub struct PhongShader {
     // Matrices
     pub model_matrix: Matrix4<f32>,
     pub view_matrix: Matrix4<f32>,
     pub projection_matrix: Matrix4<f32>,
-
-    // Precomputed Normal Matrix (Inverse Transpose of Model 3x3)
     pub normal_matrix: Matrix3<f32>,
 
-    // Lighting (Global)
-    pub light_dir: Vector3<f32>,
-    pub light_color: Vector3<f32>,
-    pub ambient_intensity: Vector3<f32>,
+    // Lighting
+    pub lights: Vec<Light>,
+    pub ambient_light: Vector3<f32>, // Global ambient color * intensity
 
     // Camera
     pub camera_pos: Point3<f32>,
@@ -64,10 +61,7 @@ impl PhongShader {
         projection: Matrix4<f32>,
         camera_pos: Point3<f32>,
     ) -> Self {
-        // Calculate Normal Matrix: (Model_3x3 ^ -1) ^ T
-        // This handles non-uniform scaling correctly.
         let model_3x3 = model.fixed_view::<3, 3>(0, 0).into_owned();
-        // try_inverse might fail if scale is 0, fallback to original
         let normal_matrix = model_3x3.try_inverse().unwrap_or(model_3x3).transpose();
 
         Self {
@@ -76,9 +70,8 @@ impl PhongShader {
             projection_matrix: projection,
             normal_matrix,
             camera_pos,
-            light_dir: Vector3::new(1.0, 1.0, 1.0).normalize(),
-            light_color: Vector3::new(1.0, 1.0, 1.0),
-            ambient_intensity: Vector3::new(0.1, 0.1, 0.1),
+            lights: Vec::new(), // Initialize empty
+            ambient_light: Vector3::new(0.1, 0.1, 0.1),
             fallback_material: PhongMaterial::default(),
         }
     }
@@ -125,35 +118,43 @@ impl Shader for PhongShader {
             mat_props.diffuse_color
         };
 
-        // 3. Lighting Calculation
+        // 3. Prepare Vectors
         let normal = varying.normal.normalize();
         let view_dir = (self.camera_pos - varying.world_pos).normalize();
-        let light_dir = self.light_dir.normalize();
 
-        // Ambient
-        let ambient = self
-            .ambient_intensity
-            .component_mul(&mat_props.ambient_color);
+        // 4. Calculate Lighting (Accumulate from all lights)
+        let mut total_diffuse = Vector3::zeros();
+        let mut total_specular = Vector3::zeros();
 
-        // Diffuse (Lambertian)
-        let diff = normal.dot(&light_dir).max(0.0);
-        let diffuse = self.light_color.component_mul(&diffuse_color) * diff;
+        for light in &self.lights {
+            // Get direction and intensity (radiance) from the light source
+            let light_dir = light.get_direction_to_light(&varying.world_pos);
+            let light_intensity = light.get_intensity(&varying.world_pos);
 
-        // Specular (Blinn-Phong)
-        // Calculate Halfway Vector
-        let halfway_dir = (light_dir + view_dir).normalize();
+            // Diffuse (Lambertian)
+            let n_dot_l = normal.dot(&light_dir).max(0.0);
+            let diffuse_term = light_intensity.component_mul(&diffuse_color) * n_dot_l;
+            total_diffuse += diffuse_term;
 
-        // N dot H
-        let spec_angle = normal.dot(&halfway_dir).max(0.0);
+            // Specular (Blinn-Phong)
+            if n_dot_l > 0.0 {
+                let halfway_dir = (light_dir + view_dir).normalize();
+                let n_dot_h = normal.dot(&halfway_dir).max(0.0);
+                let spec_factor = n_dot_h.powf(mat_props.shininess);
 
-        // Note: Blinn-Phong highlights are usually "softer" than Phong.
-        // To get a similar visual size to Phong, shininess usually needs to be 2x-4x larger.
-        let spec = spec_angle.powf(mat_props.shininess);
+                let specular_term =
+                    light_intensity.component_mul(&mat_props.specular_color) * spec_factor;
+                total_specular += specular_term;
+            }
+        }
 
-        let specular = self.light_color.component_mul(&mat_props.specular_color) * spec;
+        // 5. Ambient
+        let ambient = self.ambient_light.component_mul(&mat_props.ambient_color);
 
-        // Combine
-        let result = ambient + diffuse + specular;
+        // 6. Combine
+        let result = ambient + total_diffuse + total_specular;
+
+        // Simple Tone Mapping / Clamping
         Vector3::new(result.x.min(1.0), result.y.min(1.0), result.z.min(1.0))
     }
 }
