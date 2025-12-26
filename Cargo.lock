@@ -1027,6 +1027,7 @@ dependencies = [
  "image",
  "log",
  "nalgebra",
+ "rayon",
  "tobj",
 ]
 

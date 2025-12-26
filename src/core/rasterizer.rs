@@ -23,7 +23,7 @@ impl Rasterizer {
 
     pub fn rasterize_triangle<S: Shader>(
         &self,
-        framebuffer: &mut FrameBuffer,
+        framebuffer: &FrameBuffer,
         shader: &S,
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[S::Varying; 3],
@@ -132,7 +132,8 @@ impl Rasterizer {
                     let z_ndc = z0_ndc * bary.x + z1_ndc * bary.y + z2_ndc * bary.z;
                     let depth = z_ndc * 0.5 + 0.5;
 
-                    if framebuffer.depth_test(x, y, depth) {
+                    // Use atomic depth test. Only if it passes do we calculate color and write.
+                    if framebuffer.depth_test_and_update(x, y, depth) {
                         let interpolated_varying = perspective_correct_interpolate(
                             bary,
                             varyings[0],
@@ -145,8 +146,8 @@ impl Rasterizer {
 
                         let color = shader.fragment(interpolated_varying, material);
 
-                        framebuffer.set_pixel(x, y, color);
-                        framebuffer.set_depth(x, y, depth);
+                        // Use thread-safe pixel setter (uses locks internally)
+                        framebuffer.set_pixel_safe(x, y, color);
                     }
                 }
             }

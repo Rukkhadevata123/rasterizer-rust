@@ -6,6 +6,7 @@ use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
 use crate::scene::texture::Texture;
 use nalgebra::Vector3;
+use rayon::prelude::*;
 
 /// Options for clearing the framebuffer.
 pub struct ClearOptions<'a> {
@@ -54,36 +55,40 @@ impl Renderer {
 
     /// Clears the framebuffer using advanced options (Gradient, Texture).
     pub fn clear_with_options(&mut self, options: ClearOptions) {
-        // 1. Clear Depth Buffer (Fast fill)
-        self.framebuffer.depth_buffer.fill(options.depth);
+        // 1. Clear Depth Buffer
+        let depth_bits = options.depth.to_bits();
+        // Parallel clear for depth buffer (optional optimization)
+        self.framebuffer.depth_buffer.par_iter().for_each(|d| {
+            d.store(depth_bits, std::sync::atomic::Ordering::Relaxed);
+        });
 
-        // 2. Clear Color Buffer (Pixel by Pixel for Gradient/Texture)
+        // 2. Clear Color Buffer
         let width = self.framebuffer.buffer_width;
         let height = self.framebuffer.buffer_height;
 
-        // Iterate over the internal buffer dimensions (handling SSAA implicitly)
-        for y in 0..height {
-            // Calculate V coordinate (0.0 at top, 1.0 at bottom)
-            let v = y as f32 / height as f32;
+        // Get mutable reference to the underlying vector
+        let color_buffer = unsafe { &mut *self.framebuffer.color_buffer.get() };
 
-            for x in 0..width {
-                let u = x as f32 / width as f32;
+        // Parallel clear for color buffer
+        // We iterate over rows to make gradient calculation easier
+        color_buffer
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, row)| {
+                let v = y as f32 / height as f32;
+                for (x, pixel) in row.iter_mut().enumerate() {
+                    let u = x as f32 / width as f32;
 
-                let color = if let Some(tex) = options.texture {
-                    // Sample background texture
-                    tex.sample(u, v) // v is 0 at top, texture sample handles Y-flip if needed
-                } else if let Some((top, bottom)) = options.gradient {
-                    // Linear interpolation for gradient
-                    top.lerp(&bottom, v)
-                } else {
-                    // Solid color
-                    options.color
-                };
-
-                // Write directly to framebuffer
-                self.framebuffer.set_pixel(x, y, color);
-            }
-        }
+                    let color = if let Some(tex) = options.texture {
+                        tex.sample(u, v)
+                    } else if let Some((top, bottom)) = options.gradient {
+                        top.lerp(&bottom, v)
+                    } else {
+                        options.color
+                    };
+                    *pixel = color;
+                }
+            });
     }
 
     /// Draws a complete model containing multiple meshes.
@@ -102,40 +107,45 @@ impl Renderer {
     }
 
     /// Draws a mesh using the provided shader and material.
-    pub fn draw_mesh<S: Shader>(&mut self, mesh: &Mesh, shader: &S, material: Option<&Material>) {
-        // 1. Vertex Processing & Primitive Assembly Loop
-        // Iterate over indices in chunks of 3 (triangles)
-        for chunk in mesh.indices.chunks(3) {
+    pub fn draw_mesh<S: Shader + Sync>(
+        &mut self,
+        mesh: &Mesh,
+        shader: &S,
+        material: Option<&Material>,
+    ) {
+        // Use Rayon to process triangles in parallel
+        // chunk size can be tuned. 64 indices = ~21 triangles per task.
+        mesh.indices.par_chunks(3).for_each(|chunk| {
             if chunk.len() < 3 {
-                break;
+                return;
             }
 
             let i0 = chunk[0] as usize;
             let i1 = chunk[1] as usize;
             let i2 = chunk[2] as usize;
 
-            // Fetch vertices
             let v0 = &mesh.vertices[i0];
             let v1 = &mesh.vertices[i1];
             let v2 = &mesh.vertices[i2];
 
-            // Run Vertex Shader
+            // Vertex Shader (Parallelized!)
             let (pos0, var0) = shader.vertex(v0);
             let (pos1, var1) = shader.vertex(v1);
             let (pos2, var2) = shader.vertex(v2);
 
-            // Assemble primitive data
             let clip_coords = [pos0, pos1, pos2];
             let varyings = [var0, var1, var2];
 
-            // 4. Rasterization
+            // Rasterization (Parallelized!)
+            // Note: We pass &self.framebuffer (shared reference)
+            // The framebuffer handles synchronization internally.
             self.rasterizer.rasterize_triangle(
-                &mut self.framebuffer,
+                &self.framebuffer,
                 shader,
                 &clip_coords,
                 &varyings,
-                material, // Pass the material down to the rasterizer
+                material,
             );
-        }
+        });
     }
 }
