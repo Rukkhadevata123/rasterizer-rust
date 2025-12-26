@@ -2,6 +2,8 @@
 
 A high-performance, multi-threaded software rasterizer written from scratch in Rust. This project implements a modern programmable pipeline with Physically Based Rendering (PBR).
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Rukkhadevata123/rasterizer-rust)
+
 ![Render Result](outputs/output_toml.png)
 
 > **Note:** A real-time GUI using `egui` is currently **Work In Progress**. The renderer currently operates in headless mode via CLI configuration.
