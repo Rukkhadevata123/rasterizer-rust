@@ -102,7 +102,7 @@ impl PbrShader {
         // 3. Transform to [0, 1] range
         let u = proj_coords.x * 0.5 + 0.5;
         let v = 1.0 - (proj_coords.y * 0.5 + 0.5); // Flip Y
-        
+
         // FIX: Remap Z from [-1, 1] to [0, 1] to match depth buffer
         let current_depth = proj_coords.z * 0.5 + 0.5;
 
@@ -227,18 +227,31 @@ impl Shader for PbrShader {
             mat.albedo
         };
 
-        // TODO: Future: Sample roughness/metallic from textures if available
-        let roughness = mat.roughness;
-        let metallic = mat.metallic;
+        // Implement Metallic-Roughness Map sampling
+        // Standard glTF packing: Green = Roughness, Blue = Metallic
+        let (roughness, metallic) = if let Some(tex) = &mat.metallic_roughness_texture {
+            let sample = tex.sample(varying.uv.x, varying.uv.y);
+            // Multiply by the uniform factor (standard glTF behavior)
+            (sample.y * mat.roughness, sample.z * mat.metallic)
+        } else {
+            (mat.roughness, mat.metallic)
+        };
+
         let ao = mat.ao;
 
         let n = varying.normal.normalize();
+
+        // Silence "field never read" warning for normal_texture
+        // Full implementation requires Tangent Space which is currently not in Vertex data
+        if let Some(_normal_map) = &mat.normal_texture {
+            // TODO: Implement Normal Mapping (requires TBN matrix)
+        }
+
         let v = (self.camera_pos - varying.world_pos).normalize();
 
         // F0: Surface reflection at zero incidence
         // 0.04 for dielectrics, albedo for metals
         let f0 = Vector3::new(0.04, 0.04, 0.04).lerp(&albedo, metallic);
-
         // 2. Lighting Loop
         let mut lo = Vector3::zeros();
 
