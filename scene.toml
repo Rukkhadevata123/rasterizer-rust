@@ -71,8 +71,8 @@ ao = 0.99
 emissive = [0.01, 0.02, 0.03]
 emissive_intensity = 0.7
 # albedo_texture = "assets/spot/spot_texture.png"
-# metallic_roughness_texture = "assets/spot/spot_mr.png" # Not exported
-# normal_texture = "assets/spot/spot_normal.png"         # Not implement TBN
+# metallic_roughness_texture = "assets/test_mr_texture.png"
+normal_texture = "assets/test_normal_map.png"
 
 # The Sphere
 [[objects]]

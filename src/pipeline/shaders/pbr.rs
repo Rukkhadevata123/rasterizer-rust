@@ -7,12 +7,13 @@ use std::f32::consts::PI;
 use std::ops::{Add, Mul};
 use std::sync::Arc;
 
-// --- Varying Data ---
+/// Data passed from Vertex Shader to Fragment Shader.
 #[derive(Clone, Copy, Debug)]
 pub struct PbrVarying {
     pub world_pos: Point3<f32>,
     pub normal: Vector3<f32>,
     pub uv: Vector2<f32>,
+    pub tangent: Vector3<f32>,
 }
 
 impl Add for PbrVarying {
@@ -22,6 +23,7 @@ impl Add for PbrVarying {
             world_pos: Point3::from(self.world_pos.coords + other.world_pos.coords),
             normal: self.normal + other.normal,
             uv: self.uv + other.uv,
+            tangent: self.tangent + other.tangent, // Standard linear interpolation
         }
     }
 }
@@ -33,6 +35,7 @@ impl Mul<f32> for PbrVarying {
             world_pos: Point3::from(self.world_pos.coords * scalar),
             normal: self.normal * scalar,
             uv: self.uv * scalar,
+            tangent: self.tangent * scalar,
         }
     }
 }
@@ -164,10 +167,6 @@ impl PbrShader {
     }
 
     // --- PBR Helper Functions ---
-
-    // Normal Distribution Function (GGX)
-    // --- PBR Helper Functions ---
-
     // Normal Distribution Function (GGX)
     fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
         let a = roughness * roughness;
@@ -215,6 +214,7 @@ impl Shader for PbrShader {
         let world_pos =
             Point3::from_homogeneous(self.model_matrix * vertex.position.to_homogeneous()).unwrap();
         let world_normal = (self.normal_matrix * vertex.normal).normalize();
+        let world_tangent = (self.normal_matrix * vertex.tangent).normalize(); // Transform tangent to world space
         let clip_pos = self.projection_matrix
             * self.view_matrix
             * self.model_matrix
@@ -226,6 +226,7 @@ impl Shader for PbrShader {
                 world_pos,
                 normal: world_normal,
                 uv: vertex.texcoord,
+                tangent: world_tangent,
             },
         )
     }
@@ -256,20 +257,55 @@ impl Shader for PbrShader {
 
         let ao = mat.ao;
 
-        let n = varying.normal.normalize();
+        // 2. Calculate Normal (Normal Mapping)
+        let geom_normal = varying.normal.normalize();
+        
+        // Use normal map if available, otherwise fallback to geometry normal
+        let n = if let Some(normal_map) = &mat.normal_texture {
+            // Check for valid tangent (avoid NaN if tangent is zero, e.g. no UVs)
+            if varying.tangent.norm_squared() > 1e-6 {
+                let geom_tangent = varying.tangent.normalize();
 
-        // Silence "field never read" warning for normal_texture
-        // Full implementation requires Tangent Space which is currently not in Vertex data
-        if let Some(_normal_map) = &mat.normal_texture {
-            // TODO: Implement Normal Mapping (requires TBN matrix)
-        }
+                // 2.1 Re-orthogonalize Tangent (Gram-Schmidt)
+                // Interpolation can denormalize vectors. This ensures T is perpendicular to N.
+                // T = T - N * (N . T)
+                let t = (geom_tangent - geom_normal * geom_normal.dot(&geom_tangent)).normalize();
+
+                // 2.2 Calculate Bitangent (B = N x T)
+                // Assumes right-handed coordinates.
+                let b = geom_normal.cross(&t).normalize();
+
+                // 2.3 Construct TBN Matrix
+                // Transforms from Tangent Space to World Space
+                let tbn = Matrix3::from_columns(&[t, b, geom_normal]);
+
+                // 2.4 Sample Normal Map
+                // MUST use sample_data (Linear) because normals are vectors, not colors.
+                let packed_normal = normal_map.sample_data(varying.uv.x, varying.uv.y);
+
+                // 2.5 Decode [0, 1] range to [-1, 1] range
+                let local_normal = Vector3::new(
+                    packed_normal.x * 2.0 - 1.0,
+                    - packed_normal.y * 2.0 + 1.0, // Flip Y
+                    packed_normal.z * 2.0 - 1.0
+                );
+
+                // 2.6 Transform to World Space
+                (tbn * local_normal).normalize()
+            } else {
+                geom_normal
+            }
+        } else {
+            geom_normal
+        };
 
         let v = (self.camera_pos - varying.world_pos).normalize();
 
         // F0: Surface reflection at zero incidence
         // 0.04 for dielectrics, albedo for metals
         let f0 = Vector3::new(0.04, 0.04, 0.04).lerp(&albedo, metallic);
-        // 2. Lighting Loop
+        
+        // 3. Lighting Loop
         let mut lo = Vector3::zeros();
 
         for (i, light) in self.lights.iter().enumerate() {
@@ -318,8 +354,7 @@ impl Shader for PbrShader {
             lo += light_contribution;
         }
 
-        // 3. Ambient (Using configurable ambient_light)
-        // TODO: IBL
+        // 4. Ambient (Using configurable ambient_light)
         let ambient = self.ambient_light.component_mul(&albedo) * ao;
 
         ambient + lo + mat.emissive
