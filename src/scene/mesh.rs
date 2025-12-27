@@ -60,4 +60,26 @@ impl Mesh {
 
         Self::new(vertices, indices, material_id)
     }
+
+    pub fn create_test_triangle(material_id: usize) -> Self {
+        let vertices = vec![
+            Vertex::new(
+                Point3::new(-0.5, -0.5, 0.0),
+                Vector3::new(0.0, 0.0, 1.0),
+                Vector2::new(0.0, 0.0),
+            ),
+            Vertex::new(
+                Point3::new(0.5, -0.5, 0.0),
+                Vector3::new(0.0, 0.0, 1.0),
+                Vector2::new(1.0, 0.0),
+            ),
+            Vertex::new(
+                Point3::new(0.0, 0.5, 0.0),
+                Vector3::new(0.0, 0.0, 1.0),
+                Vector2::new(0.5, 1.0),
+            ),
+        ];
+        let indices = vec![0, 1, 2];
+        Self::new(vertices, indices, material_id)
+    }
 }

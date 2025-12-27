@@ -36,8 +36,18 @@ fn main() {
     env_logger::init();
     let args = Args::parse();
 
+    // --- Configuration Loading with Fallback ---
     println!("Loading configuration from: {}", args.config);
-    let config = Config::load(&args.config).expect("Failed to load config");
+    let config = match Config::load(&args.config) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!(
+                "Warning: Failed to load config '{}': {}. \nUsing built-in default scene.",
+                args.config, e
+            );
+            Config::default()
+        }
+    };
 
     // --- 1. Setup Camera ---
     let cam_pos = Point3::from(config.camera.position);
@@ -132,57 +142,77 @@ fn main() {
 
     // Objects
     for obj_conf in &config.objects {
-        if let Ok(mut model) = load_obj(&obj_conf.path) {
-            let (_, _) = normalize_and_center_model(&mut model);
+        // Try loading model, fallback to test triangle on failure
+        let mut model = match load_obj(&obj_conf.path) {
+            Ok(mut m) => {
+                normalize_and_center_model(&mut m);
+                m
+            }
+            Err(e) => {
+                eprintln!(
+                    "Error loading model '{}': {}. Using fallback mesh.",
+                    obj_conf.path, e
+                );
+                // Create a magenta test triangle as fallback
+                let mesh = Mesh::create_test_triangle(0);
+                let mut mat = PbrMaterial::default();
+                mat.albedo = Vector3::new(1.0, 0.0, 1.0); // Magenta for error
+                Model::new(vec![mesh], vec![Material::Pbr(mat)])
+            }
+        };
 
-            if model.materials.is_empty() {
-                model.materials.push(Material::default());
-            }
-
-            // Apply Overrides (Model is guaranteed to be PBR now)
-            let Material::Pbr(ref mut mat) = model.materials[0];
-            if let Some(c) = obj_conf.albedo {
-                mat.albedo = Vector3::from(c);
-            }
-            if let Some(m) = obj_conf.metallic {
-                mat.metallic = m;
-            }
-            if let Some(r) = obj_conf.roughness {
-                mat.roughness = r;
-            }
-            if let Some(ao) = obj_conf.ao {
-                mat.ao = ao;
-            }
-            if let Some(e) = obj_conf.emissive {
-                mat.emissive = Vector3::from(e) * obj_conf.emissive_intensity;
-            }
-
-            if let Some(path) = &obj_conf.albedo_texture
-                && let Ok(tex) = Texture::load(path)
-            {
-                mat.albedo_texture = Some(Arc::new(tex));
-            }
-            if let Some(path) = &obj_conf.metallic_roughness_texture
-                && let Ok(tex) = Texture::load(path)
-            {
-                mat.metallic_roughness_texture = Some(Arc::new(tex));
-            }
-            if let Some(path) = &obj_conf.normal_texture
-                && let Ok(tex) = Texture::load(path)
-            {
-                mat.normal_texture = Some(Arc::new(tex));
-            }
-
-            let translation = TransformFactory::translation(&Vector3::from(obj_conf.position));
-            let rotation = TransformFactory::rotation_x(obj_conf.rotation[0].to_radians())
-                * TransformFactory::rotation_y(obj_conf.rotation[1].to_radians())
-                * TransformFactory::rotation_z(obj_conf.rotation[2].to_radians());
-            let scale = TransformFactory::scaling_nonuniform(&Vector3::from(obj_conf.scale));
-
-            scene_objects.push(SceneObject::new(model, translation * rotation * scale));
-        } else {
-            eprintln!("Failed to load object: {}", obj_conf.path);
+        if model.materials.is_empty() {
+            model.materials.push(Material::default());
         }
+
+        // Apply Overrides (Model is guaranteed to be PBR now)
+        let Material::Pbr(ref mut mat) = model.materials[0];
+        if let Some(c) = obj_conf.albedo {
+            mat.albedo = Vector3::from(c);
+        }
+        if let Some(m) = obj_conf.metallic {
+            mat.metallic = m;
+        }
+        if let Some(r) = obj_conf.roughness {
+            mat.roughness = r;
+        }
+        if let Some(ao) = obj_conf.ao {
+            mat.ao = ao;
+        }
+        if let Some(e) = obj_conf.emissive {
+            mat.emissive = Vector3::from(e) * obj_conf.emissive_intensity;
+        }
+
+        // Graceful texture loading
+        if let Some(path) = &obj_conf.albedo_texture {
+            if let Ok(tex) = Texture::load(path) {
+                mat.albedo_texture = Some(Arc::new(tex));
+            } else {
+                eprintln!("Warning: Failed to load texture '{}'", path);
+            }
+        }
+        if let Some(path) = &obj_conf.metallic_roughness_texture {
+            if let Ok(tex) = Texture::load(path) {
+                mat.metallic_roughness_texture = Some(Arc::new(tex));
+            } else {
+                eprintln!("Warning: Failed to load texture '{}'", path);
+            }
+        }
+        if let Some(path) = &obj_conf.normal_texture {
+            if let Ok(tex) = Texture::load(path) {
+                mat.normal_texture = Some(Arc::new(tex));
+            } else {
+                eprintln!("Warning: Failed to load texture '{}'", path);
+            }
+        }
+
+        let translation = TransformFactory::translation(&Vector3::from(obj_conf.position));
+        let rotation = TransformFactory::rotation_x(obj_conf.rotation[0].to_radians())
+            * TransformFactory::rotation_y(obj_conf.rotation[1].to_radians())
+            * TransformFactory::rotation_z(obj_conf.rotation[2].to_radians());
+        let scale = TransformFactory::scaling_nonuniform(&Vector3::from(obj_conf.scale));
+
+        scene_objects.push(SceneObject::new(model, translation * rotation * scale));
     }
 
     // --- 4. Render Pipeline ---
@@ -326,5 +356,7 @@ fn save_buffer_to_image(fb: &core::framebuffer::FrameBuffer, path: &str, exposur
             *pixel = image::Rgb([r, g, b]);
         }
     }
-    img_buf.save(Path::new(path)).expect("Failed to save image");
+    if let Err(e) = img_buf.save(Path::new(path)) {
+        eprintln!("Error: Failed to save image to '{}': {}", path, e);
+    }
 }
