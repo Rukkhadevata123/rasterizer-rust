@@ -209,6 +209,12 @@ pub struct CameraConfig {
     pub near: f32,
     #[serde(default = "default_far")]
     pub far: f32,
+    #[serde(default = "default_speed")]
+    pub speed: f32,
+    #[serde(default = "default_sensitivity")]
+    pub sensitivity: f32,
+    #[serde(default = "default_zoom_speed")]
+    pub zoom_speed: f32,
 }
 
 impl Default for CameraConfig {
@@ -222,6 +228,9 @@ impl Default for CameraConfig {
             ortho_height: default_ortho_height(),
             near: default_near(),
             far: default_far(),
+            speed: default_speed(),
+            sensitivity: default_sensitivity(),
+            zoom_speed: default_zoom_speed(),
         }
     }
 }
@@ -240,6 +249,15 @@ fn default_near() -> f32 {
 }
 fn default_far() -> f32 {
     100.0
+}
+fn default_speed() -> f32 {
+    5.0
+}
+fn default_sensitivity() -> f32 {
+    0.005
+}
+fn default_zoom_speed() -> f32 {
+    0.02
 }
 
 #[derive(Debug, Deserialize)]

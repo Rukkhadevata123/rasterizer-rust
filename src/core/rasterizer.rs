@@ -14,11 +14,21 @@ pub struct Rasterizer {
     pub wireframe: bool,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 pub enum CullMode {
     Back,
     Front,
     None,
+}
+
+impl std::fmt::Debug for CullMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CullMode::Back => write!(f, "Back"),
+            CullMode::Front => write!(f, "Front"),
+            CullMode::None => write!(f, "None"),
+        }
+    }
 }
 
 impl Default for Rasterizer {
@@ -136,9 +146,9 @@ impl Rasterizer {
         }
 
         let start_x = min_x.max(0) as usize;
-        let end_x = (max_x.min(framebuffer.buffer_width as i32 - 1)) as usize;
+        let end_x = max_x.min(framebuffer.buffer_width as i32 - 1) as usize;
         let start_y = min_y.max(0) as usize;
-        let end_y = (max_y.min(framebuffer.buffer_height as i32 - 1)) as usize;
+        let end_y = max_y.min(framebuffer.buffer_height as i32 - 1) as usize;
 
         // 4. Pixel Loop
         (start_y..=end_y).into_par_iter().for_each(|y| {
