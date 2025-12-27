@@ -6,6 +6,7 @@ mod scene;
 use crate::core::rasterizer::CullMode;
 use clap::Parser;
 use core::color::{aces_tone_mapping, linear_to_srgb};
+use core::framebuffer::FrameBuffer;
 use core::math::transform::TransformFactory;
 use io::config::Config;
 use io::obj_loader::load_obj;
@@ -82,7 +83,6 @@ fn main() {
 
     // --- 2. Setup Lights ---
     let mut lights = Vec::new();
-    let mut shadow_light_dir = Vector3::new(0.0, -1.0, 0.0);
     let mut shadow_light_pos = Point3::new(0.0, 10.0, 0.0);
     let mut has_shadow_light = false;
 
@@ -94,8 +94,7 @@ fn main() {
                     let dir_vec = Vector3::from(dir).normalize();
                     lights.push(Light::new_directional(dir_vec, color, l.intensity));
                     if !has_shadow_light {
-                        shadow_light_dir = dir_vec;
-                        shadow_light_pos = Point3::origin() - shadow_light_dir * 10.0;
+                        shadow_light_pos = Point3::origin() - dir_vec * 10.0;
                         has_shadow_light = true;
                     }
                 }
@@ -364,7 +363,7 @@ fn main() {
     info!("Done.");
 }
 
-fn save_buffer_to_image(fb: &core::framebuffer::FrameBuffer, path: &str, exposure: f32, use_aces: bool) {
+fn save_buffer_to_image(fb: &FrameBuffer, path: &str, exposure: f32, use_aces: bool) {
     let mut img_buf = image::ImageBuffer::new(fb.width as u32, fb.height as u32);
     for (x, y, pixel) in img_buf.enumerate_pixels_mut() {
         if let Some(hdr_color) = fb.get_pixel(x as usize, y as usize) {
@@ -372,7 +371,6 @@ fn save_buffer_to_image(fb: &core::framebuffer::FrameBuffer, path: &str, exposur
             let srgb = linear_to_srgb(if use_aces {
                 aces_tone_mapping(exposed_color)
             } else {
-                
                 Vector3::new(
                     exposed_color.x.clamp(0.0, 1.0),
                     exposed_color.y.clamp(0.0, 1.0),

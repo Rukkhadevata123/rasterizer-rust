@@ -1,4 +1,3 @@
-/// TODO: not only obj files
 use crate::core::geometry::Vertex;
 use crate::scene::material::{Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
@@ -270,8 +269,10 @@ fn calculate_tangents(vertices: &mut [Vertex], indices: &[u32]) {
 
     // 1. Accumulate tangents from triangles
     for chunk in indices.chunks(3) {
-        if chunk.len() < 3 { continue; }
-        
+        if chunk.len() < 3 {
+            continue;
+        }
+
         let i0 = chunk[0] as usize;
         let i1 = chunk[1] as usize;
         let i2 = chunk[2] as usize;
@@ -326,10 +327,10 @@ fn calculate_tangents(vertices: &mut [Vertex], indices: &[u32]) {
         } else {
             // Fallback if tangent degenerates (e.g. extremely distorted UVs)
             // Any vector perpendicular to N works.
-            vert.tangent = if n.x.abs() < 0.9 { 
-                Vector3::x().cross(&n).normalize() 
-            } else { 
-                Vector3::y().cross(&n).normalize() 
+            vert.tangent = if n.x.abs() < 0.9 {
+                Vector3::x().cross(&n).normalize()
+            } else {
+                Vector3::y().cross(&n).normalize()
             };
         }
     }

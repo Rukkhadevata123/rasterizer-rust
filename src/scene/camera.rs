@@ -116,15 +116,4 @@ impl Camera {
     pub fn projection_matrix(&self) -> Matrix4<f32> {
         self.projection_matrix
     }
-
-    /// Orbits the camera around the target point.
-    /// Useful for simple model viewers.
-    pub fn orbit(&mut self, axis: Vector3<f32>, angle_rad: f32) {
-        let rotation = TransformFactory::rotation(&axis, angle_rad);
-        let current_offset = self.position - self.target;
-        let new_offset = rotation.transform_vector(&current_offset);
-        self.position = self.target + new_offset;
-        self.update_matrices();
-    }
-    // TODO: Future: Implement camera movement methods (pan, zoom, etc.)
 }
