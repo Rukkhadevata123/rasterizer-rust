@@ -9,6 +9,7 @@ use core::color::{aces_tone_mapping, linear_to_srgb};
 use core::math::transform::TransformFactory;
 use io::config::Config;
 use io::obj_loader::load_obj;
+use log::{debug, error, info, warn};
 use nalgebra::{Point3, Vector3};
 use pipeline::renderer::{ClearOptions, Renderer};
 use pipeline::shaders::pbr::PbrShader;
@@ -24,6 +25,7 @@ use scene::utils::normalize_and_center_model;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -33,16 +35,17 @@ struct Args {
 }
 
 fn main() {
+    // RUST_LOG=info cargo run --release -- --config scene.toml
     env_logger::init();
     let args = Args::parse();
 
     // --- Configuration Loading with Fallback ---
-    println!("Loading configuration from: {}", args.config);
+    info!("Loading configuration from: {}", args.config);
     let config = match Config::load(&args.config) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!(
-                "Warning: Failed to load config '{}': {}. \nUsing built-in default scene.",
+            warn!(
+                "Failed to load config '{}': {}. Using built-in default scene.",
                 args.config, e
             );
             Config::default()
@@ -114,6 +117,7 @@ fn main() {
             _ => {}
         }
     }
+    info!("Scene initialized with {} lights.", lights.len());
 
     // --- 3. Setup Objects ---
     let mut scene_objects: Vec<SceneObject> = Vec::new();
@@ -149,14 +153,16 @@ fn main() {
                 m
             }
             Err(e) => {
-                eprintln!(
+                error!(
                     "Error loading model '{}': {}. Using fallback mesh.",
                     obj_conf.path, e
                 );
                 // Create a magenta test triangle as fallback
                 let mesh = Mesh::create_test_triangle(0);
-                let mut mat = PbrMaterial::default();
-                mat.albedo = Vector3::new(1.0, 0.0, 1.0); // Magenta for error
+                let mat = PbrMaterial {
+                    albedo: Vector3::new(1.0, 0.0, 1.0),
+                    ..Default::default()
+                }; // Magenta for error
                 Model::new(vec![mesh], vec![Material::Pbr(mat)])
             }
         };
@@ -188,21 +194,21 @@ fn main() {
             if let Ok(tex) = Texture::load(path) {
                 mat.albedo_texture = Some(Arc::new(tex));
             } else {
-                eprintln!("Warning: Failed to load texture '{}'", path);
+                warn!("Failed to load Albedo texture '{}'", path);
             }
         }
         if let Some(path) = &obj_conf.metallic_roughness_texture {
             if let Ok(tex) = Texture::load(path) {
                 mat.metallic_roughness_texture = Some(Arc::new(tex));
             } else {
-                eprintln!("Warning: Failed to load texture '{}'", path);
+                warn!("Failed to load Metallic/Roughness texture '{}'", path);
             }
         }
         if let Some(path) = &obj_conf.normal_texture {
             if let Ok(tex) = Texture::load(path) {
                 mat.normal_texture = Some(Arc::new(tex));
             } else {
-                eprintln!("Warning: Failed to load texture '{}'", path);
+                warn!("Failed to load Normal texture '{}'", path);
             }
         }
 
@@ -214,8 +220,10 @@ fn main() {
 
         scene_objects.push(SceneObject::new(model, translation * rotation * scale));
     }
+    info!("Scene initialized with {} objects.", scene_objects.len());
 
     // --- 4. Render Pipeline ---
+    let total_start_time = Instant::now();
 
     // Pass 1: Shadow Map (Conditional)
     let mut shadow_map_arc = None;
@@ -223,7 +231,12 @@ fn main() {
     let shadow_map_size = config.render.shadow_map_size;
 
     if config.render.use_shadows {
-        println!("Pass 1: Shadow Map...");
+        info!(
+            "Pass 1: Shadow Map Generation ({}x{})...",
+            shadow_map_size, shadow_map_size
+        );
+        let start_time = Instant::now();
+
         let mut shadow_renderer = Renderer::new(shadow_map_size, shadow_map_size, 1);
 
         let light_target = Point3::new(0.0, 0.0, 0.0);
@@ -257,13 +270,17 @@ fn main() {
             .map(|atomic| f32::from_bits(atomic.load(Ordering::Relaxed)))
             .collect();
         shadow_map_arc = Some(Arc::new(shadow_depth_data));
+
+        debug!("Shadow pass completed in {:.2?}", start_time.elapsed());
     }
 
     // Pass 2: Main Render
-    println!(
-        "Pass 2: Main Render ({}x{})...",
-        config.render.width, config.render.height
+    info!(
+        "Pass 2: Main Render ({}x{}, {} samples)...",
+        config.render.width, config.render.height, config.render.samples
     );
+    let start_time = Instant::now();
+
     let mut renderer = Renderer::new(
         config.render.width,
         config.render.height,
@@ -334,13 +351,16 @@ fn main() {
         renderer.draw_model(&obj.model, &shader);
     }
 
-    println!("Saving to {}", config.render.output);
+    info!("Main render pass completed in {:.2?}", start_time.elapsed());
+    info!("Total rendering time: {:.2?}", total_start_time.elapsed());
+
+    info!("Saving output to '{}'...", config.render.output);
     save_buffer_to_image(
         &renderer.framebuffer,
         &config.render.output,
         config.render.exposure,
     );
-    println!("Done.");
+    info!("Done.");
 }
 
 fn save_buffer_to_image(fb: &core::framebuffer::FrameBuffer, path: &str, exposure: f32) {
@@ -357,6 +377,6 @@ fn save_buffer_to_image(fb: &core::framebuffer::FrameBuffer, path: &str, exposur
         }
     }
     if let Err(e) = img_buf.save(Path::new(path)) {
-        eprintln!("Error: Failed to save image to '{}': {}", path, e);
+        error!("Failed to save image to '{}': {}", path, e);
     }
 }

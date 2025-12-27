@@ -1,4 +1,5 @@
 use image::{DynamicImage, GenericImageView};
+use log::info;
 use nalgebra::Vector3;
 use std::path::Path;
 use std::sync::Arc;
@@ -13,10 +14,17 @@ pub struct Texture {
 
 impl Texture {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let img = image::open(&path).map_err(|e| format!("Failed to load texture: {}", e))?;
+        let path_ref = path.as_ref();
+        let img = image::open(path_ref).map_err(|e| format!("Failed to load texture: {}", e))?;
+
+        let width = img.width();
+        let height = img.height();
+
+        info!("Loaded texture: {:?} ({}x{})", path_ref, width, height);
+
         Ok(Self {
-            width: img.width(),
-            height: img.height(),
+            width,
+            height,
             image: Arc::new(img),
         })
     }
