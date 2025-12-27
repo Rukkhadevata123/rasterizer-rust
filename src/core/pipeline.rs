@@ -25,7 +25,7 @@ pub trait Shader: Send + Sync {
     ///
     /// # Arguments
     /// * `vertex` - The input vertex data.
-    ///s
+    ///
     /// # Returns
     /// * `Vector4<f32>` - Position in Homogeneous Clip Space.
     /// * `Self::Varying` - Data to be interpolated and passed to the fragment shader.

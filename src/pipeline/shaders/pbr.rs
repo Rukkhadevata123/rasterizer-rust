@@ -259,7 +259,7 @@ impl Shader for PbrShader {
 
         // 2. Calculate Normal (Normal Mapping)
         let geom_normal = varying.normal.normalize();
-        
+
         // Use normal map if available, otherwise fallback to geometry normal
         let n = if let Some(normal_map) = &mat.normal_texture {
             // Check for valid tangent (avoid NaN if tangent is zero, e.g. no UVs)
@@ -286,8 +286,8 @@ impl Shader for PbrShader {
                 // 2.5 Decode [0, 1] range to [-1, 1] range
                 let local_normal = Vector3::new(
                     packed_normal.x * 2.0 - 1.0,
-                    - packed_normal.y * 2.0 + 1.0, // Flip Y
-                    packed_normal.z * 2.0 - 1.0
+                    -packed_normal.y * 2.0 + 1.0, // Flip Y
+                    packed_normal.z * 2.0 - 1.0,
                 );
 
                 // 2.6 Transform to World Space
@@ -304,7 +304,7 @@ impl Shader for PbrShader {
         // F0: Surface reflection at zero incidence
         // 0.04 for dielectrics, albedo for metals
         let f0 = Vector3::new(0.04, 0.04, 0.04).lerp(&albedo, metallic);
-        
+
         // 3. Lighting Loop
         let mut lo = Vector3::zeros();
 
