@@ -190,12 +190,18 @@ fn process_mesh(tobj_mesh: &tobj::Mesh, name: &str) -> Result<Mesh, String> {
                 position,
                 normal,
                 texcoord,
+                tangent: Vector3::zeros(), // Initialize tangent as zero vector
             };
             let new_idx = vertices.len() as u32;
             vertices.push(vertex);
             index_map.insert(key, new_idx);
             indices.push(new_idx);
         }
+    }
+
+    // Calculate tangents if we have UVs
+    if has_uvs {
+        calculate_tangents(&mut vertices, &indices);
     }
 
     let material_id = tobj_mesh.material_id.unwrap_or(0);
@@ -247,4 +253,84 @@ fn generate_smooth_normals(positions: &[f32], indices: &[u32]) -> Vec<Vector3<f3
         }
     }
     normals
+}
+
+/// Calculates tangent vectors using the matrix inversion method (Eric Lengyel).
+///
+/// Math derivation:
+/// [ E1 ]   [ du1  dv1 ] [ T ]
+/// [    ] = [          ] [   ]
+/// [ E2 ]   [ du2  dv2 ] [ B ]
+///
+/// To solve for T, we multiply by the inverse of the UV matrix.
+/// We only solve for T here to keep the Vertex struct simple (Vector3).
+fn calculate_tangents(vertices: &mut [Vertex], indices: &[u32]) {
+    // Accumulator for tangents per vertex
+    let mut tan_sum = vec![Vector3::zeros(); vertices.len()];
+
+    // 1. Accumulate tangents from triangles
+    for chunk in indices.chunks(3) {
+        if chunk.len() < 3 { continue; }
+        
+        let i0 = chunk[0] as usize;
+        let i1 = chunk[1] as usize;
+        let i2 = chunk[2] as usize;
+
+        let v0 = &vertices[i0];
+        let v1 = &vertices[i1];
+        let v2 = &vertices[i2];
+
+        // Edge vectors (E1, E2)
+        let edge1 = v1.position - v0.position;
+        let edge2 = v2.position - v0.position;
+
+        // UV Delta vectors (Delta UV1, Delta UV2)
+        let duv1 = v1.texcoord - v0.texcoord;
+        let duv2 = v2.texcoord - v0.texcoord;
+
+        // Calculate determinant of the UV matrix
+        // det = du1 * dv2 - du2 * dv1
+        let det = duv1.x * duv2.y - duv2.x * duv1.y;
+
+        // Skip degenerate triangles (where UVs form a line or point)
+        if det.abs() < 1e-8 {
+            continue;
+        }
+
+        let inv_det = 1.0 / det;
+
+        // Solve for Tangent (T)
+        // T = (dv2 * E1 - dv1 * E2) * inv_det
+        // Note: We use vector math directly here for precision and readability.
+        let tangent = (edge1 * duv2.y - edge2 * duv1.y) * inv_det;
+
+        // Accumulate
+        tan_sum[i0] += tangent;
+        tan_sum[i1] += tangent;
+        tan_sum[i2] += tangent;
+    }
+
+    // 2. Orthogonalize (Gram-Schmidt)
+    for (i, vert) in vertices.iter_mut().enumerate() {
+        let n = vert.normal; // Assumed to be normalized already
+        let t = tan_sum[i];
+
+        // Gram-Schmidt orthogonalization:
+        // T_ortho = T - N * (N . T)
+        // This effectively projects T onto the plane defined by N.
+        let ortho_t = t - n * n.dot(&t);
+
+        // Normalize safe
+        if ortho_t.norm_squared() > 1e-8 {
+            vert.tangent = ortho_t.normalize();
+        } else {
+            // Fallback if tangent degenerates (e.g. extremely distorted UVs)
+            // Any vector perpendicular to N works.
+            vert.tangent = if n.x.abs() < 0.9 { 
+                Vector3::x().cross(&n).normalize() 
+            } else { 
+                Vector3::y().cross(&n).normalize() 
+            };
+        }
+    }
 }
