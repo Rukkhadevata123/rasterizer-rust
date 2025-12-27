@@ -239,16 +239,16 @@ impl Shader for PbrShader {
         };
 
         let albedo = if let Some(tex) = &mat.albedo_texture {
-            tex.sample(varying.uv.x, varying.uv.y)
+            tex.sample_color(varying.uv.x, varying.uv.y)
         } else {
             mat.albedo
         };
 
-        // Implement Metallic-Roughness Map sampling
+        // Metallic/Roughness uses sample_data (no Gamma correction)
         // Standard glTF packing: Green = Roughness, Blue = Metallic
         let (roughness, metallic) = if let Some(tex) = &mat.metallic_roughness_texture {
-            let sample = tex.sample(varying.uv.x, varying.uv.y);
-            // Multiply by the uniform factor (standard glTF behavior)
+            let sample = tex.sample_data(varying.uv.x, varying.uv.y);
+            // Multiply by the uniform factor
             (sample.y * mat.roughness, sample.z * mat.metallic)
         } else {
             (mat.roughness, mat.metallic)
