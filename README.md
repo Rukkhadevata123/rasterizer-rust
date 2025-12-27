@@ -20,6 +20,8 @@ We can modify the scene interactively in real-time:
 
 * **Windowing:** Lightweight window management using `minifb`.
 * **Camera Control:** FPS-style free-roam camera (WASD movement, mouse look, FOV zoom).
+* **Hot Reloading:** Instant feedback loop — press 'R' to reload scene configuration (lights, materials, transforms)
+  without restarting.
 * **Runtime Toggles:** Switch cull modes and wireframe rendering on the fly.
 * **Performance:** Optimized display buffer handling with parallelized post-processing.
 
@@ -73,6 +75,7 @@ We can modify the scene interactively in real-time:
 | **Space / L-Shift**    | Move Up / Down (Elevation)              |
 | **Right Mouse (Hold)** | Look Around (Yaw/Pitch)                 |
 | **Scroll Wheel**       | Adjust FOV (Zoom)                       |
+| **R**                  | Reload Configuration (Hot Reload)       |
 | **Left Click**         | Cycle Cull Mode (Back -> None -> Front) |
 | **Middle Click**       | Toggle Wireframe Mode                   |
 | **Z**                  | Freeze Movement                         |
@@ -105,7 +108,7 @@ src
 ## Usage
 
 **1. Real-time GUI Mode (Recommended for quick previews)**
-Explore the scene interactively.
+Explore the scene interactively and tweak materials in real-time.
 
 ```bash
 cargo run --release -- --config scene.toml --gui
