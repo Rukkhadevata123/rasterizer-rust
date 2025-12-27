@@ -195,8 +195,8 @@ impl PbrShader {
     fn geometry_smith(n: &Vector3<f32>, v: &Vector3<f32>, l: &Vector3<f32>, roughness: f32) -> f32 {
         let n_dot_v = n.dot(v).max(0.0);
         let n_dot_l = n.dot(l).max(0.0);
-        let ggx2 = self::PbrShader::geometry_schlick_ggx(n_dot_v, roughness);
-        let ggx1 = self::PbrShader::geometry_schlick_ggx(n_dot_l, roughness);
+        let ggx2 = PbrShader::geometry_schlick_ggx(n_dot_v, roughness);
+        let ggx1 = PbrShader::geometry_schlick_ggx(n_dot_l, roughness);
 
         ggx1 * ggx2
     }
@@ -310,7 +310,7 @@ impl Shader for PbrShader {
             // Lambertian Diffuse
             let diffuse = k_d.component_mul(&albedo) / PI;
 
-            // Add to outgoing radiance Lo
+            // Add to outgoing radiance Lo,
             // Lo += (kD * albedo / PI + specular) * radiance * NdotL
             let brdf = diffuse + specular;
             let light_contribution = brdf.component_mul(&radiance) * n_dot_l * shadow;
