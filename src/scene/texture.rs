@@ -29,20 +29,16 @@ impl Texture {
         })
     }
 
-    /// Samples the texture using Bilinear Interpolation.
-    /// UV coordinates are in [0.0, 1.0].
-    pub fn sample(&self, u: f32, v: f32) -> Vector3<f32> {
-        // 1. Handle wrapping (Repeat mode) using fract()
-        // This handles u=1.5 -> 0.5, u=-0.5 -> 0.5 correctly
+    fn sample_bilinear(&self, u: f32, v: f32) -> Vector3<f32> {
+        // 1. Handle wrapping (Repeat mode)
         let u = u.fract();
         let v = v.fract();
         let u = if u < 0.0 { 1.0 + u } else { u };
         let v = if v < 0.0 { 1.0 + v } else { v };
 
         // 2. Map to pixel coordinates
-        // -0.5 because pixel centers are at 0.5
         let x = u * self.width as f32 - 0.5;
-        let y = (1.0 - v) * self.height as f32 - 0.5; // Flip V for standard UV
+        let y = (1.0 - v) * self.height as f32 - 0.5;
 
         // 3. Identify the 2x2 pixel block
         let x0 = x.floor() as i32;
@@ -54,28 +50,30 @@ impl Texture {
         let wx = x - x.floor();
         let wy = y - y.floor();
 
-        // 5. Fetch colors (Using WRAP mode, not clamp)
+        // 5. Fetch colors
         let c00 = self.get_pixel_wrapped(x0, y0);
         let c10 = self.get_pixel_wrapped(x1, y0);
         let c01 = self.get_pixel_wrapped(x0, y1);
         let c11 = self.get_pixel_wrapped(x1, y1);
 
         // 6. Interpolate
-        // Lerp X
         let top = c00 * (1.0 - wx) + c10 * wx;
         let bottom = c01 * (1.0 - wx) + c11 * wx;
 
-        // Lerp Y
-        let final_color = top * (1.0 - wy) + bottom * wy;
+        top * (1.0 - wy) + bottom * wy
+    }
 
-        // 7. sRGB to Linear conversion
-        // Textures are usually sRGB. We must convert to Linear before lighting math.
-        // Simple approximation: pow(2.2)
-        Vector3::new(
-            final_color.x.powf(2.2),
-            final_color.y.powf(2.2),
-            final_color.z.powf(2.2),
-        )
+    /// For color map (Albedo, Emissive, Background)
+    /// Performs sRGB -> Linear conversion (Gamma 2.2)
+    pub fn sample_color(&self, u: f32, v: f32) -> Vector3<f32> {
+        let c = self.sample_bilinear(u, v);
+        Vector3::new(c.x.powf(2.2), c.y.powf(2.2), c.z.powf(2.2))
+    }
+
+    /// For data map (Metallic, Roughness, Normal, AO)
+    /// Returns linear values directly without Gamma correction
+    pub fn sample_data(&self, u: f32, v: f32) -> Vector3<f32> {
+        self.sample_bilinear(u, v)
     }
 
     /// Helper to get pixel with WRAPPING (Repeat) logic

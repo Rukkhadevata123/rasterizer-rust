@@ -75,7 +75,7 @@ impl Renderer {
                     let u = x as f32 / width as f32;
 
                     let color = if let Some(tex) = options.texture {
-                        tex.sample(u, v)
+                        tex.sample_color(u, v)
                     } else if let Some((top, bottom)) = options.gradient {
                         top.lerp(&bottom, v)
                     } else {
