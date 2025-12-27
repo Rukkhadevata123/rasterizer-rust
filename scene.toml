@@ -1,9 +1,9 @@
 [render]
 # --- Output & Quality ---
-width = 3840
-height = 2160
+width = 1280
+height = 760
 output = "output_toml.png"
-samples = 2
+samples = 2 # Samples per pixel
 exposure = 1.0
 
 # --- Environment & Background ---
@@ -15,11 +15,11 @@ background_gradient_bottom = [0.05, 0.05, 0.1]
 
 # --- Shadow System ---
 use_shadows = true
-shadow_map_size = 4096
+shadow_map_size = 1024
 shadow_ortho_size = 8.0
 shadow_bias = 0.01
 use_pcf = true
-pcf_kernel_size = 2
+pcf_kernel_size = 1
 
 # --- Tone Mapping & Color ---
 use_aces = true
@@ -37,6 +37,9 @@ fov = 45.0
 # ortho_height = 10.0
 near = 0.1
 far = 100.0
+speed = 5.0
+sensitivity = 0.005
+zoom_speed = 0.02
 
 [ground]
 enabled = true
