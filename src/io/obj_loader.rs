@@ -6,6 +6,7 @@ use crate::scene::texture::Texture;
 use log::{debug, info, warn};
 use nalgebra::{Point3, Vector2, Vector3};
 use std::collections::HashMap;
+use std::f32::consts::PI;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -148,6 +149,7 @@ fn process_mesh(tobj_mesh: &tobj::Mesh, name: &str) -> Result<Mesh, String> {
         } else {
             pos_idx
         };
+        // Note: Even if there are no UVs, we don't rely on uv_idx anymore
         let uv_idx = if has_uvs {
             tobj_mesh.texcoord_indices[i]
         } else {
@@ -177,12 +179,32 @@ fn process_mesh(tobj_mesh: &tobj::Mesh, name: &str) -> Result<Mesh, String> {
             };
 
             let texcoord = if has_uvs {
+                // Case A: UVs exist in file, read normally
                 Vector2::new(
                     tobj_mesh.texcoords[uv_idx as usize * 2],
                     tobj_mesh.texcoords[uv_idx as usize * 2 + 1],
                 )
             } else {
-                Vector2::zeros()
+                // Case B: No UVs in file, perform spherical projection
+                // Assume model is centered at origin (normalize_and_center_model ensures this)
+                // Algorithm: Convert normalized direction vector to latitude/longitude
+                let dir = position.coords;
+                let len = dir.norm();
+
+                if len > 1e-6 {
+                    // atan2(z, x) gives longitude (-PI to PI)
+                    let phi = dir.z.atan2(dir.x);
+                    // asin(y / len) gives latitude (-PI/2 to PI/2)
+                    let theta = (dir.y / len).clamp(-1.0, 1.0).asin();
+
+                    // Map to [0, 1]
+                    let u = (phi + PI) / (2.0 * PI);
+                    let v = 0.5 - (theta / PI); // 0.5 - ... to put poles at top/bottom and match typical texture direction
+
+                    Vector2::new(u, v)
+                } else {
+                    Vector2::zeros()
+                }
             };
 
             let vertex = Vertex {
@@ -197,9 +219,13 @@ fn process_mesh(tobj_mesh: &tobj::Mesh, name: &str) -> Result<Mesh, String> {
             indices.push(new_idx);
         }
     }
-
-    // Calculate tangents if we have UVs
-    if has_uvs {
+    // Previously: if has_uvs { ... }
+    // Now: Since we guarantee all vertices have UVs (original + auto-generated), we can always calculate
+    // Only when triangles are extremely degenerate will calculate_tangents handle fallback internally
+    if !vertices.is_empty() {
+        if !has_uvs {
+            debug!("Generated spherical UVs for mesh '{}'", name);
+        }
         calculate_tangents(&mut vertices, &indices);
     }
 
