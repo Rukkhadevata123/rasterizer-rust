@@ -359,17 +359,26 @@ fn main() {
         &renderer.framebuffer,
         &config.render.output,
         config.render.exposure,
+        config.render.use_aces,
     );
     info!("Done.");
 }
 
-fn save_buffer_to_image(fb: &core::framebuffer::FrameBuffer, path: &str, exposure: f32) {
+fn save_buffer_to_image(fb: &core::framebuffer::FrameBuffer, path: &str, exposure: f32, use_aces: bool) {
     let mut img_buf = image::ImageBuffer::new(fb.width as u32, fb.height as u32);
     for (x, y, pixel) in img_buf.enumerate_pixels_mut() {
         if let Some(hdr_color) = fb.get_pixel(x as usize, y as usize) {
             let exposed_color = hdr_color * exposure;
-            let mapped = aces_tone_mapping(exposed_color);
-            let srgb = linear_to_srgb(mapped);
+            let srgb = linear_to_srgb(if use_aces {
+                aces_tone_mapping(exposed_color)
+            } else {
+                
+                Vector3::new(
+                    exposed_color.x.clamp(0.0, 1.0),
+                    exposed_color.y.clamp(0.0, 1.0),
+                    exposed_color.z.clamp(0.0, 1.0),
+                )
+            });
             let r = (srgb.x.clamp(0.0, 1.0) * 255.0) as u8;
             let g = (srgb.y.clamp(0.0, 1.0) * 255.0) as u8;
             let b = (srgb.z.clamp(0.0, 1.0) * 255.0) as u8;

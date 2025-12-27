@@ -113,6 +113,10 @@ pub struct RenderConfig {
     #[serde(default = "default_pcf_kernel")]
     pub pcf_kernel_size: i32,
 
+    // --- Tone Mapping & Color ---
+    #[serde(default = "default_true")]
+    pub use_aces: bool,
+
     // --- Pipeline & Debug ---
     #[serde(default = "default_cull_mode")]
     pub cull_mode: String, // "back", "front", "none"
@@ -139,6 +143,7 @@ impl Default for RenderConfig {
             shadow_bias: default_shadow_bias(),
             use_pcf: true,
             pcf_kernel_size: default_pcf_kernel(),
+            use_aces: default_true(),
             cull_mode: default_cull_mode(),
             wireframe: false,
         }
