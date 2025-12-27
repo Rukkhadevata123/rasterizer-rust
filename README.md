@@ -1,44 +1,51 @@
 # Rust PBR Rasterizer
 
-A high-performance, multi-threaded software rasterizer written from scratch in Rust. This project implements a modern programmable pipeline with Physically Based Rendering (PBR).
+A high-performance, multi-threaded software rasterizer written from scratch in Rust. This project implements a modern
+programmable pipeline with Physically Based Rendering (PBR).
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Rukkhadevata123/rasterizer-rust)
 
 ![Render Result](outputs/output_toml.png)
 
-> **Note:** A real-time GUI using `egui` is currently **Work In Progress**. The renderer currently operates in headless mode via CLI configuration.
+> **Note:** A real-time GUI using `egui` is currently **Work In Progress**. The renderer currently operates in headless
+> mode via CLI configuration.
 
 ## Key Features & Advanced Concepts
 
 * **Physically Based Rendering (PBR):**
-  * Cook-Torrance BRDF model.
-  * Metallic-Roughness workflow.
-  * Trowbridge-Reitz GGX Normal Distribution.
-  * Smith Geometry function & Fresnel-Schlick approximation.
+    * Cook-Torrance BRDF model.
+    * Metallic-Roughness workflow.
+    * **Normal Mapping** for high-fidelity surface details.
+    * Trowbridge-Reitz GGX Normal Distribution.
+    * Smith Geometry function & Fresnel-Schlick approximation.
+    * Correct Gamma/Linear color space handling for textures.
 * **Shadow System:**
-  * Two-pass rendering (Shadow Map generation -> Main Render).
-  * **PCF (Percentage Closer Filtering)** for soft shadows.
-  * Configurable bias and kernel size.
+    * Two-pass rendering (Shadow Map generation -> Main Render).
+    * **PCF (Percentage Closer Filtering)** for soft shadows.
+    * Configurable bias and kernel size.
 * **High Performance:**
-  * **Parallel Rendering:** Uses `Rayon` for multi-threaded triangle rasterization and pixel shading.
-  * **Thread Safety:** Custom `FrameBuffer` with atomic depth buffers and striped locking for color data.
+    * **Parallel Rendering:** Uses `Rayon` for multi-threaded triangle rasterization and pixel shading.
+    * **Thread Safety:** Custom `FrameBuffer` with atomic depth buffers and striped locking for color data.
 * **Pipeline:**
-  * Programmable Shader traits (Vertex & Fragment stages).
-  * Perspective-correct interpolation.
-  * Back-face culling and wireframe modes.
-  * **SSAA** (Super-Sample Anti-Aliasing).
+    * Programmable Shader traits (Vertex & Fragment stages).
+    * **Tangent Space Generation:** Automatic calculation of tangent vectors and Gram-Schmidt orthogonalization during
+      model loading.
+    * Perspective-correct interpolation.
+    * Back-face culling and wireframe modes.
+    * **SSAA** (Super-Sample Anti-Aliasing).
 * **Post-Processing:**
-  * ACES Filmic Tone Mapping.
-  * Linear-to-sRGB Gamma Correction.
+    * ACES Filmic Tone Mapping.
+    * Linear-to-sRGB Gamma Correction.
 
 ## Rendering Flow
 
 1. **Configuration:** Scene data (camera, lights, objects, materials) is loaded from `scene.toml`.
 2. **Shadow Pass:** The scene is rendered from the light's perspective into a depth buffer (Shadow Map).
 3. **Main Pass:**
-    * **Vertex Shader:** Transforms vertices to Clip Space; generates varyings (World Pos, Normal, UV).
+    * **Vertex Shader:** Transforms vertices to Clip Space; generates varyings (World Pos, Normal, Tangent, UV).
     * **Rasterization:** Parallelized scanline conversion with barycentric interpolation.
-    * **Fragment Shader:** Calculates PBR lighting (Direct + Ambient) and applies shadows.
+    * **Fragment Shader:** Constructs the **TBN Matrix**, samples textures (Albedo, Normal, Metallic-Roughness), and
+      calculates PBR lighting.
 4. **Post-Processing:** HDR color values are tone-mapped and gamma-corrected.
 5. **Output:** The final frame is saved to disk (e.g., PNG).
 
@@ -52,7 +59,7 @@ src
 │   └── rasterizer.rs  # Triangle rasterization logic
 ├── io             # Input/Output
 │   ├── config.rs  # TOML configuration parsing
-│   └── obj_loader.rs # OBJ/MTL loading with PBR mapping
+│   └── obj_loader.rs # OBJ/MTL loading, Tangent calculation & deduplication
 ├── pipeline       # Rendering pipeline
 │   ├── renderer.rs    # High-level render orchestration
 │   └── shaders        # Programmable shaders (PBR, Shadow)
