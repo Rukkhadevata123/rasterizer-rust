@@ -21,6 +21,9 @@ shadow_bias = 0.01
 use_pcf = true
 pcf_kernel_size = 2
 
+# --- Tone Mapping & Color ---
+use_aces = true
+
 # --- Pipeline & Debug ---
 cull_mode = "back" # Options: "none", "front", "back"
 wireframe = false
