@@ -268,6 +268,29 @@ impl Rasterizer {
         let z1_ndc = clip_coords[1].z / clip_coords[1].w;
         let z2_ndc = clip_coords[2].z / clip_coords[2].w;
 
+        // Compute simple triangle-level UV density estimator used for mipmap LOD selection.
+        // area_screen = 0.5 * |(x1-x0)*(y2-y0) - (x2-x0)*(y1-y0)|
+        let area_screen =
+            0.5 * ((v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)).abs();
+        let uv_density = if area_screen > 1e-6 {
+            // Ask the varying (via trait) whether it exposes UVs and compute
+            // triangle-level UV density: sqrt(Area_uv / Area_screen).
+            if let (Some(uv0), Some(uv1), Some(uv2)) = (
+                varyings[0].get_uv(),
+                varyings[1].get_uv(),
+                varyings[2].get_uv(),
+            ) {
+                // area_uv = 0.5 * |(u1-u0)*(v2-v0) - (u2-u0)*(v1-v0)|
+                let area_uv = 0.5
+                    * ((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y)).abs();
+                (area_uv / area_screen).sqrt()
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
         // 3. Compute Bounding Box
         let (min_x, min_y, max_x, max_y) = self.compute_bounding_box(&screen_coords);
 
@@ -327,8 +350,8 @@ impl Rasterizer {
                             w_values[2],
                         );
 
-                        // Fragment Shader
-                        let color = shader.fragment(interpolated_varying, material);
+                        // Fragment Shader (pass uv_density for per-triangle LOD estimation)
+                        let color = shader.fragment(interpolated_varying, material, uv_density);
 
                         // Thread-safe Write
                         framebuffer.set_pixel_safe(x, y, color);

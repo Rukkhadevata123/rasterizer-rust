@@ -1,4 +1,5 @@
 use crate::core::geometry::Vertex;
+use crate::core::pipeline::Interpolatable;
 use crate::core::pipeline::Shader;
 use crate::scene::light::Light;
 use crate::scene::material::{Material, PbrMaterial};
@@ -37,6 +38,13 @@ impl Mul<f32> for PbrVarying {
             uv: self.uv * scalar,
             tangent: self.tangent * scalar,
         }
+    }
+}
+
+// Implement Interpolatable and expose UV for LOD estimation.
+impl Interpolatable for PbrVarying {
+    fn get_uv(&self) -> Option<Vector2<f32>> {
+        Some(self.uv)
     }
 }
 
@@ -231,7 +239,12 @@ impl Shader for PbrShader {
         )
     }
 
-    fn fragment(&self, varying: Self::Varying, material: Option<&Material>) -> Vector3<f32> {
+    fn fragment(
+        &self,
+        varying: Self::Varying,
+        material: Option<&Material>,
+        uv_density: f32,
+    ) -> Vector3<f32> {
         // 1. Retrieve Material Properties
         let mat = if let Some(Material::Pbr(m)) = material {
             m
@@ -240,7 +253,7 @@ impl Shader for PbrShader {
         };
 
         let albedo = if let Some(tex) = &mat.albedo_texture {
-            tex.sample_color(varying.uv.x, varying.uv.y)
+            tex.sample_color_with_density(varying.uv.x, varying.uv.y, uv_density)
         } else {
             mat.albedo
         };
@@ -248,7 +261,7 @@ impl Shader for PbrShader {
         // Metallic/Roughness uses sample_data (no Gamma correction)
         // Standard glTF packing: Green = Roughness, Blue = Metallic
         let (roughness, metallic) = if let Some(tex) = &mat.metallic_roughness_texture {
-            let sample = tex.sample_data(varying.uv.x, varying.uv.y);
+            let sample = tex.sample_data_with_density(varying.uv.x, varying.uv.y, uv_density);
             // Multiply by the uniform factor
             (sample.y * mat.roughness, sample.z * mat.metallic)
         } else {

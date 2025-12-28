@@ -12,10 +12,12 @@ use std::ops::{Add, Mul};
 pub trait Interpolatable:
     Copy + Clone + Add<Output = Self> + Mul<f32, Output = Self> + Send + Sync
 {
+    /// Optionally return UV coordinates if the varying contains them.
+    /// Default implementation returns `None` meaning no UVs are available.
+    fn get_uv(&self) -> Option<nalgebra::Vector2<f32>> {
+        None
+    }
 }
-
-/// Blanket implementation for any type satisfying the trait bounds above.
-impl<T> Interpolatable for T where T: Copy + Add<Output = T> + Mul<f32, Output = T> + Send + Sync {}
 
 /// Shader represents the programmable stages of the pipeline.
 ///
@@ -50,11 +52,21 @@ pub trait Shader: Send + Sync {
     /// is not modeled here (implementations can choose to encode discard by
     /// returning a special color convention if needed).
     ///
+    /// Additionally, `uv_density` is provided as a triangle-level estimate of how
+    /// many texture texels correspond to one screen pixel (sqrt(Area_uv / Area_screen)).
+    /// Shaders may use this value to choose appropriate LOD when sampling textures.
+    ///
     /// # Arguments
     /// - `varying`: interpolated per-fragment data.
     /// - `material`: optional material parameters available to the shader.
+    /// - `uv_density`: triangle-level UV density estimator (>= 0.0). 0.0 means "no special LOD".
     ///
     /// # Returns
     /// - `Vector3<f32>`: final RGB color (linear space).
-    fn fragment(&self, varying: Self::Varying, material: Option<&Material>) -> Vector3<f32>;
+    fn fragment(
+        &self,
+        varying: Self::Varying,
+        material: Option<&Material>,
+        uv_density: f32,
+    ) -> Vector3<f32>;
 }

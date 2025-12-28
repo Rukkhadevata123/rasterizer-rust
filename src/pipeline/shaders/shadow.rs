@@ -1,4 +1,5 @@
 use crate::core::geometry::Vertex;
+use crate::core::pipeline::Interpolatable;
 use crate::core::pipeline::Shader;
 use crate::scene::material::Material;
 use nalgebra::{Matrix4, Vector3, Vector4};
@@ -21,6 +22,9 @@ impl Mul<f32> for ShadowVarying {
     }
 }
 
+// Explicitly implement Interpolatable for the depth-only varying type.
+impl Interpolatable for ShadowVarying {}
+
 pub struct ShadowShader {
     pub mvp_matrix: Matrix4<f32>,
 }
@@ -41,8 +45,13 @@ impl Shader for ShadowShader {
         (clip_pos, ShadowVarying)
     }
 
-    fn fragment(&self, _varying: Self::Varying, _material: Option<&Material>) -> Vector3<f32> {
-        // Color doesn't matter, depth is written by the rasterizer.
+    fn fragment(
+        &self,
+        _varying: Self::Varying,
+        _material: Option<&Material>,
+        _uv_density: f32,
+    ) -> Vector3<f32> {
+        // Color doesn't matter for the depth-only pass; the rasterizer writes depth.
         Vector3::zeros()
     }
 }

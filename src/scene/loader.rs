@@ -178,7 +178,7 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
 
     // 3.2 Loaded Objects
     for obj_conf in &config.objects {
-        let mut model = match load_obj(&obj_conf.path) {
+        let mut model = match load_obj(&obj_conf.path, config.render.use_mipmap) {
             Ok(mut m) => {
                 normalize_and_center_model(&mut m);
                 m
@@ -221,21 +221,21 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
 
         // Load textures
         if let Some(path) = &obj_conf.albedo_texture {
-            if let Ok(tex) = Texture::load(path) {
+            if let Ok(tex) = Texture::load(path, config.render.use_mipmap) {
                 mat.albedo_texture = Some(Arc::new(tex));
             } else {
                 warn!("Failed to load Albedo texture '{}'", path);
             }
         }
         if let Some(path) = &obj_conf.metallic_roughness_texture {
-            if let Ok(tex) = Texture::load(path) {
+            if let Ok(tex) = Texture::load(path, config.render.use_mipmap) {
                 mat.metallic_roughness_texture = Some(Arc::new(tex));
             } else {
                 warn!("Failed to load Metallic/Roughness texture '{}'", path);
             }
         }
         if let Some(path) = &obj_conf.normal_texture {
-            if let Ok(tex) = Texture::load(path) {
+            if let Ok(tex) = Texture::load(path, config.render.use_mipmap) {
                 mat.normal_texture = Some(Arc::new(tex));
             } else {
                 warn!("Failed to load Normal texture '{}'", path);

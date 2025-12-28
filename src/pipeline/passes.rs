@@ -65,7 +65,7 @@ pub fn render_main_pass(
     light_space_matrix: Matrix4<f32>,
 ) {
     let bg_texture = if let Some(path) = &config.render.background_image {
-        Texture::load(path).ok()
+        Texture::load(path, config.render.use_mipmap).ok()
     } else {
         None
     };

@@ -87,7 +87,10 @@ impl Renderer {
     }
 
     /// Draws a complete model containing multiple meshes.
-    pub fn draw_model<S: Shader>(&mut self, model: &Model, shader: &S) {
+    pub fn draw_model<S: Shader>(&mut self, model: &Model, shader: &S)
+    where
+        <S as Shader>::Varying: 'static,
+    {
         for mesh in &model.meshes {
             // Retrieve the material for this mesh
             // If the ID is invalid, we pass None (Shader will use fallback)
@@ -102,12 +105,10 @@ impl Renderer {
     }
 
     /// Draws a mesh using the provided shader and material.
-    fn draw_mesh<S: Shader + Sync>(
-        &mut self,
-        mesh: &Mesh,
-        shader: &S,
-        material: Option<&Material>,
-    ) {
+    fn draw_mesh<S: Shader + Sync>(&mut self, mesh: &Mesh, shader: &S, material: Option<&Material>)
+    where
+        <S as Shader>::Varying: 'static,
+    {
         // Use Rayon to process triangles in parallel
         // chunk size can be tuned. 64 indices = ~21 triangles per task.
         mesh.indices.par_chunks(3).for_each(|chunk| {
