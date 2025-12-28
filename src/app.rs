@@ -34,7 +34,7 @@ pub fn run_gui(mut config: Config, config_path: &str) {
     )
     .unwrap_or_else(|e| panic!("{}", e));
 
-    window.set_target_fps(60);
+    // window.set_target_fps(60);
 
     // 2. Initialize Resources
     let mut context = init_scene_resources(&config);
