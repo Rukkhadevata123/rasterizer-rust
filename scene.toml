@@ -3,7 +3,7 @@
 width = 1280
 height = 760
 output = "output_toml.png"
-samples = 2 # Samples per pixel
+samples = 1 # Samples per pixel
 exposure = 1.0
 
 # --- Environment & Background ---

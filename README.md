@@ -85,24 +85,30 @@ We can modify the scene interactively in real-time:
 
 ```text
 src
-├── core           # Core engine primitives
-│   ├── math       # Linear algebra, interpolation, transform factories
+├── app.rs             # Application control loops (GUI & CLI logic)
+├── core               # Core engine primitives
 │   ├── framebuffer.rs # Thread-safe buffer with Atomics
+│   ├── geometry.rs    # Vertex and geometric definitions
+│   ├── math           # Linear algebra, interpolation, transform factories
 │   └── rasterizer.rs  # Triangle rasterization logic
-├── io             # Input/Output
-│   ├── config.rs  # TOML configuration parsing
-│   └── obj_loader.rs # OBJ/MTL loading, Tangent calculation
-├── pipeline       # Rendering pipeline
-│   ├── renderer.rs    # High-level render orchestration
+├── io                 # Input/Output
+│   ├── config.rs      # TOML configuration parsing
+│   ├── image.rs       # Image saving utilities
+│   └── obj_loader.rs  # OBJ/MTL loading, Tangent calculation
+├── pipeline           # Rendering pipeline
+│   ├── passes.rs      # High-level render pass logic (Shadow & Main)
+│   ├── renderer.rs    # Low-level render orchestration
 │   └── shaders        # Programmable shaders (PBR, Shadow)
-├── scene          # Scene graph data
-│   ├── camera.rs  # Perspective & Orthographic cameras
-│   ├── light.rs   # Directional & Point lights
-│   ├── material.rs # PBR Material definitions
-│   └── model.rs   # Mesh and Model containers
-├── ui             # User Interface & Input
-│   └── input.rs   # Camera controller and input handling
-└── main.rs        # Entry point, CLI driver, and Main Loops
+├── scene              # Scene graph data
+│   ├── camera.rs      # Perspective & Orthographic cameras
+│   ├── context.rs     # Container for scene resources
+│   ├── light.rs       # Directional & Point lights
+│   ├── loader.rs      # Resource loading and Hot-Reload logic
+│   ├── material.rs    # PBR Material definitions
+│   └── model.rs       # Mesh and Model containers
+├── ui                 # User Interface & Input
+│   └── input.rs       # Camera controller and input handling
+└── main.rs            # Entry point and Argument parsing
 ```
 
 ## Usage
