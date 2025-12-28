@@ -27,6 +27,7 @@ use_aces = true
 # --- Pipeline & Debug ---
 cull_mode = "back" # Options: "none", "front", "back"
 wireframe = false
+use_mipmap = false
 
 [camera]
 projection = "perspective" # Options: "perspective", "orthographic"

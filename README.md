@@ -55,17 +55,15 @@ We can modify the scene interactively in real-time:
 * **Anti-Aliasing:** SSAA (Super-Sample Anti-Aliasing).
 * **Tone Mapping:** ACES Filmic Tone Mapping.
 
+  * **Texture LOD (Mipmap):** Optional triangle-level mipmap LOD and trilinear filtering to reduce distant texture aliasing.
+
 ## Rendering Flow
 
 1. **Configuration:** Scene data (camera, lights, objects, materials) is loaded from `scene.toml`.
 2. **Shadow Pass:** The scene is rendered from the light's perspective into a depth buffer.
 3. **Main Pass:**
     * **Vertex Shader:** Transforms vertices to Clip Space; generates varyings (World Pos, Normal, Tangent, UV).
-    * **Clipping (Sutherland–Hodgman):** Before perspective divide we perform robust Sutherland–Hodgman clipping in homogeneous clip space against the canonical planes ±X ≤ W, ±Y ≤ W, ±Z ≤ W. Working in clip space keeps interpolation linear and avoids perspective artefacts. For an edge a→b the intersection parameter t with plane (sign * coord_axis = w) is solved as:
-
-      t = (a.w − sign *a_axis) / ( sign*(b_axis − a_axis) − (b.w − a.w) )
-
-      Intersection position is pos = a + t*(b − a) and vertex attributes (varyings) are linearly interpolated by vary = (1−t)*vary_a + t*vary_b. After clipping the convex polygon is triangulated (fan) and sent for rasterization.
+    * **Clipping (Sutherland–Hodgman):** We clip primitives in homogeneous clip space (±X ≤ W, ±Y ≤ W, ±Z ≤ W) before the perspective divide to keep interpolation linear. Edge intersections are computed and attributes are linearly interpolated; the resulting convex polygon is then triangulated and rasterized.
     * **Rasterization:** Parallelized scanline conversion.
     * **Fragment Shader:** Constructs the **TBN Matrix**, samples PBR textures, and calculates lighting.
 4. **Post-Processing:**

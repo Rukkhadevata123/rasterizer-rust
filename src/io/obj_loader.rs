@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// 2. Loading referenced textures.
 /// 3. Unifying vertex indices (OBJ allows separate indices for pos/uv/norm, we need one).
 /// 4. Generating smooth normals if missing.
-pub fn load_obj(path: &str) -> Result<Model, String> {
+pub fn load_obj(path: &str, use_mipmap: bool) -> Result<Model, String> {
     let obj_path = Path::new(path);
     if !obj_path.exists() {
         return Err(format!("OBJ file not found: {}", path));
@@ -37,7 +37,7 @@ pub fn load_obj(path: &str) -> Result<Model, String> {
         .map_err(|e| format!("Failed to load OBJ: {}", e))?;
 
     // 1. Process Materials (Now returns PBR materials)
-    let materials = process_materials(materials_result, base_path);
+    let materials = process_materials(materials_result, base_path, use_mipmap);
 
     // 2. Process Meshes
     let mut meshes = Vec::new();
@@ -64,6 +64,7 @@ pub fn load_obj(path: &str) -> Result<Model, String> {
 fn process_materials(
     materials_result: Result<Vec<tobj::Material>, tobj::LoadError>,
     base_path: &Path,
+    use_mipmap: bool,
 ) -> Vec<Material> {
     let mut materials = Vec::new();
 
@@ -74,11 +75,10 @@ fn process_materials(
                 let albedo_texture = if let Some(tex_name) = &mat.diffuse_texture {
                     let clean_name = tex_name.split('#').next().unwrap_or(tex_name).trim();
                     let tex_path = base_path.join(clean_name);
-                    Texture::load(&tex_path).ok().map(Arc::new)
+                    Texture::load(&tex_path, use_mipmap).ok().map(Arc::new)
                 } else {
                     None
                 };
-
                 // 2. Map Parameters
                 // Kd -> Albedo
                 let albedo = Vector3::from(mat.diffuse.unwrap_or([0.8, 0.8, 0.8]));

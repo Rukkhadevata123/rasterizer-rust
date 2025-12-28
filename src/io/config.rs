@@ -122,6 +122,8 @@ pub struct RenderConfig {
     pub cull_mode: String, // "back", "front", "none"
     #[serde(default = "default_false")]
     pub wireframe: bool,
+    #[serde(default = "default_false")]
+    pub use_mipmap: bool,
 }
 
 impl Default for RenderConfig {
@@ -137,15 +139,16 @@ impl Default for RenderConfig {
             background_color: None,
             background_gradient_top: Some([0.2, 0.2, 0.3]),
             background_gradient_bottom: Some([0.05, 0.05, 0.1]),
-            use_shadows: true,
+            use_shadows: default_true(),
             shadow_map_size: default_shadow_map_size(),
             shadow_ortho_size: default_shadow_ortho_size(),
             shadow_bias: default_shadow_bias(),
-            use_pcf: true,
+            use_pcf: default_true(),
             pcf_kernel_size: default_pcf_kernel(),
             use_aces: default_true(),
             cull_mode: default_cull_mode(),
-            wireframe: false,
+            wireframe: default_false(),
+            use_mipmap: default_false(),
         }
     }
 }
@@ -274,7 +277,7 @@ pub struct GroundConfig {
 impl Default for GroundConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: default_true(),
             size: default_ground_size(),
             albedo: Some([0.8, 0.8, 0.8]),
             metallic: Some(0.0),
