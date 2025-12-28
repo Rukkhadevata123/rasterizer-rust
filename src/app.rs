@@ -19,7 +19,7 @@ pub fn run_gui(mut config: Config, config_path: &str) {
 
     info!("Starting GUI mode ({}x{})...", width, height);
     info!(
-        "Controls: WASD=Move, Space/LeftShift=Up/Down, RightClick=Look, Scroll=FOV, R=Reload Config"
+        "Controls: WASD=Move, Space/LeftShift=Up/Down, LeftClick=Look, Scroll=FOV, R=Reload Config"
     );
 
     // 1. Initialize Window
@@ -57,7 +57,7 @@ pub fn run_gui(mut config: Config, config_path: &str) {
     );
 
     let mut last_frame_time = Instant::now();
-    let mut last_left_click = false;
+    let mut last_right_click = false;
     let mut last_middle_click = false;
     let mut cull_mode_idx = match config.render.cull_mode.as_str() {
         "none" => 0,
@@ -97,8 +97,8 @@ pub fn run_gui(mut config: Config, config_path: &str) {
         // --- Input ---
         cam_controller.update(&window, &mut context.camera, dt);
 
-        let left_click = window.get_mouse_down(MouseButton::Left);
-        if left_click && !last_left_click {
+        let right_click = window.get_mouse_down(MouseButton::Right);
+        if right_click && !last_right_click {
             cull_mode_idx = (cull_mode_idx + 1) % 3;
             let new_mode = match cull_mode_idx {
                 0 => CullMode::None,
@@ -108,7 +108,7 @@ pub fn run_gui(mut config: Config, config_path: &str) {
             renderer.rasterizer.set_cull_mode(new_mode);
             info!("Cull mode changed to: {:?}", new_mode);
         }
-        last_left_click = left_click;
+        last_right_click = right_click;
 
         let middle_click = window.get_mouse_down(MouseButton::Middle);
         if middle_click && !last_middle_click {

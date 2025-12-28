@@ -152,19 +152,19 @@ impl Default for RenderConfig {
 
 // Defaults matching scene.toml
 fn default_width() -> usize {
-    3840
+    1280
 }
 fn default_height() -> usize {
-    2160
+    720
 }
 fn default_output() -> String {
     "output_default.png".to_string()
 }
 fn default_shadow_map_size() -> usize {
-    4096
+    720
 }
 fn default_samples() -> usize {
-    2
+    1
 }
 fn default_ambient() -> [f32; 3] {
     [0.1, 0.1, 0.1]
@@ -188,7 +188,7 @@ fn default_true() -> bool {
     true
 }
 fn default_pcf_kernel() -> i32 {
-    2
+    1
 }
 
 #[derive(Debug, Deserialize)]
