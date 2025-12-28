@@ -1,5 +1,4 @@
 use nalgebra::{Point2, Vector3};
-use std::ops::{Add, Mul};
 
 const EPSILON: f32 = 1e-5;
 
@@ -55,46 +54,33 @@ pub fn is_inside_triangle(bary: Vector3<f32>) -> bool {
     bary.x >= -EPSILON && bary.y >= -EPSILON && bary.z >= -EPSILON
 }
 
-/// Performs perspective-correct interpolation for any attribute (color, UV, normal).
+/// Compute perspective-correct barycentric coordinates (alpha', beta', gamma').
 ///
-/// # Arguments
-/// * `bary` - Barycentric coordinates in screen space.
-/// * `v1`, `v2`, `v3` - Attribute values at the vertices.
-/// * `w1`, `w2`, `w3` - Clip space W coordinates (usually View Space Depth) at vertices.
-pub fn perspective_correct_interpolate<T>(
+/// The corrected barycentrics are defined as:
+///   wa = alpha * (1/w1), wb = beta * (1/w2), wc = gamma * (1/w3)
+///   sum = wa + wb + wc
+///   alpha' = wa / sum, ...
+///
+/// Returns `None` when numerical instability is detected (sum near zero).
+pub fn perspective_correct_barycentric(
     bary: Vector3<f32>,
-    v1: T,
-    v2: T,
-    v3: T,
     w1: f32,
     w2: f32,
     w3: f32,
-) -> T
-where
-    T: Copy + Add<Output = T> + Mul<f32, Output = T>,
-{
-    // 1. Calculate 1/w for each vertex
+) -> Option<Vector3<f32>> {
+    // Avoid division by extremely small w values: clamp behavior promotes robustness
     let inv_w1 = if w1.abs() > EPSILON { 1.0 / w1 } else { 1.0 };
     let inv_w2 = if w2.abs() > EPSILON { 1.0 / w2 } else { 1.0 };
     let inv_w3 = if w3.abs() > EPSILON { 1.0 / w3 } else { 1.0 };
 
-    // 2. Interpolate 1/w linearly in screen space
-    let inv_w = bary.x * inv_w1 + bary.y * inv_w2 + bary.z * inv_w3;
+    let wa = bary.x * inv_w1;
+    let wb = bary.y * inv_w2;
+    let wc = bary.z * inv_w3;
 
-    // 3. Calculate w at the current pixel
-    let w = if inv_w.abs() > EPSILON {
-        1.0 / inv_w
-    } else {
-        1.0
-    };
-
-    // 4. Interpolate (Attribute / w) linearly
-    // We multiply by w at the end to recover the correct attribute value
-    // Formula: Result = ( (v1/w1)*alpha + (v2/w2)*beta + (v3/w3)*gamma ) * w
-
-    let term1 = v1 * (inv_w1 * bary.x);
-    let term2 = v2 * (inv_w2 * bary.y);
-    let term3 = v3 * (inv_w3 * bary.z);
-
-    (term1 + term2 + term3) * w
+    let sum = wa + wb + wc;
+    if sum.abs() < EPSILON {
+        return None;
+    }
+    let inv_sum = 1.0 / sum;
+    Some(Vector3::new(wa * inv_sum, wb * inv_sum, wc * inv_sum))
 }

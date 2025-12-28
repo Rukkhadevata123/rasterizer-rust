@@ -1,6 +1,6 @@
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::math::interpolation::{
-    barycentric_coordinates, is_inside_triangle, perspective_correct_interpolate,
+    barycentric_coordinates, is_inside_triangle, perspective_correct_barycentric,
 };
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
 use crate::core::pipeline::{Interpolatable, Shader};
@@ -228,7 +228,10 @@ impl Rasterizer {
         varyings: &[S::Varying; 3],
         material: Option<&Material>,
     ) where
-        S::Varying: Interpolatable + Copy,
+        S::Varying: Interpolatable
+            + Copy
+            + std::ops::Add<Output = S::Varying>
+            + std::ops::Mul<f32, Output = S::Varying>,
     {
         // Use the actual buffer dimensions for rasterization
         let width = framebuffer.buffer_width as f32;
@@ -263,10 +266,8 @@ impl Rasterizer {
             _ => {}
         }
 
-        // Precompute NDC Z for depth interpolation
-        let z0_ndc = clip_coords[0].z / clip_coords[0].w;
-        let z1_ndc = clip_coords[1].z / clip_coords[1].w;
-        let z2_ndc = clip_coords[2].z / clip_coords[2].w;
+        // Note: Depth must be perspective-correct interpolated per-pixel (not linearly in NDC).
+        // We'll compute the corrected z_ndc inside the pixel loop using `perspective_correct_interpolate`.
 
         // Compute simple triangle-level UV density estimator used for mipmap LOD selection.
         // area_screen = 0.5 * |(x1-x0)*(y2-y0) - (x2-x0)*(y1-y0)|
@@ -332,29 +333,35 @@ impl Rasterizer {
                         }
                     }
 
-                    // Interpolate Z in NDC space
-                    let z_ndc = z0_ndc * bary.x + z1_ndc * bary.y + z2_ndc * bary.z;
-                    // Map to Depth [0, 1] range
-                    let depth = z_ndc * 0.5 + 0.5;
+                    // Compute perspective-correct barycentric coordinates once and reuse them.
+                    // This avoids repeated 1/w computations and provides unified interpolation weights
+                    // for depth and all vertex attributes.
+                    if let Some(corrected_bary) =
+                        perspective_correct_barycentric(bary, w_values[0], w_values[1], w_values[2])
+                    {
+                        // Interpolate clip-space Z using corrected barycentrics (linear interpolation)
+                        let z_ndc = corrected_bary.x * clip_coords[0].z
+                            + corrected_bary.y * clip_coords[1].z
+                            + corrected_bary.z * clip_coords[2].z;
+                        // Map to Depth [0, 1] range
+                        let depth = z_ndc * 0.5 + 0.5;
 
-                    // Early Depth Test
-                    if framebuffer.depth_test_and_update(x, y, depth) {
-                        // Perspective Correct Interpolation for Varyings
-                        let interpolated_varying = perspective_correct_interpolate(
-                            bary,
-                            varyings[0],
-                            varyings[1],
-                            varyings[2],
-                            w_values[0],
-                            w_values[1],
-                            w_values[2],
-                        );
+                        // Early Depth Test
+                        if framebuffer.depth_test_and_update(x, y, depth) {
+                            // Interpolate varyings using corrected barycentrics (single multiply-add per vertex)
+                            let interpolated_varying = varyings[0] * corrected_bary.x
+                                + varyings[1] * corrected_bary.y
+                                + varyings[2] * corrected_bary.z;
 
-                        // Fragment Shader (pass uv_density for per-triangle LOD estimation)
-                        let color = shader.fragment(interpolated_varying, material, uv_density);
+                            // Fragment Shader (pass uv_density for per-triangle LOD estimation)
+                            let color = shader.fragment(interpolated_varying, material, uv_density);
 
-                        // Thread-safe Write
-                        framebuffer.set_pixel_safe(x, y, color);
+                            // Thread-safe Write
+                            framebuffer.set_pixel_safe(x, y, color);
+                        }
+                    } else {
+                        // Numerical instability: skip this pixel
+                        continue;
                     }
                 }
             }
