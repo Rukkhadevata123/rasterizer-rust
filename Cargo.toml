@@ -1,13 +1,13 @@
 [package]
 name = "rasterizer-rust"
-version = "0.1.0"
+version = "3.0.0"
 edition = "2024"
 authors = ["Rukkhadevata123 <rukkhadevata@foxmail.com>"]
-description = "TODO"
+description = "A high-performance, multi-threaded software rasterizer in Rust implementing PBR, shadow mapping, and an interactive GUI."
 license = "MIT"
 repository = "https://github.com/Rukkhadevata123/rasterizer-rust"
-keywords = ["graphics", "rasterizer", "rendering", "three-d", "gui"]
-categories = ["graphics", "multimedia", "visualization"]
+keywords = ["graphics", "rasterizer", "rendering", "software-renderer", "pbr", "shadow-mapping", "ssaa", "multithreaded", "rayon"]
+categories = ["graphics", "rendering", "game-development", "visualization", "image-processing"]
 
 [dependencies]
 nalgebra = "0.34"

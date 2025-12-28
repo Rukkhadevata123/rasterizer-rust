@@ -73,10 +73,10 @@ We can modify the scene interactively in real-time:
 |:-----------------------|:----------------------------------------|
 | **W / A / S / D**      | Move Camera (Forward/Left/Back/Right)   |
 | **Space / L-Shift**    | Move Up / Down (Elevation)              |
-| **Right Mouse (Hold)** | Look Around (Yaw/Pitch)                 |
+| **Left Mouse (Hold)** | Look Around (Yaw/Pitch)                 |
 | **Scroll Wheel**       | Adjust FOV (Zoom)                       |
 | **R**                  | Reload Configuration (Hot Reload)       |
-| **Left Click**         | Cycle Cull Mode (Back -> None -> Front) |
+| **Right Click**         | Cycle Cull Mode (Back -> None -> Front) |
 | **Middle Click**       | Toggle Wireframe Mode                   |
 | **Z**                  | Freeze Movement                         |
 | **ESC**                | Exit                                    |

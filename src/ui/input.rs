@@ -114,8 +114,8 @@ impl CameraController {
             camera.target += offset;
         }
 
-        // --- 3. Mouse Rotation (Right Click) ---
-        if window.get_mouse_down(MouseButton::Right) {
+        // --- 3. Mouse Rotation (Left Click) ---
+        if window.get_mouse_down(MouseButton::Left) {
             if let Some((x, y)) = window.get_mouse_pos(MouseMode::Pass) {
                 if let Some((last_x, last_y)) = self.last_mouse_pos {
                     let dx = x - last_x;

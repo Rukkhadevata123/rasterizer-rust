@@ -102,7 +102,7 @@ impl Renderer {
     }
 
     /// Draws a mesh using the provided shader and material.
-    pub fn draw_mesh<S: Shader + Sync>(
+    fn draw_mesh<S: Shader + Sync>(
         &mut self,
         mesh: &Mesh,
         shader: &S,

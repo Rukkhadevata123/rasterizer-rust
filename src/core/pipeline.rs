@@ -3,44 +3,58 @@ use crate::scene::material::Material;
 use nalgebra::{Vector3, Vector4};
 use std::ops::{Add, Mul};
 
-/// Trait representing data that can be interpolated (e.g., Colors, Normals, UVs).
-/// Requires Copy, Addition, and Multiplication by scalar (f32).
+/// Trait for types that can be linearly interpolated across a triangle's surface.
+///
+/// Requirements:
+/// - Copy + Clone: cheaply duplicable values for per-vertex storage and interpolation.
+/// - Add + Mul<f32>: support linear combination (a + b * t) used by barycentric interpolation.
+/// - Send + Sync: safe to use from multiple threads during parallel rasterization.
 pub trait Interpolatable:
     Copy + Clone + Add<Output = Self> + Mul<f32, Output = Self> + Send + Sync
 {
 }
 
-// Implement Interpolatable for common types automatically
+/// Blanket implementation for any type satisfying the trait bounds above.
 impl<T> Interpolatable for T where T: Copy + Add<Output = T> + Mul<f32, Output = T> + Send + Sync {}
 
-/// The Shader trait represents the programmable stages of the graphics pipeline.
-/// Implementing this trait allows defining custom rendering logic (Phong, PBR, etc.).
+/// Shader represents the programmable stages of the pipeline.
+///
+/// Implementations must be thread-safe (Send + Sync) because shading may be invoked
+/// concurrently across fragments.
+///
+/// Associated types:
+/// - Varying: per-vertex outputs from the vertex stage that will be interpolated
+///   for each fragment. Varying must be Interpolatable to support barycentric interpolation.
 pub trait Shader: Send + Sync {
-    /// The type of data passed from Vertex Shader to Fragment Shader.
-    /// Must support interpolation (e.g., a struct containing Normal and UV).
+    /// Per-vertex varying data to be interpolated and provided to the fragment shader.
     type Varying: Interpolatable;
 
-    /// Vertex Shader Stage.
-    /// Transforms a raw vertex into Clip Space position and generates varying data.
+    /// Vertex shader stage.
+    ///
+    /// Transforms the given vertex into homogeneous clip space (Vector4<f32>) used by
+    /// clipping and perspective divide. Also returns the varying data associated with
+    /// that vertex which will be interpolated across the primitive.
     ///
     /// # Arguments
-    /// * `vertex` - The input vertex data.
+    /// - `vertex`: input vertex attributes (position, normal, uv, etc.)
     ///
     /// # Returns
-    /// * `Vector4<f32>` - Position in Homogeneous Clip Space.
-    /// * `Self::Varying` - Data to be interpolated and passed to the fragment shader.
+    /// - `(Vector4<f32>, Self::Varying)`: clip-space position and per-vertex varying.
     fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying);
 
-    /// Fragment Shader Stage.
-    /// Computes the final color of a pixel based on interpolated data.
+    /// Fragment shader stage.
+    ///
+    /// Computes the final linear RGB color for the current fragment, using the
+    /// interpolated varying and optional material state. The pipeline currently
+    /// expects a Vector3<f32> color in linear 0.0..1.0 range; discard/alpha logic
+    /// is not modeled here (implementations can choose to encode discard by
+    /// returning a special color convention if needed).
     ///
     /// # Arguments
-    /// * `varying` - The interpolated data for the current pixel.
-    /// * `material` - Optional material properties for shading calculations.
+    /// - `varying`: interpolated per-fragment data.
+    /// - `material`: optional material parameters available to the shader.
     ///
     /// # Returns
-    /// * `Vector3<f32>` - The final RGB color (usually linear space, 0.0-1.0).
-    ///   Return `None` (or handle discard logic internally) to discard the pixel (alpha masking).
-    ///   For simplicity here, we return Vector3, assuming alpha blending is handled by the pipeline.
+    /// - `Vector3<f32>`: final RGB color (linear space).
     fn fragment(&self, varying: Self::Varying, material: Option<&Material>) -> Vector3<f32>;
 }
