@@ -1,0 +1,866 @@
+diff --git a/scene.toml b/scene.toml
+index 4c1bf96..64a7589 100644
+--- a/scene.toml
++++ b/scene.toml
+@@ -28,6 +28,10 @@ use_aces = true
+ cull_mode = "back" # Options: "none", "front", "back"
+ wireframe = false
+ use_mipmap = false
++# Optional: choose tiled, lock-free rendering backend (true/false)
++use_tiled_rendering = true
++# Tile size in pixels (per axis) when using tiled rendering
++tile_size = 32
+ 
+ [camera]
+ projection = "perspective" # Options: "perspective", "orthographic"
+diff --git a/src/app.rs b/src/app.rs
+index 7f8a9a7..66b68f6 100644
+--- a/src/app.rs
++++ b/src/app.rs
+@@ -40,11 +40,19 @@ pub fn run_gui(mut config: Config, config_path: &str) {
+     let mut context = init_scene_resources(&config);
+ 
+     // Renderers
+-    let mut renderer = Renderer::new(width, height, config.render.samples);
++    let mut renderer = Renderer::new(
++        width,
++        height,
++        config.render.samples,
++        config.render.use_tiled_rendering,
++        config.render.tile_size,
++    );
+     let mut shadow_renderer = Renderer::new(
+         config.render.shadow_map_size,
+         config.render.shadow_map_size,
+         1,
++        false,
++        config.render.tile_size,
+     );
+ 
+     // Camera Controller
+@@ -123,7 +131,11 @@ pub fn run_gui(mut config: Config, config_path: &str) {
+         render_main_pass(&config, &context, &mut renderer, shadow_map, light_matrix);
+ 
+         // --- Display ---
+-        post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
++        if renderer.use_tiled {
++            post_process_to_buffer(renderer.tiled_framebuffer.as_ref().unwrap(), &mut buffer, &config);
++        } else {
++            post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
++        }
+         window.update_with_buffer(&buffer, width, height).unwrap();
+ 
+         window.set_title(&format!(
+@@ -154,11 +166,15 @@ pub fn run_cli(config: Config) {
+         config.render.width,
+         config.render.height,
+         config.render.samples,
++        config.render.use_tiled_rendering,
++        config.render.tile_size,
+     );
+     let mut shadow_renderer = Renderer::new(
+         config.render.shadow_map_size,
+         config.render.shadow_map_size,
+         1,
++        false,
++        config.render.tile_size,
+     );
+ 
+     let cull_mode = match config.render.cull_mode.as_str() {
+@@ -181,7 +197,11 @@ pub fn run_cli(config: Config) {
+     // Save
+     info!("Saving output to '{}'...", config.render.output);
+     let mut buffer = vec![0u32; config.render.width * config.render.height];
+-    post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
++    if renderer.use_tiled {
++        post_process_to_buffer(renderer.tiled_framebuffer.as_ref().unwrap(), &mut buffer, &config);
++    } else {
++        post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
++    }
+     save_buffer_to_image(
+         &buffer,
+         config.render.width,
+diff --git a/src/core/framebuffer.rs b/src/core/framebuffer.rs
+index 91d5fb8..2ae19b8 100644
+--- a/src/core/framebuffer.rs
++++ b/src/core/framebuffer.rs
+@@ -151,3 +151,125 @@ impl FrameBuffer {
+         Some(sum_color / samples)
+     }
+ }
++
++/// Lightweight framebuffer used by tiled/lock-free rasterization.
++/// This buffer intentionally avoids atomics and locks; callers must ensure
++/// thread-safety (e.g., each thread writes disjoint tiles).
++pub struct SimpleFrameBuffer {
++    pub width: usize,
++    pub height: usize,
++    pub sample_count: usize,
++    pub buffer_width: usize,
++    pub buffer_height: usize,
++
++    pub color_buffer: Vec<Vector3<f32>>,
++    pub depth_buffer: Vec<f32>,
++}
++
++impl SimpleFrameBuffer {
++    pub fn new(width: usize, height: usize, sample_count: usize) -> Self {
++        let buffer_width = width * sample_count;
++        let buffer_height = height * sample_count;
++        let size = buffer_width * buffer_height;
++
++        Self {
++            width,
++            height,
++            sample_count,
++            buffer_width,
++            buffer_height,
++            color_buffer: vec![Vector3::zeros(); size],
++            depth_buffer: vec![f32::INFINITY; size],
++        }
++    }
++
++    #[inline(always)]
++    fn index(&self, x: usize, y: usize) -> usize {
++        y * self.buffer_width + x
++    }
++
++    /// Unsafe unchecked pixel write. Caller must guarantee (x,y) in bounds
++    /// and exclusive access.
++    #[inline(always)]
++    pub unsafe fn set_pixel_unchecked(&mut self, x: usize, y: usize, color: Vector3<f32>) {
++        let idx = self.index(x, y);
++        unsafe {
++            *self.color_buffer.get_unchecked_mut(idx) = color;
++        }
++    }
++
++    /// Unsafe unchecked depth write. Caller must guarantee safety as above.
++    #[inline(always)]
++    pub unsafe fn set_depth_unchecked(&mut self, x: usize, y: usize, depth: f32) {
++        let idx = self.index(x, y);
++        unsafe {
++            *self.depth_buffer.get_unchecked_mut(idx) = depth;
++        }
++    }
++
++    /// Unsafe unchecked depth read.
++    #[inline(always)]
++    pub unsafe fn get_depth_unchecked(&self, x: usize, y: usize) -> f32 {
++        let idx = self.index(x, y);
++        unsafe { *self.depth_buffer.get_unchecked(idx) }
++    }
++
++    /// Read sample-aware pixel (averaged if sample_count > 1).
++    pub fn get_pixel(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
++        if x >= self.width || y >= self.height {
++            return None;
++        }
++
++        if self.sample_count == 1 {
++            return Some(self.color_buffer[self.index(x, y)]);
++        }
++
++        let mut sum_color = Vector3::zeros();
++        let start_x = x * self.sample_count;
++        let start_y = y * self.sample_count;
++
++        for dy in 0..self.sample_count {
++            for dx in 0..self.sample_count {
++                let idx = self.index(start_x + dx, start_y + dy);
++                sum_color += self.color_buffer[idx];
++            }
++        }
++        let samples = (self.sample_count * self.sample_count) as f32;
++        Some(sum_color / samples)
++    }
++}
++
++impl FrameBuffer {
++}
++
++/// A minimal read-only view into a framebuffer used by post-processing.
++pub trait FrameBufferView {
++    fn width(&self) -> usize;
++    fn height(&self) -> usize;
++    fn get_pixel(&self, x: usize, y: usize) -> Option<Vector3<f32>>;
++}
++
++impl FrameBufferView for FrameBuffer {
++    fn width(&self) -> usize {
++        self.width
++    }
++    fn height(&self) -> usize {
++        self.height
++    }
++    fn get_pixel(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
++        self.get_pixel(x, y)
++    }
++}
++
++impl FrameBufferView for SimpleFrameBuffer {
++    fn width(&self) -> usize {
++        self.width
++    }
++    fn height(&self) -> usize {
++        self.height
++    }
++    fn get_pixel(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
++        self.get_pixel(x, y)
++    }
++}
++
+diff --git a/src/core/rasterizer.rs b/src/core/rasterizer.rs
+index 32db381..237e667 100644
+--- a/src/core/rasterizer.rs
++++ b/src/core/rasterizer.rs
+@@ -375,4 +375,206 @@ impl Rasterizer {
+         let max_y = points[0].y.max(points[1].y).max(points[2].y).ceil() as i32;
+         (min_x, min_y, max_x, max_y)
+     }
++
++    /// Convert a (possibly clipped) triangle into one or more DrawCommands in
++    /// screen space. This performs clipping and returns geometry suitable for
++    /// binning into tiles.
++    pub fn triangle_to_commands<S: Shader>(
++        &self,
++        clip_coords: &[Vector4<f32>; 3],
++        varyings: &[S::Varying; 3],
++        material: Option<Material>,
++        fb_width: usize,
++        fb_height: usize,
++    ) -> Vec<crate::pipeline::renderer::DrawCommand<S::Varying>>
++    where
++        S::Varying: Interpolatable + Copy + Clone,
++    {
++        let mut current_poly: Vec<(Vector4<f32>, S::Varying)> = Vec::with_capacity(16);
++        let mut clip_buffer: Vec<(Vector4<f32>, S::Varying)> = Vec::with_capacity(16);
++
++        // Fill initial polygon
++        for i in 0..3 {
++            current_poly.push((clip_coords[i], varyings[i]));
++        }
++
++        // 2. Define Clip Planes
++        let planes = [
++            (0, 1.0),
++            (0, -1.0),
++            (1, 1.0),
++            (1, -1.0),
++            (2, 1.0),
++            (2, -1.0),
++        ];
++
++        for &(axis, sign) in &planes {
++            if current_poly.is_empty() {
++                return Vec::new();
++            }
++            self.clip_polygon_against_plane::<S>(&current_poly, &mut clip_buffer, axis, sign);
++            std::mem::swap(&mut current_poly, &mut clip_buffer);
++        }
++
++        let mut out: Vec<crate::pipeline::renderer::DrawCommand<S::Varying>> = Vec::new();
++        if current_poly.len() < 3 {
++            return out;
++        }
++
++        let width = fb_width as f32;
++        let height = fb_height as f32;
++
++        let v0 = current_poly[0];
++        for i in 1..(current_poly.len() - 1) {
++            let v1 = current_poly[i];
++            let v2 = current_poly[i + 1];
++
++            // Build arrays for screen-space conversion
++            let tri_clip = [v0.0, v1.0, v2.0];
++            let tri_vary = [v0.1, v1.1, v2.1];
++
++            // Safeguard against invalid w
++            if tri_clip[0].w.abs() < 1e-6
++                || tri_clip[1].w.abs() < 1e-6
++                || tri_clip[2].w.abs() < 1e-6
++            {
++                continue;
++            }
++
++            // Perspective divide and viewport transform
++            let mut screen_coords = [Point2::origin(); 3];
++            let mut w_values = [0.0f32; 3];
++            let mut z_values = [0.0f32; 3];
++            for k in 0..3 {
++                let ndc = apply_perspective_division(&tri_clip[k]);
++                w_values[k] = tri_clip[k].w;
++                z_values[k] = tri_clip[k].z;
++                screen_coords[k] = ndc_to_screen(ndc.x, ndc.y, width, height);
++            }
++
++            // Backface culling
++            let v0s = screen_coords[0];
++            let v1s = screen_coords[1];
++            let v2s = screen_coords[2];
++            let signed_area = (v1s - v0s).x * (v2s - v1s).y - (v1s - v0s).y * (v2s - v1s).x;
++            match self.cull_mode {
++                CullMode::Back if signed_area >= 0.0 => continue,
++                CullMode::Front if signed_area <= 0.0 => continue,
++                _ => {}
++            }
++
++            // Compute uv_density
++            let area_screen =
++                0.5 * ((v1s.x - v0s.x) * (v2s.y - v0s.y) - (v2s.x - v0s.x) * (v1s.y - v0s.y)).abs();
++            let uv_density = if area_screen > 1e-6 {
++                if let (Some(uv0), Some(uv1), Some(uv2)) = (
++                    tri_vary[0].get_uv(),
++                    tri_vary[1].get_uv(),
++                    tri_vary[2].get_uv(),
++                ) {
++                    let area_uv = 0.5
++                        * ((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y))
++                            .abs();
++                    (area_uv / area_screen).sqrt()
++                } else {
++                    0.0
++                }
++            } else {
++                0.0
++            };
++
++            out.push(crate::pipeline::renderer::DrawCommand {
++                screen_coords,
++                z_values,
++                w_values,
++                varyings: tri_vary,
++                uv_density,
++                material: material.clone(),
++            });
++        }
++
++        out
++    }
++
++    /// Rasterize a DrawCommand constrained to a tile rectangle using non-atomic
++    /// simple framebuffer operations. Caller must ensure exclusive access to the tile.
++    pub fn rasterize_command_in_tile<S: Shader>(
++        &self,
++        framebuffer: &mut crate::core::framebuffer::SimpleFrameBuffer,
++        shader: &S,
++        cmd: &crate::pipeline::renderer::DrawCommand<S::Varying>,
++        tile: &crate::pipeline::renderer::Tile<S::Varying>,
++    ) where
++        S::Varying: Interpolatable
++            + Copy
++            + std::ops::Add<Output = S::Varying>
++            + std::ops::Mul<f32, Output = S::Varying>,
++    {
++        let sc = &cmd.screen_coords;
++
++        // Bounding box for triangle
++        let min_x = sc[0].x.min(sc[1].x).min(sc[2].x).floor() as i32;
++        let min_y = sc[0].y.min(sc[1].y).min(sc[2].y).floor() as i32;
++        let max_x = sc[0].x.max(sc[1].x).max(sc[2].x).ceil() as i32;
++        let max_y = sc[0].y.max(sc[1].y).max(sc[2].y).ceil() as i32;
++
++        // Intersect with tile rectangle
++        let start_x = min_x.max(tile.min_x as i32).max(0) as usize;
++        let end_x = (max_x
++            .min(tile.max_x as i32 - 1)
++            .min(framebuffer.buffer_width as i32 - 1)) as usize;
++        let start_y = min_y.max(tile.min_y as i32).max(0) as usize;
++        let end_y = (max_y
++            .min(tile.max_y as i32 - 1)
++            .min(framebuffer.buffer_height as i32 - 1)) as usize;
++
++        for y in start_y..=end_y {
++            for x in start_x..=end_x {
++                let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
++
++                if let Some(bary) = barycentric_coordinates(pixel_center, sc[0], sc[1], sc[2]) {
++                    if !is_inside_triangle(bary) {
++                        continue;
++                    }
++
++                    if self.wireframe {
++                        let threshold = 0.02;
++                        if bary.x > threshold && bary.y > threshold && bary.z > threshold {
++                            continue;
++                        }
++                    }
++
++                    if let Some(corrected) = perspective_correct_barycentric(
++                        bary,
++                        cmd.w_values[0],
++                        cmd.w_values[1],
++                        cmd.w_values[2],
++                    ) {
++                        let z_ndc = corrected.x * cmd.z_values[0]
++                            + corrected.y * cmd.z_values[1]
++                            + corrected.z * cmd.z_values[2];
++                        let depth = z_ndc * 0.5 + 0.5;
++
++                        unsafe {
++                            let curr = framebuffer.get_depth_unchecked(x, y);
++                            if depth < curr {
++                                framebuffer.set_depth_unchecked(x, y, depth);
++
++                                let interpolated = cmd.varyings[0] * corrected.x
++                                    + cmd.varyings[1] * corrected.y
++                                    + cmd.varyings[2] * corrected.z;
++                                let color = shader.fragment(
++                                    interpolated,
++                                    cmd.material.as_ref(),
++                                    cmd.uv_density,
++                                );
++
++                                framebuffer.set_pixel_unchecked(x, y, color);
++                            }
++                        }
++                    }
++                }
++            }
++        }
++    }
+ }
+diff --git a/src/io/config.rs b/src/io/config.rs
+index e96807d..5329be3 100644
+--- a/src/io/config.rs
++++ b/src/io/config.rs
+@@ -124,6 +124,12 @@ pub struct RenderConfig {
+     pub wireframe: bool,
+     #[serde(default = "default_false")]
+     pub use_mipmap: bool,
++
++    // --- Optional Backend ---
++    #[serde(default = "default_false")]
++    pub use_tiled_rendering: bool,
++    #[serde(default = "default_tile_size")]
++    pub tile_size: usize,
+ }
+ 
+ impl Default for RenderConfig {
+@@ -149,6 +155,8 @@ impl Default for RenderConfig {
+             cull_mode: default_cull_mode(),
+             wireframe: default_false(),
+             use_mipmap: default_false(),
++            use_tiled_rendering: default_false(),
++            tile_size: default_tile_size(),
+         }
+     }
+ }
+@@ -193,6 +201,9 @@ fn default_true() -> bool {
+ fn default_pcf_kernel() -> i32 {
+     1
+ }
++fn default_tile_size() -> usize {
++    32
++}
+ 
+ #[derive(Debug, Deserialize)]
+ pub struct CameraConfig {
+diff --git a/src/pipeline/passes.rs b/src/pipeline/passes.rs
+index 4b2acf5..d7189e7 100644
+--- a/src/pipeline/passes.rs
++++ b/src/pipeline/passes.rs
+@@ -1,5 +1,5 @@
+ use crate::core::color::{aces_tone_mapping, linear_to_srgb};
+-use crate::core::framebuffer::FrameBuffer;
++
+ use crate::core::math::transform::TransformFactory;
+ use crate::io::config::Config;
+ use crate::pipeline::renderer::{ClearOptions, Renderer};
+@@ -115,10 +115,16 @@ pub fn render_main_pass(
+ }
+ 
+ /// Post-processing: Tone Mapping -> Gamma Correction -> u32 Buffer.
+-pub fn post_process_to_buffer(framebuffer: &FrameBuffer, buffer: &mut [u32], config: &Config) {
++pub fn post_process_to_buffer<F: crate::core::framebuffer::FrameBufferView + Sync>(framebuffer: &F, buffer: &mut [u32], config: &Config) {
++    let width = framebuffer.width();
++    let height = framebuffer.height();
++
++    // Iterate rows in parallel but only up to `height` rows. This naturally uses
++    // the framebuffer dimensions instead of multiplying them for a single assert.
+     buffer
+-        .par_chunks_mut(framebuffer.width)
++        .par_chunks_mut(width)
+         .enumerate()
++        .take(height)
+         .for_each(|(y, row)| {
+             for (x, pixel) in row.iter_mut().enumerate() {
+                 if let Some(color) = framebuffer.get_pixel(x, y) {
+diff --git a/src/pipeline/renderer.rs b/src/pipeline/renderer.rs
+index 6b5efec..bd204d0 100644
+--- a/src/pipeline/renderer.rs
++++ b/src/pipeline/renderer.rs
+@@ -31,76 +31,156 @@ impl Default for ClearOptions<'_> {
+     }
+ }
+ 
++
++/// Per-triangle draw command materialized in screen space.
++/// Stores positions, z/w values, per-vertex varyings and material.
++#[derive(Clone)]
++pub struct DrawCommand<V> {
++    pub screen_coords: [nalgebra::Point2<f32>; 3],
++    pub z_values: [f32; 3],
++    pub w_values: [f32; 3],
++    pub varyings: [V; 3],
++    pub uv_density: f32,
++    pub material: Option<crate::scene::material::Material>,
++}
++
++/// A Tile represents a rectangular region on the screen and contains a list
++/// of draw commands (triangles) that overlap it.
++pub struct Tile<V> {
++    pub min_x: usize,
++    pub min_y: usize,
++    pub max_x: usize, // exclusive
++    pub max_y: usize, // exclusive
++    pub commands: Vec<DrawCommand<V>>,
++}
++
++// Raw pointer wrapper used to share mutable tiled framebuffer pointer across rayon workers.
++// Safety: We assert Send/Sync here because we guarantee disjoint tile writes at runtime.
++struct SimpleFramebufferPtr(*mut crate::core::framebuffer::SimpleFrameBuffer);
++unsafe impl Send for SimpleFramebufferPtr {}
++unsafe impl Sync for SimpleFramebufferPtr {}
++
+ /// The high-level renderer that orchestrates the pipeline stages.
+ pub struct Renderer {
+     pub rasterizer: Rasterizer,
+     pub framebuffer: FrameBuffer,
+-}
++    // Optional tiled framebuffer (used when `use_tiled` is true)
++    pub tiled_framebuffer: Option<crate::core::framebuffer::SimpleFrameBuffer>,
++    pub use_tiled: bool,
++    pub tile_size: usize,
++} 
+ 
+ impl Renderer {
+     /// Creates a new renderer.
+     /// sample_count: 1 for no AA, 2 for 2x2 SSAA, etc.
+-    pub fn new(width: usize, height: usize, sample_count: usize) -> Self {
++    /// `use_tiled` selects the optional tiled/lock-free backend.
++    pub fn new(width: usize, height: usize, sample_count: usize, use_tiled: bool, tile_size: usize) -> Self {
++        let tiled = if use_tiled {
++            Some(crate::core::framebuffer::SimpleFrameBuffer::new(
++                width,
++                height,
++                sample_count,
++            ))
++        } else {
++            None
++        };
++
+         Self {
+             // Rasterizer is stateless regarding size now, it relies on the framebuffer passed to it.
+             rasterizer: Rasterizer::new(),
+             framebuffer: FrameBuffer::new(width, height, sample_count),
++            tiled_framebuffer: tiled,
++            use_tiled,
++            tile_size,
+         }
+     }
+ 
+     /// Clears the framebuffer using advanced options (Gradient, Texture).
+     pub fn clear_with_options(&mut self, options: ClearOptions) {
+-        // 1. Clear Depth Buffer
+-        let depth_bits = options.depth.to_bits();
+-        // Parallel clear for depth buffer (optional optimization)
+-        self.framebuffer.depth_buffer.par_iter().for_each(|d| {
+-            d.store(depth_bits, std::sync::atomic::Ordering::Relaxed);
+-        });
++        if self.use_tiled {
++            // Clear tiled framebuffer (plain f32/color arrays)
++            if let Some(tb) = self.tiled_framebuffer.as_mut() {
++                let depth = options.depth;
++                tb.depth_buffer.par_iter_mut().for_each(|d| *d = depth);
+ 
+-        // 2. Clear Color Buffer
+-        let width = self.framebuffer.buffer_width;
+-        let height = self.framebuffer.buffer_height;
+-
+-        // Get mutable reference to the underlying vector
+-        let color_buffer = unsafe { &mut *self.framebuffer.color_buffer.get() };
+-
+-        // Parallel clear for color buffer
+-        // We iterate over rows to make gradient calculation easier
+-        color_buffer
+-            .par_chunks_mut(width)
+-            .enumerate()
+-            .for_each(|(y, row)| {
+-                let v = y as f32 / height as f32;
+-                for (x, pixel) in row.iter_mut().enumerate() {
+-                    let u = x as f32 / width as f32;
+-
+-                    let color = if let Some(tex) = options.texture {
+-                        tex.sample_color(u, v)
+-                    } else if let Some((top, bottom)) = options.gradient {
+-                        top.lerp(&bottom, v)
+-                    } else {
+-                        options.color
+-                    };
+-                    *pixel = color;
+-                }
++                let width = tb.buffer_width;
++                let height = tb.buffer_height;
++                tb.color_buffer
++                    .par_chunks_mut(width)
++                    .enumerate()
++                    .for_each(|(y, row)| {
++                        let v = y as f32 / height as f32;
++                        for (x, pixel) in row.iter_mut().enumerate() {
++                            let u = x as f32 / width as f32;
++                            let color = if let Some(tex) = options.texture {
++                                tex.sample_color(u, v)
++                            } else if let Some((top, bottom)) = options.gradient {
++                                top.lerp(&bottom, v)
++                            } else {
++                                options.color
++                            };
++                            *pixel = color;
++                        }
++                    });
++            }
++        } else {
++            // 1. Clear Depth Buffer (atomic)
++            let depth_bits = options.depth.to_bits();
++            // Parallel clear for depth buffer (optional optimization)
++            self.framebuffer.depth_buffer.par_iter().for_each(|d| {
++                d.store(depth_bits, std::sync::atomic::Ordering::Relaxed);
+             });
++
++            // 2. Clear Color Buffer (atomic-backed)
++            let width = self.framebuffer.buffer_width;
++            let height = self.framebuffer.buffer_height;
++
++            // Get mutable reference to the underlying vector
++            let color_buffer = unsafe { &mut *self.framebuffer.color_buffer.get() };
++
++            // Parallel clear for color buffer
++            // We iterate over rows to make gradient calculation easier
++            color_buffer
++                .par_chunks_mut(width)
++                .enumerate()
++                .for_each(|(y, row)| {
++                    let v = y as f32 / height as f32;
++                    for (x, pixel) in row.iter_mut().enumerate() {
++                        let u = x as f32 / width as f32;
++
++                        let color = if let Some(tex) = options.texture {
++                            tex.sample_color(u, v)
++                        } else if let Some((top, bottom)) = options.gradient {
++                            top.lerp(&bottom, v)
++                        } else {
++                            options.color
++                        };
++                        *pixel = color;
++                    }
++                });
++        }
+     }
+ 
+     /// Draws a complete model containing multiple meshes.
+-    pub fn draw_model<S: Shader>(&mut self, model: &Model, shader: &S)
++    pub fn draw_model<S: Shader + Sync>(&mut self, model: &Model, shader: &S)
+     where
+-        <S as Shader>::Varying: 'static,
++        <S as Shader>::Varying:
++            'static + crate::core::pipeline::Interpolatable + Copy + Clone + Send + Sync,
+     {
+-        for mesh in &model.meshes {
+-            // Retrieve the material for this mesh
+-            // If the ID is invalid, we pass None (Shader will use fallback)
+-            let material = if mesh.material_id < model.materials.len() {
+-                Some(&model.materials[mesh.material_id])
+-            } else {
+-                None
+-            };
++        if self.use_tiled {
++            self.render_model_binned(model, shader);
++        } else {
++            for mesh in &model.meshes {
++                // Retrieve the material for this mesh
++                // If the ID is invalid, we pass None (Shader will use fallback)
++                let material = if mesh.material_id < model.materials.len() {
++                    Some(&model.materials[mesh.material_id])
++                } else {
++                    None
++                };
+ 
+-            self.draw_mesh(mesh, shader, material);
++                self.draw_mesh(mesh, shader, material);
++            }
+         }
+     }
+ 
+@@ -144,4 +224,170 @@ impl Renderer {
+             );
+         });
+     }
++
++    /// Initialize tiles grid for current framebuffer size.
++    fn init_tiles<V>(&self) -> Vec<Tile<V>> {
++        let tiles_x = self.framebuffer.buffer_width.div_ceil(self.tile_size);
++        let tiles_y = self.framebuffer.buffer_height.div_ceil(self.tile_size);
++        let mut tiles = Vec::with_capacity(tiles_x * tiles_y);
++        for ty in 0..tiles_y {
++            for tx in 0..tiles_x {
++                tiles.push(Tile {
++                    min_x: tx * self.tile_size,
++                    min_y: ty * self.tile_size,
++                    max_x: ((tx + 1) * self.tile_size).min(self.framebuffer.buffer_width),
++                    max_y: ((ty + 1) * self.tile_size).min(self.framebuffer.buffer_height),
++                    commands: Vec::new(),
++                });
++            }
++        }
++        tiles
++    }
++
++    /// Binning pass: converts transformed + clipped triangles into screen-space
++    /// DrawCommands and assigns them to overlapping tiles. This is intentionally
++    /// serial to avoid synchronization costs while pushing into per-tile Vecs.
++    fn bin_triangles<S>(
++        &self,
++        model: &Model,
++        shader: &S,
++        tiles: &mut [Tile<<S as Shader>::Varying>],
++    ) where
++        S: Shader,
++        <S as Shader>::Varying: crate::core::pipeline::Interpolatable + Copy + Clone,
++    {
++        let fb_w = self.framebuffer.buffer_width;
++        let fb_h = self.framebuffer.buffer_height;
++
++        for mesh in &model.meshes {
++            // material cloned into the DrawCommand for ease of access during rasterization
++            let material = if mesh.material_id < model.materials.len() {
++                Some(model.materials[mesh.material_id].clone())
++            } else {
++                None
++            };
++
++            // Walk all triangles serially and generate commands
++            for chunk in mesh.indices.chunks(3) {
++                if chunk.len() < 3 {
++                    continue;
++                }
++                let i0 = chunk[0] as usize;
++                let i1 = chunk[1] as usize;
++                let i2 = chunk[2] as usize;
++                let v0 = &mesh.vertices[i0];
++                let v1 = &mesh.vertices[i1];
++                let v2 = &mesh.vertices[i2];
++
++                let (p0, var0) = shader.vertex(v0);
++                let (p1, var1) = shader.vertex(v1);
++                let (p2, var2) = shader.vertex(v2);
++
++                let clip_coords = [p0, p1, p2];
++                let varyings = [var0, var1, var2];
++
++                // Convert clipped triangle(s) to DrawCommands in screen space
++                let commands = self.rasterizer.triangle_to_commands::<S>(
++                    &clip_coords,
++                    &varyings,
++                    material.clone(),
++                    fb_w,
++                    fb_h,
++                );
++
++                if commands.is_empty() {
++                    continue;
++                }
++
++                // Distribute commands to overlapping tiles
++                let tiles_w = self.framebuffer.buffer_width.div_ceil(self.tile_size);
++                for cmd in commands {
++                    // compute AABB in integer pixel coordinates
++                    let min_x = cmd.screen_coords[0]
++                        .x
++                        .min(cmd.screen_coords[1].x)
++                        .min(cmd.screen_coords[2].x)
++                        .floor() as isize;
++                    let min_y = cmd.screen_coords[0]
++                        .y
++                        .min(cmd.screen_coords[1].y)
++                        .min(cmd.screen_coords[2].y)
++                        .floor() as isize;
++                    let max_x = cmd.screen_coords[0]
++                        .x
++                        .max(cmd.screen_coords[1].x)
++                        .max(cmd.screen_coords[2].x)
++                        .ceil() as isize;
++                    let max_y = cmd.screen_coords[0]
++                        .y
++                        .max(cmd.screen_coords[1].y)
++                        .max(cmd.screen_coords[2].y)
++                        .ceil() as isize;
++
++                    if max_x < 0 || max_y < 0 {
++                        continue;
++                    }
++                    let t_min_x = (min_x.max(0) as usize) / self.tile_size;
++                    let t_max_x = (max_x.max(0) as usize) / self.tile_size;
++                    let t_min_y = (min_y.max(0) as usize) / self.tile_size;
++                    let t_max_y = (max_y.max(0) as usize) / self.tile_size;
++
++                    for ty in t_min_y..=t_max_y {
++                        for tx in t_min_x..=t_max_x {
++                            let idx = ty * tiles_w + tx;
++                            if let Some(tile) = tiles.get_mut(idx) {
++                                tile.commands.push(cmd.clone());
++                            }
++                        }
++                    }
++                }
++            }
++        }
++    }
++
++    /// Top-level tiled render for a single model. Bins triangles and then
++    /// rasterizes tiles in parallel, giving each thread exclusive access to
++    /// its tile region via unsafe mutable framebuffer reference.
++    fn render_model_binned<S: Shader + Sync>(&mut self, model: &Model, shader: &S)
++    where
++        <S as Shader>::Varying: crate::core::pipeline::Interpolatable + Copy + Clone + Send + Sync,
++    {
++        // 1. Init tiles
++        let mut tiles: Vec<Tile<<S as Shader>::Varying>> = self.init_tiles();
++
++        // 2. Binning (serial)
++        self.bin_triangles(model, shader, &mut tiles);
++
++        // 3. Parallel rasterization per tile
++        // Wrap the framebuffer in UnsafeCell to get a shared pointer we can
++        // temporarily convert to &mut for each tile worker. Safety: each
++        // tile will write only to its pixel rectangle, so there are no races.
++        // Parallel tile rasterization: each worker assumes exclusive access
++        // to its tile region. We use an Arc-wrapped raw pointer wrapper to
++        // safely share the framebuffer pointer with Rayon workers.
++        if let Some(tb) = self.tiled_framebuffer.as_mut() {
++            let fb_arc = std::sync::Arc::new(SimpleFramebufferPtr(
++                tb as *mut crate::core::framebuffer::SimpleFrameBuffer,
++            ));
++
++            tiles.par_iter().for_each(|tile| {
++                if tile.commands.is_empty() {
++                    return;
++                }
++                // SAFETY: Each tile worker will only mutate pixels within its
++                // rectangle. We are responsible for ensuring the pointer is valid
++                // for the duration of the parallel work.
++                let ptr = fb_arc.0;
++                unsafe {
++                    let fb = &mut *ptr;
++                    for cmd in &tile.commands {
++                        self.rasterizer
++                            .rasterize_command_in_tile(fb, shader, cmd, tile);
++                    }
++                }
++            });
++
++            // 4. (No copy): we will post-process directly from the tiled framebuffer
++        }
++    }
+ }
