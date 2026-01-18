@@ -33,6 +33,10 @@ pub struct PbrMaterial {
     pub albedo_texture: Option<Arc<Texture>>,
     pub metallic_roughness_texture: Option<Arc<Texture>>,
     pub normal_texture: Option<Arc<Texture>>,
+
+    // GLTF compliant optional textures
+    pub ao_texture: Option<Arc<Texture>>,
+    pub emissive_texture: Option<Arc<Texture>>,
 }
 
 impl Default for PbrMaterial {
@@ -46,6 +50,8 @@ impl Default for PbrMaterial {
             albedo_texture: None,
             metallic_roughness_texture: None,
             normal_texture: None,
+            ao_texture: None,
+            emissive_texture: None,
         }
     }
 }

@@ -22,54 +22,21 @@ impl Default for Config {
             render: RenderConfig::default(),
             camera: CameraConfig::default(),
             ground: GroundConfig::default(),
-            lights: vec![
-                LightConfig {
-                    r#type: "directional".to_string(),
-                    direction: Some([-1.0, -2.0, -1.0]),
-                    color: [1.0, 0.95, 0.8],
-                    intensity: 3.5,
-                    position: None,
-                    attenuation: None,
-                },
-                LightConfig {
-                    r#type: "point".to_string(),
-                    position: Some([-3.0, 2.0, 2.0]),
-                    color: [0.1, 0.1, 0.3],
-                    intensity: 1.0,
-                    attenuation: Some([1.0, 0.09, 0.032]),
-                    direction: None,
-                },
-            ],
+            lights: vec![LightConfig {
+                r#type: "directional".to_string(),
+                direction: Some([-1.0, -2.0, -1.0]),
+                color: [1.0, 0.95, 0.8],
+                intensity: 3.5,
+                position: None,
+                attenuation: None,
+            }],
             objects: vec![
+                // Default now points to a GLTF
                 ObjectConfig {
-                    path: "assets/objs/spot/spot_triangulated.obj".to_string(),
-                    position: [-1.0, 0.0, 0.5],
-                    rotation: [0.0, 30.0, 0.0],
-                    scale: [1.0, 1.0, 1.0],
-                    albedo: Some([1.00, 0.76, 0.33]),
-                    metallic: Some(1.0),
-                    roughness: Some(0.3),
-                    ao: Some(0.99),
-                    emissive: Some([0.01, 0.02, 0.03]),
-                    emissive_intensity: 0.7,
-                    albedo_texture: None,
-                    metallic_roughness_texture: None,
-                    normal_texture: None,
-                },
-                ObjectConfig {
-                    path: "assets/objs/simple/sphere.obj".to_string(),
-                    position: [1.5, 0.5, -1.0],
-                    scale: [1.5, 1.5, 1.5],
-                    albedo: Some([0.1, 0.1, 0.8]),
-                    metallic: Some(0.0),
-                    roughness: Some(0.4),
-                    rotation: [0.0, 0.0, 0.0],
-                    ao: None,
-                    emissive: None,
-                    emissive_intensity: 1.0,
-                    albedo_texture: None,
-                    metallic_roughness_texture: None,
-                    normal_texture: None,
+                    path: "assets/glbs/old_rusty_car.glb".to_string(),
+                    position: [0.0, 0.0, 0.0],
+                    rotation: [0.0, -45.0, 0.0],
+                    scale: [2.0, 2.0, 2.0],
                 },
             ],
         }
@@ -311,25 +278,8 @@ pub struct ObjectConfig {
     pub rotation: [f32; 3],
     #[serde(default = "default_scale")]
     pub scale: [f32; 3],
-
-    // --- Material Values ---
-    pub albedo: Option<[f32; 3]>,
-    pub metallic: Option<f32>,
-    pub roughness: Option<f32>,
-    pub ao: Option<f32>,
-    pub emissive: Option<[f32; 3]>,
-    #[serde(default = "default_emissive_intensity")]
-    pub emissive_intensity: f32,
-
-    // --- Material Textures ---
-    pub albedo_texture: Option<String>,
-    pub metallic_roughness_texture: Option<String>,
-    pub normal_texture: Option<String>,
 }
 
-fn default_emissive_intensity() -> f32 {
-    1.0
-}
 fn default_scale() -> [f32; 3] {
     [1.0, 1.0, 1.0]
 }

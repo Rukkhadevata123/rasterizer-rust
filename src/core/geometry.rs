@@ -1,4 +1,4 @@
-use nalgebra::{Point3, Vector2, Vector3};
+use nalgebra::{Point3, Vector2, Vector3, Vector4};
 
 /// Represents a single vertex in 3D space.
 #[derive(Debug, Clone, Copy)]
@@ -9,9 +9,8 @@ pub struct Vertex {
     pub normal: Vector3<f32>,
     /// Texture coordinates (UV).
     pub texcoord: Vector2<f32>,
-    /// Tangent vector (xyz) for Normal Mapping.
-    /// We use Vector3 to keep interpolation simple (ignoring handedness for now).
-    pub tangent: Vector3<f32>,
+    /// Changed from Vector3 to Vector4 to store the Sign (w component) required by glTF/PBR.
+    pub tangent: Vector4<f32>,
 }
 
 impl Vertex {
@@ -20,7 +19,7 @@ impl Vertex {
             position,
             normal,
             texcoord,
-            tangent: Vector3::zeros(),
+            tangent: Vector4::zeros(),
         }
     }
 }

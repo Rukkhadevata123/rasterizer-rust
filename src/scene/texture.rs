@@ -4,35 +4,40 @@ use nalgebra::Vector3;
 use std::path::Path;
 use std::sync::Arc;
 
-/// Represents a 2D texture map with a simple Mip chain and trilinear sampling.
 #[derive(Debug, Clone)]
 pub struct Texture {
-    /// Mip chain. Level 0 is original image, level 1 is 1/2, etc.
     pub mips: Vec<Arc<DynamicImage>>,
     pub width: u32,
     pub height: u32,
 }
 
 impl Texture {
-    /// Load texture and generate a simple mip chain using triangle filter downsampling.
-    /// If `use_mipmap` is false, only level 0 is stored (fast load, lower memory).
+    /// Load from file path, now only used in background texture.
     pub fn load<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Self, String> {
         let path_ref = path.as_ref();
         let img = image::open(path_ref).map_err(|e| format!("Failed to load texture: {}", e))?;
+        info!(
+            "Loaded texture: {:?} ({}x{})",
+            path_ref,
+            img.width(),
+            img.height()
+        );
 
+        Ok(Self::from_image(img, use_mipmap))
+    }
+
+    /// Create directly from an in-memory image (Crucial for GLTF/GLB)
+    pub fn from_image(img: DynamicImage, use_mipmap: bool) -> Self {
         let width = img.width();
         let height = img.height();
+        let mut mips = Vec::new();
 
-        info!("Loaded texture: {:?} ({}x{})", path_ref, width, height);
-
-        // Build mip chain only when requested.
-        let mut mips: Vec<Arc<DynamicImage>> = Vec::new();
+        // Level 0
         mips.push(Arc::new(img.clone()));
 
+        // Generate Mips
         if use_mipmap {
             let mut current = img;
-            // Use the `resize` method on DynamicImage to preserve image variants and avoid
-            // unnecessary conversions to a concrete ImageBuffer variant.
             while current.width() > 1 && current.height() > 1 {
                 current = current.resize(
                     (current.width() / 2).max(1),
@@ -43,11 +48,11 @@ impl Texture {
             }
         }
 
-        Ok(Self {
+        Self {
             mips,
             width,
             height,
-        })
+        }
     }
 
     /// Bilinear sample on a specific mip level.
@@ -65,7 +70,7 @@ impl Texture {
 
         // 2. Map to pixel coordinates
         let x = u * width as f32 - 0.5;
-        let y = (1.0 - v) * height as f32 - 0.5;
+        let y = v * height as f32 - 0.5;
 
         // 3. Identify the 2x2 pixel block
         let x0 = x.floor() as i32;

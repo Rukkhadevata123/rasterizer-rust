@@ -1,6 +1,6 @@
 use crate::core::math::transform::TransformFactory;
 use crate::io::config::Config;
-use crate::io::obj_loader::load_obj;
+use crate::io::gltf_loader::load_gltf;
 use crate::scene::camera::Camera;
 use crate::scene::context::RenderContext;
 use crate::scene::light::Light;
@@ -8,11 +8,9 @@ use crate::scene::material::{Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
 use crate::scene::scene_object::SceneObject;
-use crate::scene::texture::Texture;
 use crate::scene::utils::normalize_and_center_model;
-use log::{error, info, warn};
+use log::{error, info};
 use nalgebra::{Point3, Vector3};
-use std::sync::Arc;
 
 /// Helper to rebuild light list from config (used in Init and Hot Reload)
 pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Point3<f32>) {
@@ -54,6 +52,7 @@ pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Point3<f32>) {
 }
 
 /// Helper to update existing SceneObjects with new parameters from config.
+/// Only updates Transform now.
 pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) {
     let num_loaded_objects = config.objects.len();
     let total_scene_objects = scene_objects.len();
@@ -63,11 +62,10 @@ pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) 
     let obj_start_index = if has_ground_in_memory { 1 } else { 0 };
 
     // 1. Update Ground
-    if has_ground_in_memory {
-        if let Some(ground_obj) = scene_objects.get_mut(0) {
-            if config.ground.enabled {
-                ground_obj.transform = TransformFactory::translation(&Vector3::new(0.0, -1.0, 0.0));
-                let Material::Pbr(mat) = &mut ground_obj.model.materials[0];
+    if has_ground_in_memory && let Some(ground_obj) = scene_objects.get_mut(0) {
+        if config.ground.enabled {
+            ground_obj.transform = TransformFactory::translation(&Vector3::new(0.0, -1.0, 0.0));
+            if let Some(Material::Pbr(mat)) = ground_obj.model.materials.get_mut(0) {
                 if let Some(c) = config.ground.albedo {
                     mat.albedo = Vector3::from(c);
                 }
@@ -77,44 +75,23 @@ pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) 
                 if let Some(r) = config.ground.roughness {
                     mat.roughness = r;
                 }
-            } else {
-                // Hide ground
-                ground_obj.transform = TransformFactory::scaling_nonuniform(&Vector3::zeros());
             }
+        } else {
+            ground_obj.transform = TransformFactory::scaling_nonuniform(&Vector3::zeros());
         }
-    } else if config.ground.enabled {
-        warn!("Cannot enable ground dynamically because it wasn't loaded at startup.");
     }
 
-    // 2. Update Loaded Objects
+    // 2. Update Loaded Objects (Transforms Only)
     for (i, obj_conf) in config.objects.iter().enumerate() {
         let scene_idx = obj_start_index + i;
         if let Some(scene_obj) = scene_objects.get_mut(scene_idx) {
-            // Update Transform
             let translation = TransformFactory::translation(&Vector3::from(obj_conf.position));
             let rotation = TransformFactory::rotation_x(obj_conf.rotation[0].to_radians())
                 * TransformFactory::rotation_y(obj_conf.rotation[1].to_radians())
                 * TransformFactory::rotation_z(obj_conf.rotation[2].to_radians());
             let scale = TransformFactory::scaling_nonuniform(&Vector3::from(obj_conf.scale));
-            scene_obj.transform = translation * rotation * scale;
 
-            // Update Material
-            let Material::Pbr(mat) = &mut scene_obj.model.materials[0];
-            if let Some(c) = obj_conf.albedo {
-                mat.albedo = Vector3::from(c);
-            }
-            if let Some(m) = obj_conf.metallic {
-                mat.metallic = m;
-            }
-            if let Some(r) = obj_conf.roughness {
-                mat.roughness = r;
-            }
-            if let Some(ao) = obj_conf.ao {
-                mat.ao = ao;
-            }
-            if let Some(e) = obj_conf.emissive {
-                mat.emissive = Vector3::from(e) * obj_conf.emissive_intensity;
-            }
+            scene_obj.transform = translation * rotation * scale;
         }
     }
 }
@@ -163,7 +140,7 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
                 .ground
                 .albedo
                 .map(Vector3::from)
-                .unwrap_or(Vector3::new(0.9, 0.9, 0.9)),
+                .unwrap_or(Vector3::new(0.6, 0.6, 0.6)),
             metallic: config.ground.metallic.unwrap_or(0.0),
             roughness: config.ground.roughness.unwrap_or(0.8),
             ao: 1.0,
@@ -178,14 +155,15 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
 
     // 3.2 Loaded Objects
     for obj_conf in &config.objects {
-        let mut model = match load_obj(&obj_conf.path, config.render.use_mipmap) {
+        // Direct GLTF Loading
+        let mut model = match load_gltf(&obj_conf.path, config.render.use_mipmap) {
             Ok(mut m) => {
                 normalize_and_center_model(&mut m);
                 m
             }
             Err(e) => {
                 error!(
-                    "Error loading model '{}': {}. Using fallback mesh.",
+                    "Error loading GLTF '{}': {}. Using fallback mesh.",
                     obj_conf.path, e
                 );
                 let mesh = Mesh::create_test_triangle(0);
@@ -197,56 +175,18 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
             }
         };
 
+        // Ensure material fallback
         if model.materials.is_empty() {
             model.materials.push(Material::default());
         }
 
-        // Apply config overrides
-        let Material::Pbr(ref mut mat) = model.materials[0];
-        if let Some(c) = obj_conf.albedo {
-            mat.albedo = Vector3::from(c);
-        }
-        if let Some(m) = obj_conf.metallic {
-            mat.metallic = m;
-        }
-        if let Some(r) = obj_conf.roughness {
-            mat.roughness = r;
-        }
-        if let Some(ao) = obj_conf.ao {
-            mat.ao = ao;
-        }
-        if let Some(e) = obj_conf.emissive {
-            mat.emissive = Vector3::from(e) * obj_conf.emissive_intensity;
-        }
-
-        // Load textures
-        if let Some(path) = &obj_conf.albedo_texture {
-            if let Ok(tex) = Texture::load(path, config.render.use_mipmap) {
-                mat.albedo_texture = Some(Arc::new(tex));
-            } else {
-                warn!("Failed to load Albedo texture '{}'", path);
-            }
-        }
-        if let Some(path) = &obj_conf.metallic_roughness_texture {
-            if let Ok(tex) = Texture::load(path, config.render.use_mipmap) {
-                mat.metallic_roughness_texture = Some(Arc::new(tex));
-            } else {
-                warn!("Failed to load Metallic/Roughness texture '{}'", path);
-            }
-        }
-        if let Some(path) = &obj_conf.normal_texture {
-            if let Ok(tex) = Texture::load(path, config.render.use_mipmap) {
-                mat.normal_texture = Some(Arc::new(tex));
-            } else {
-                warn!("Failed to load Normal texture '{}'", path);
-            }
-        }
-
+        // Apply Transform
         let translation = TransformFactory::translation(&Vector3::from(obj_conf.position));
         let rotation = TransformFactory::rotation_x(obj_conf.rotation[0].to_radians())
             * TransformFactory::rotation_y(obj_conf.rotation[1].to_radians())
             * TransformFactory::rotation_z(obj_conf.rotation[2].to_radians());
         let scale = TransformFactory::scaling_nonuniform(&Vector3::from(obj_conf.scale));
+
         scene_objects.push(SceneObject::new(model, translation * rotation * scale));
     }
 

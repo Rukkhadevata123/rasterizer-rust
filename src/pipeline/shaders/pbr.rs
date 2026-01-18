@@ -14,7 +14,7 @@ pub struct PbrVarying {
     pub world_pos: Point3<f32>,
     pub normal: Vector3<f32>,
     pub uv: Vector2<f32>,
-    pub tangent: Vector3<f32>,
+    pub tangent: Vector4<f32>,
 }
 
 impl Add for PbrVarying {
@@ -24,7 +24,9 @@ impl Add for PbrVarying {
             world_pos: Point3::from(self.world_pos.coords + other.world_pos.coords),
             normal: self.normal + other.normal,
             uv: self.uv + other.uv,
-            tangent: self.tangent + other.tangent, // Standard linear interpolation
+            // Linear interpolate sign? Usually sign is constant per triangle,
+            // but lerping is fine as long as we don't normalize W.
+            tangent: self.tangent + other.tangent,
         }
     }
 }
@@ -222,7 +224,16 @@ impl Shader for PbrShader {
         let world_pos =
             Point3::from_homogeneous(self.model_matrix * vertex.position.to_homogeneous()).unwrap();
         let world_normal = (self.normal_matrix * vertex.normal).normalize();
-        let world_tangent = (self.normal_matrix * vertex.tangent).normalize(); // Transform tangent to world space
+
+        // Transform XYZ of tangent, Keep W (Sign)
+        let t_xyz = vertex.tangent.xyz();
+        let t_transformed = (self.normal_matrix * t_xyz).normalize();
+        let world_tangent = Vector4::new(
+            t_transformed.x,
+            t_transformed.y,
+            t_transformed.z,
+            vertex.tangent.w,
+        );
         let clip_pos = self.projection_matrix
             * self.view_matrix
             * self.model_matrix
@@ -234,7 +245,7 @@ impl Shader for PbrShader {
                 world_pos,
                 normal: world_normal,
                 uv: vertex.texcoord,
-                tangent: world_tangent,
+                tangent: world_tangent, // Pass Vec4
             },
         )
     }
@@ -262,48 +273,65 @@ impl Shader for PbrShader {
         // Standard glTF packing: Green = Roughness, Blue = Metallic
         let (roughness, metallic) = if let Some(tex) = &mat.metallic_roughness_texture {
             let sample = tex.sample_data_with_density(varying.uv.x, varying.uv.y, uv_density);
-            // Multiply by the uniform factor
             (sample.y * mat.roughness, sample.z * mat.metallic)
         } else {
             (mat.roughness, mat.metallic)
         };
 
-        let ao = mat.ao;
+        // Sample AO
+        // GLTF Occlusion: Usually R channel.
+        let ao = if let Some(tex) = &mat.ao_texture {
+            tex.sample_data_with_density(varying.uv.x, varying.uv.y, uv_density)
+                .x
+                * mat.ao
+        } else {
+            mat.ao
+        };
+
+        // Sample Emissive
+        // Emissive Map should be sRGB -> Linear
+        let emissive_color = if let Some(tex) = &mat.emissive_texture {
+            tex.sample_color_with_density(varying.uv.x, varying.uv.y, uv_density)
+                .component_mul(&mat.emissive)
+        } else {
+            mat.emissive
+        };
 
         // 2. Calculate Normal (Normal Mapping)
         let geom_normal = varying.normal.normalize();
 
         // Use normal map if available, otherwise fallback to geometry normal
         let n = if let Some(normal_map) = &mat.normal_texture {
-            // Check for valid tangent (avoid NaN if tangent is zero, e.g. no UVs)
-            if varying.tangent.norm_squared() > 1e-6 {
-                let geom_tangent = varying.tangent.normalize();
+            // Check valid tangent (xyz length)
+            if varying.tangent.xyz().norm_squared() > 1e-6 {
+                let geom_tangent = varying.tangent.xyz().normalize();
+                let tangent_sign = varying.tangent.w; // Get Sign
 
-                // 2.1 Re-orthogonalize Tangent (Gram-Schmidt)
-                // Interpolation can denormalize vectors. This ensures T is perpendicular to N.
-                // T = T - N * (N . T)
+                // 2.1 Gram-Schmidt
                 let t = (geom_tangent - geom_normal * geom_normal.dot(&geom_tangent)).normalize();
 
-                // 2.2 Calculate Bitangent (B = N x T)
-                // Assumes right-handed coordinates.
-                let b = geom_normal.cross(&t).normalize();
+                // 2.2 Calculate Bitangent using SIGN
+                // B = (N x T) * Sign
+                let b = geom_normal.cross(&t) * tangent_sign;
 
-                // 2.3 Construct TBN Matrix
-                // Transforms from Tangent Space to World Space
                 let tbn = Matrix3::from_columns(&[t, b, geom_normal]);
 
                 // 2.4 Sample Normal Map
-                // MUST use sample_data (Linear) because normals are vectors, not colors.
                 let packed_normal = normal_map.sample_data(varying.uv.x, varying.uv.y);
 
-                // 2.5 Decode [0, 1] range to [-1, 1] range
+                // 2.5 Decode
+                // Since we fixed Texture V-flip:
+                // Normal Map Y usually corresponds to V direction (Down in GLTF, or Up in OpenGL).
+                // glTF spec: "+Y corresponds to Green channel".
+                // We should adhere to standard mapping first.
+                // Try STANDARD mapping: (val * 2 - 1) for all channels.
+                // TODO: Should we flip Y based on some flag?
                 let local_normal = Vector3::new(
                     packed_normal.x * 2.0 - 1.0,
-                    -packed_normal.y * 2.0 + 1.0, // Flip Y
+                    packed_normal.y * 2.0 - 1.0, // Removed Flip Y for now.
                     packed_normal.z * 2.0 - 1.0,
                 );
 
-                // 2.6 Transform to World Space
                 (tbn * local_normal).normalize()
             } else {
                 geom_normal
@@ -371,6 +399,6 @@ impl Shader for PbrShader {
         // TODO: Future: Implement IBL for better ambient lighting
         let ambient = self.ambient_light.component_mul(&albedo) * ao;
 
-        ambient + lo + mat.emissive
+        ambient + lo + emissive_color
     }
 }
