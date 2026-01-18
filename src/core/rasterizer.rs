@@ -4,7 +4,7 @@ use crate::core::math::interpolation::{
 };
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
 use crate::core::pipeline::{Interpolatable, Shader};
-use crate::scene::material::Material;
+use crate::scene::material::{AlphaMode, Material};
 use nalgebra::{Point2, Vector4};
 use rayon::prelude::*;
 
@@ -12,6 +12,7 @@ use rayon::prelude::*;
 pub struct Rasterizer {
     pub cull_mode: CullMode,
     pub wireframe: bool,
+    pub blend_mode: BlendMode,
 }
 
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -19,6 +20,14 @@ pub enum CullMode {
     Back,
     Front,
     None,
+}
+
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub enum BlendMode {
+    /// Opaque rendering: Writes to depth buffer, replaces color.
+    Opaque,
+    /// Alpha blending: Reads depth buffer (no write), blends color: src * a + dst * (1-a).
+    Alpha,
 }
 
 impl Default for Rasterizer {
@@ -32,6 +41,7 @@ impl Rasterizer {
         Self {
             cull_mode: CullMode::Back,
             wireframe: false,
+            blend_mode: BlendMode::Opaque,
         }
     }
 
@@ -108,7 +118,7 @@ impl Rasterizer {
             let v1 = current_poly[i];
             let v2 = current_poly[i + 1];
 
-            self.rasterize_triangle_clipped(
+            self.rasterize_screen_triangle(
                 framebuffer,
                 shader,
                 &[v0.0, v1.0, v2.0],
@@ -220,7 +230,7 @@ impl Rasterizer {
 
     /// Internal function to rasterize a triangle that is guaranteed to be inside the frustum.
     /// Performs perspective division, viewport transform, and pixel shading.
-    fn rasterize_triangle_clipped<S: Shader>(
+    fn rasterize_screen_triangle<S: Shader>(
         &self,
         framebuffer: &FrameBuffer,
         shader: &S,
@@ -309,6 +319,16 @@ impl Rasterizer {
         let start_y = min_y.max(0) as usize;
         let end_y = (max_y.min(framebuffer.buffer_height as i32 - 1)) as usize;
 
+        // Retrieve Alpha Mode parameters for pixel discard logic
+        let (alpha_mode, alpha_cutoff) = if let Some(Material::Pbr(mat)) = material {
+            match mat.alpha_mode {
+                AlphaMode::Mask(cutoff) => (AlphaMode::Mask(cutoff), cutoff),
+                mode => (mode, 0.5),
+            }
+        } else {
+            (AlphaMode::Opaque, 0.5)
+        };
+
         // 4. Pixel Loop
         // Rayon parallel iterator: work-stealing is effective here as row workloads vary.
         (start_y..=end_y).into_par_iter().for_each(|y| {
@@ -325,43 +345,71 @@ impl Rasterizer {
                         continue;
                     }
 
+                    // --- Wireframe Mode ---
                     if self.wireframe {
-                        // Simple wireframe threshold
+                        // Simple wireframe threshold: discard pixels not near the edges
                         let threshold = 0.02;
                         if bary.x > threshold && bary.y > threshold && bary.z > threshold {
                             continue;
                         }
                     }
 
-                    // Compute perspective-correct barycentric coordinates once and reuse them.
-                    // This avoids repeated 1/w computations and provides unified interpolation weights
-                    // for depth and all vertex attributes.
-                    if let Some(corrected_bary) =
+                    // Perspective Correct Interpolation for Z
+                    // Z in NDC [-1, 1], we map to [0, 1] for depth buffer
+                    // Note: In standard OpenGL, gl_FragCoord.z is (z_ndc + 1) / 2
+                    // We use 1/w interpolation for correctness.
+                    let z_ndc = bary.x * clip_coords[0].z / clip_coords[0].w
+                        + bary.y * clip_coords[1].z / clip_coords[1].w
+                        + bary.z * clip_coords[2].z / clip_coords[2].w;
+
+                    // Depth value to be stored [0.0, 1.0]
+                    // If w < 0 (behind camera), we shouldn't act, but strict clipping handles this.
+                    // Simple Z-buffer approximation:
+                    let depth = z_ndc * 0.5 + 0.5;
+
+                    // Early Depth Test
+                    // For Alpha blending (read-only depth), we must check before shading to save performance.
+                    if self.blend_mode == BlendMode::Alpha && !framebuffer.test_depth(x, y, depth) {
+                        continue;
+                    }
+
+                    // Interpolate Varyings
+                    let varying_interp = if let Some(v) =
                         perspective_correct_barycentric(bary, w_values[0], w_values[1], w_values[2])
                     {
-                        // Interpolate clip-space Z using corrected barycentrics (linear interpolation)
-                        let z_ndc = corrected_bary.x * clip_coords[0].z
-                            + corrected_bary.y * clip_coords[1].z
-                            + corrected_bary.z * clip_coords[2].z;
-                        // Map to Depth [0, 1] range
-                        let depth = z_ndc * 0.5 + 0.5;
-
-                        // Early Depth Test
-                        if framebuffer.depth_test_and_update(x, y, depth) {
-                            // Interpolate varyings using corrected barycentrics (single multiply-add per vertex)
-                            let interpolated_varying = varyings[0] * corrected_bary.x
-                                + varyings[1] * corrected_bary.y
-                                + varyings[2] * corrected_bary.z;
-
-                            // Fragment Shader (pass uv_density for per-triangle LOD estimation)
-                            let color = shader.fragment(interpolated_varying, material, uv_density);
-
-                            // Thread-safe Write
-                            framebuffer.set_pixel_safe(x, y, color);
-                        }
+                        varyings[0] * v.x + varyings[1] * v.y + varyings[2] * v.z
                     } else {
-                        // Numerical instability: skip this pixel
-                        continue;
+                        // Numeric instability fallback
+                        varyings[0] * bary.x + varyings[1] * bary.y + varyings[2] * bary.z
+                    };
+
+                    // Execute Fraction Shader
+                    let color = shader.fragment(varying_interp, material, uv_density);
+
+                    // --- Alpha Test (Discard) ---
+                    if let AlphaMode::Mask(_) = alpha_mode
+                        && color.w < alpha_cutoff
+                    {
+                        continue; // Discard pixel
+                    }
+
+                    // --- Output Merger ---
+                    match self.blend_mode {
+                        BlendMode::Opaque => {
+                            // Opaque Pass: Read-Modify-Write Depth
+                            if framebuffer.test_and_update_depth(x, y, depth) {
+                                framebuffer.set_pixel_safe(x, y, color.xyz());
+                            }
+                        }
+                        BlendMode::Alpha => {
+                            // Transparent Pass: Read Depth, Blend Color.
+                            // Note: We already did an early depth test, but checking again is strictly
+                            // more correct if the depth buffer is being updated concurrently (though unlikely in sorted pass).
+                            // We'll skip the second check for performance as per original implementation logic.
+                            if color.w > 0.001 {
+                                framebuffer.blend_pixel_safe(x, y, color.xyz(), color.w);
+                            }
+                        }
                     }
                 }
             }

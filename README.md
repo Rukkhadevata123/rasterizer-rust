@@ -1,134 +1,106 @@
 # Rust PBR Rasterizer
 
-A high-performance, multi-threaded software rasterizer written from scratch in Rust. This project implements a modern
-programmable pipeline featuring Physically Based Rendering (PBR) and a flexible dual-mode architecture: high-quality
-offline rendering via CLI and interactive real-time visualization via **minifb**.
-
-> - gLTF support is work-in-progress. Currently, only Wavefront OBJ files with MTL materials are supported.
-> - Tile-based rendering and additional optimizations are planned for future releases.
+A high-performance, multi-threaded software rasterizer built from scratch in Rust. This project implements a modern programmable rendering pipeline featuring Physically Based Rendering (PBR), real-time shadow mapping, and transparent object handling. It supports both high-quality offline image generation and interactive real-time visualization via **minifb**.
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Rukkhadevata123/rasterizer-rust)
 
-High-quality offline rendering:
+**Real-time Interactive Mode:**
 
-![Render Result](outputs/output_toml.png)
+![Real-time PBR](outputs/minifb-2.png)
+*Physically Based Rendering with metallic properties, normal mapping, and contact shadows.*
 
-We can modify the scene interactively in real-time:
-
-![Real-time GUI Mode](outputs/minifb.png)
+![Wireframe Mode](outputs/minifb-3.png)
+*Debug visualization including wireframe overlays and cull mode toggling.*
 
 ## Key Features
 
-### Interactive Real-time GUI
-
-- **Windowing:** Lightweight window management using `minifb`.
-- **Camera Control:** FPS-style free-roam camera (WASD movement, mouse look, FOV zoom).
-- **Hot Reloading:** Instant feedback loop — press 'R' to reload scene configuration (lights, materials, transforms)
-  without restarting.
-- **Runtime Toggles:** Switch cull modes and wireframe rendering on the fly.
-- **Performance:** Optimized display buffer handling with parallelized post-processing.
-
 ### Physically Based Rendering (PBR)
 
-- **Workflow:** Metallic-Roughness workflow.
-- **BRDF:** Cook-Torrance model with Trowbridge-Reitz GGX Normal Distribution.
-- **Detailing:** **Normal Mapping** with automatic Tangent Space generation (MikkTSpace-like algorithm with Gram-Schmidt
-  orthogonalization).
-- **Optics:** Smith Geometry function & Fresnel-Schlick approximation.
-- **Color Correctness:** Proper Linear/sRGB color space handling for textures and output.
+- **Workflow:** Standard Metallic-Roughness workflow.
+- **BRDF:** Cook-Torrance specular BRDF with Trowbridge-Reitz GGX distribution and Smith Geometry function.
+- **Fresnel:** Fresnel-Schlick approximation for realistic light reflection at varying angles.
+- **Normal Mapping:** Full support for tangent-space normal mapping with MikkTSpace-compliant tangent generation.
+- **Tone Mapping:** ACES Filmic Tone Mapping for cinematic color reproduction.
 
-### Shadow System
+### Advanced Rendering Capabilities
 
-- **Two-pass Rendering:** Depth-only pass for shadow maps → Main lighting pass.
-- **Soft Shadows:** PCF (Percentage Closer Filtering) with configurable kernel size.
-- **Bias Control:** Configurable shadow bias to prevent acne/peter-panning.
+- **Transparency:** Correct rendering of semi-transparent objects (glass, ice) using back-to-front sorting and alpha blending logic.
+- **Shadow Mapping:** Real-time soft shadows using Percentage-Closer Filtering (PCF) and adaptive shadow bias to eliminate artifacts.
+- **Anti-Aliasing:** SSAA (Super-Sample Anti-Aliasing) support for smooth edges.
+- **Texture Filtering:** Trilinear filtering with mipmap support for high-quality texturing without aliasing.
 
-### High Performance
+### High Performance Architecture
 
-- **Parallel Rendering:** Massive parallelism using `Rayon` for triangle rasterization, fragment shading, and
-  post-processing.
-- **Thread Safety:** Custom `FrameBuffer` utilizing atomic depth buffers and striped locking for concurrent color
-  writing.
-- **Optimization:** Memory reuse strategies to minimize allocation during real-time render loops.
+- **Massive Parallelism:** Leveraging `Rayon` to parallelize vertex processing, triangle rasterization, fragment shading, and post-processing steps.
+- **Thread Safety:** Custom-built `FrameBuffer` utilizing atomic depth buffers and striped locking mechanisms for contention-free concurrent writing.
+- **Clipping:** Robust Homogeneous Clip Space clipping (Sutherland–Hodgman) to handle primitives correctly near the camera plane.
+- **Optimization:** Data-oriented design with pre-transform optimizations for complex scene sorting.
 
-### Pipeline & Post-Processing
+### Interactive Real-time GUI
 
-- **Programmable Shaders:** Trait-based Vertex and Fragment stages.
-- **Interpolation:** Perspective-correct barycentric interpolation.
-- **Anti-Aliasing:** SSAA (Super-Sample Anti-Aliasing).
-- **Tone Mapping:** ACES Filmic Tone Mapping.
-
-  - **Texture LOD (Mipmap):** Optional triangle-level mipmap LOD and trilinear filtering to reduce distant texture aliasing.
-
-## Rendering Flow
-
-1. **Configuration:** Scene data (camera, lights, objects, materials) is loaded from `scene.toml`.
-2. **Shadow Pass:** The scene is rendered from the light's perspective into a depth buffer.
-3. **Main Pass:**
-    - **Vertex Shader:** Transforms vertices to Clip Space; generates varyings (World Pos, Normal, Tangent, UV).
-    - **Clipping (Sutherland–Hodgman):** We clip primitives in homogeneous clip space (±X ≤ W, ±Y ≤ W, ±Z ≤ W) before the perspective divide to keep interpolation linear. Edge intersections are computed and attributes are linearly interpolated; the resulting convex polygon is then triangulated and rasterized.
-    - **Rasterization:** Parallelized scanline conversion.
-    - **Fragment Shader:** Constructs the **TBN Matrix**, samples PBR textures, and calculates lighting.
-4. **Post-Processing:**
-    - **GUI Mode:** Parallel tone-mapping and buffer conversion for window display.
-    - **CLI Mode:** Tone-mapping and encoding to PNG.
-
-## Controls (GUI Mode)
-
-| Input                  | Action                                  |
-|:-----------------------|:----------------------------------------|
-| **W / A / S / D**      | Move Camera (Forward/Left/Back/Right)   |
-| **Space / L-Shift**    | Move Up / Down (Elevation)              |
-| **Left Mouse (Hold)** | Look Around (Yaw/Pitch)                 |
-| **Scroll Wheel**       | Adjust FOV (Zoom)                       |
-| **R**                  | Reload Configuration (Hot Reload)       |
-| **Right Click**         | Cycle Cull Mode (Back -> None -> Front) |
-| **Middle Click**       | Toggle Wireframe Mode                   |
-| **Z**                  | Freeze Movement                         |
-| **ESC**                | Exit                                    |
+- **Windowing:** Lightweight, zero-bloat window management via `minifb`.
+- **Camera:** FPS-style free-roam camera with WASD movement and mouse look.
+- **Hot Reloading:** Instant feedback loop logic — press 'R' to reload scene configurations without restarting the application.
+- **Runtime Tools:** Toggle wireframe modes (`Middle Click`) and cull modes (`Right Click`) on the fly.
 
 ## Project Structure
 
+The project follows a clean, modular architecture separating core engine logic from scene management and pipeline definitions.
+
 ```text
 src
-├── app.rs             # Application control loops (GUI & CLI logic)
-├── core               # Core engine primitives
-│   ├── framebuffer.rs # Thread-safe buffer with Atomics
-│   ├── geometry.rs    # Vertex and geometric definitions
-│   ├── math           # Linear algebra, interpolation, transform factories
-│   └── rasterizer.rs  # Triangle rasterization logic
-├── io                 # Input/Output
-│   ├── config.rs      # TOML configuration parsing
-│   ├── image.rs       # Image saving utilities
-│   └── obj_loader.rs  # OBJ/MTL loading, Tangent calculation
-├── pipeline           # Rendering pipeline
-│   ├── passes.rs      # High-level render pass logic (Shadow & Main)
-│   ├── renderer.rs    # Low-level render orchestration
-│   └── shaders        # Programmable shaders (PBR, Shadow)
-├── scene              # Scene graph data
-│   ├── camera.rs      # Perspective & Orthographic cameras
-│   ├── context.rs     # Container for scene resources
-│   ├── light.rs       # Directional & Point lights
-│   ├── loader.rs      # Resource loading and Hot-Reload logic
-│   ├── material.rs    # PBR Material definitions
-│   └── model.rs       # Mesh and Model containers
-├── ui                 # User Interface & Input
-│   └── input.rs       # Camera controller and input handling
-└── main.rs            # Entry point and Argument parsing
+├── core               # The Engine Kernel
+│   ├── rasterizer.rs  # Scanline rasterization & clipping logic
+│   ├── framebuffer.rs # Thread-safe atomic buffer management
+│   ├── geometry.rs    # Vertex layout & geometric primitives
+│   └── math           # Transform factories & interpolation helpers
+├── pipeline           # The Rendering Pipeline
+│   ├── passes.rs      # High-level Render Passes (Shadow & Main)
+│   ├── renderer.rs    # Render orchestrator & clear logic
+│   └── shaders        # Programmable PBR & Shadow shaders
+├── scene              # Scene Graph & Assets
+│   ├── material.rs    # PBR Material & Alpha Mode definitions
+│   ├── texture.rs     # Texture loading, mipmapping & filtering
+│   ├── light.rs       # Lighting definitions
+│   └── loader.rs      # Resource management & Hot-reloading
+├── io                 # File I/O
+│   ├── gltf_loader.rs # Robust glTF 2.0 asset importer
+│   └── config.rs      # TOML-based scene configuration
+└── app.rs             # Application control loops
 ```
 
-## Usage
+## Getting Started
 
-**1. Real-time GUI Mode (Recommended for quick previews)**
-Explore the scene interactively and tweak materials in real-time.
+### Prerequisites
+
+- Rust (latest stable)
+- Cargo
+
+### Usage
+
+**1. Real-time GUI Mode (Recommended)**  
+Launch the interactive viewer to explore the scene, test lighting, and view PBR materials in real-time.
 
 ```bash
 cargo run --release -- --config scene.toml --gui
 ```
 
-**2. Headless CLI Mode (Offline Rendering)**
-Render a single high-quality frame to disk (default).
+**2. Offline Rendering (CLI)**  
+Render a single high-quality frame to an output image file (default: `output.png`).
 
 ```bash
 cargo run --release -- --config scene.toml
 ```
+
+## Controls (GUI Mode)
+
+| Input                  | Action                                  |
+|:-----------------------|:----------------------------------------|
+| **W / A / S / D**      | Move Camera                             |
+| **Mouse**              | Look Around                             |
+| **Space / L-Shift**    | Move Up / Down                          |
+| **Scroll Wheel**       | Adjust FOV (Zoom)                       |
+| **R**                  | Reload Configuration (Hot Reload)       |
+| **Right Click**         | Cycle Cull Mode (Back -> None -> Front) |
+| **Middle Click**       | Toggle Wireframe Mode                   |
+| **Esc**                | Exit Application                        |

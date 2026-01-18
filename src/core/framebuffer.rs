@@ -74,7 +74,7 @@ impl FrameBuffer {
     /// Returns true if the new depth is closer than the existing value.
     /// If true, it updates the depth buffer atomically.
     #[inline]
-    pub fn depth_test_and_update(&self, x: usize, y: usize, new_depth: f32) -> bool {
+    pub fn test_and_update_depth(&self, x: usize, y: usize, new_depth: f32) -> bool {
         if !self.in_bounds(x, y) {
             return false;
         }
@@ -99,6 +99,35 @@ impl FrameBuffer {
             ) {
                 Ok(_) => return true,                             // Success
                 Err(updated_bits) => current_bits = updated_bits, // Retry with new value
+            }
+        }
+    }
+
+    /// Performs depth test without updating the buffer.
+    /// Returns true if new_depth < current_depth.
+    #[inline]
+    pub fn test_depth(&self, x: usize, y: usize, new_depth: f32) -> bool {
+        if !self.in_bounds(x, y) {
+            return false;
+        }
+        let idx = self.index(x, y);
+        let current_bits = self.depth_buffer[idx].load(Ordering::Relaxed);
+        let current_depth = f32::from_bits(current_bits);
+        new_depth < current_depth
+    }
+
+    /// Thread-safe alpha blending.
+    #[inline]
+    pub fn blend_pixel_safe(&self, x: usize, y: usize, src_color: Vector3<f32>, alpha: f32) {
+        if self.in_bounds(x, y) {
+            let idx = self.index(x, y);
+            let lock_idx = idx % self.locks.len();
+            let _guard = self.locks[lock_idx].lock().unwrap();
+
+            unsafe {
+                let buffer = &mut *self.color_buffer.get();
+                let dst_color = buffer[idx];
+                buffer[idx] = src_color * alpha + dst_color * (1.0 - alpha);
             }
         }
     }

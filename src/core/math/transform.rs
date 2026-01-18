@@ -12,6 +12,7 @@ pub struct TransformFactory;
 #[rustfmt::skip]
 impl TransformFactory {
     /// Creates a rotation matrix around an arbitrary axis using Rodrigues' rotation formula.
+    #[allow(dead_code)]
     pub fn rotation(axis: &Vector3<f32>, angle_rad: f32) -> Matrix4<f32> {
         let axis_unit = axis.normalize();
         let x = axis_unit.x;

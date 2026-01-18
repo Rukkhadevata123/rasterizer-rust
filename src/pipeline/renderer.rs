@@ -1,4 +1,5 @@
 use crate::core::framebuffer::FrameBuffer;
+use crate::core::geometry::Vertex;
 use crate::core::pipeline::Shader;
 use crate::core::rasterizer::Rasterizer;
 use crate::scene::material::Material;
@@ -75,7 +76,7 @@ impl Renderer {
                     let u = x as f32 / width as f32;
 
                     let color = if let Some(tex) = options.texture {
-                        tex.sample_color(u, v)
+                        tex.sample_color(u, v).xyz()
                     } else if let Some((top, bottom)) = options.gradient {
                         top.lerp(&bottom, v)
                     } else {
@@ -104,9 +105,48 @@ impl Renderer {
         }
     }
 
+    /// Draws a list of sorted triangles.
+    /// Expected for transparent objects where draw order matters.
+    pub fn draw_sorted_triangles<S: Shader + Sync>(
+        &mut self,
+        triangles: Vec<(&Vertex, &Vertex, &Vertex, &Material)>,
+        shader: &S,
+    ) where
+        <S as Shader>::Varying: 'static,
+    {
+        // 1. Vertex Processing (Parallelizable)
+        // We transform all vertices first.
+        let processed: Vec<_> = triangles
+            .par_iter()
+            .map(|(v0, v1, v2, mat)| {
+                let (pos0, var0) = shader.vertex(v0);
+                let (pos1, var1) = shader.vertex(v1);
+                let (pos2, var2) = shader.vertex(v2);
+                (pos0, pos1, pos2, var0, var1, var2, *mat)
+            })
+            .collect();
+
+        // 2. Rasterization (Sequential)
+        // Must accept sequential order for correct blending.
+        // Note: We intentionally avoid parallel iteration here to preserve sort order.
+        for (pos0, pos1, pos2, var0, var1, var2, mat) in processed {
+            self.rasterizer.rasterize_triangle(
+                &self.framebuffer,
+                shader,
+                &[pos0, pos1, pos2],
+                &[var0, var1, var2],
+                Some(mat),
+            );
+        }
+    }
+
     /// Draws a mesh using the provided shader and material.
-    fn draw_mesh<S: Shader + Sync>(&mut self, mesh: &Mesh, shader: &S, material: Option<&Material>)
-    where
+    pub fn draw_mesh<S: Shader + Sync>(
+        &mut self,
+        mesh: &Mesh,
+        shader: &S,
+        material: Option<&Material>,
+    ) where
         <S as Shader>::Varying: 'static,
     {
         // Use Rayon to process triangles in parallel

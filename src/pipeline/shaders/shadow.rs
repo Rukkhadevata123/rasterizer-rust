@@ -2,7 +2,7 @@ use crate::core::geometry::Vertex;
 use crate::core::pipeline::Interpolatable;
 use crate::core::pipeline::Shader;
 use crate::scene::material::Material;
-use nalgebra::{Matrix4, Vector3, Vector4};
+use nalgebra::{Matrix4, Vector4};
 use std::ops::{Add, Mul};
 
 #[derive(Clone, Copy, Debug)]
@@ -50,8 +50,8 @@ impl Shader for ShadowShader {
         _varying: Self::Varying,
         _material: Option<&Material>,
         _uv_density: f32,
-    ) -> Vector3<f32> {
+    ) -> Vector4<f32> {
         // Color doesn't matter for the depth-only pass; the rasterizer writes depth.
-        Vector3::zeros()
+        Vector4::zeros()
     }
 }

@@ -1,6 +1,6 @@
 use crate::core::geometry::Vertex;
 use crate::scene::material::Material;
-use nalgebra::{Vector3, Vector4};
+use nalgebra::Vector4;
 use std::ops::{Add, Mul};
 
 /// Trait for types that can be linearly interpolated across a triangle's surface.
@@ -62,11 +62,11 @@ pub trait Shader: Send + Sync {
     /// - `uv_density`: triangle-level UV density estimator (>= 0.0). 0.0 means "no special LOD".
     ///
     /// # Returns
-    /// - `Vector3<f32>`: final RGB color (linear space).
+    /// - `Vector4<f32>`: final RGBA color (linear space).
     fn fragment(
         &self,
         varying: Self::Varying,
         material: Option<&Material>,
         uv_density: f32,
-    ) -> Vector3<f32>;
+    ) -> Vector4<f32>;
 }

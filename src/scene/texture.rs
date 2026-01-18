@@ -1,6 +1,6 @@
 use image::{DynamicImage, GenericImageView};
 use log::info;
-use nalgebra::Vector3;
+use nalgebra::Vector4;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -56,7 +56,7 @@ impl Texture {
     }
 
     /// Bilinear sample on a specific mip level.
-    fn sample_bilinear_level(&self, u: f32, v: f32, level: usize) -> Vector3<f32> {
+    fn sample_bilinear_level(&self, u: f32, v: f32, level: usize) -> Vector4<f32> {
         let level = level.min(self.mips.len() - 1);
         let img = &self.mips[level];
         let width = img.width();
@@ -96,22 +96,23 @@ impl Texture {
     }
 
     /// Helper: fetch pixel from a specific image with wrapping.
-    fn get_pixel_wrapped(img: &DynamicImage, x: i32, y: i32) -> Vector3<f32> {
+    fn get_pixel_wrapped(img: &DynamicImage, x: i32, y: i32) -> Vector4<f32> {
         let width = img.width() as i32;
         let height = img.height() as i32;
         let x_wrapped = ((x % width) + width) % width;
         let y_wrapped = ((y % height) + height) % height;
         let p = img.get_pixel(x_wrapped as u32, y_wrapped as u32);
-        Vector3::new(
+        Vector4::new(
             p[0] as f32 / 255.0,
             p[1] as f32 / 255.0,
             p[2] as f32 / 255.0,
+            p[3] as f32 / 255.0,
         )
     }
 
     /// Trilinear sampling given a triangle-level uv_density.
     /// uv_density: sqrt(Area_uv / Area_screen). 0.0 means "no special LOD" and selects level 0.
-    pub fn sample_data_with_density(&self, u: f32, v: f32, uv_density: f32) -> Vector3<f32> {
+    pub fn sample_data_with_density(&self, u: f32, v: f32, uv_density: f32) -> Vector4<f32> {
         if self.mips.len() == 1 || uv_density <= 0.0 {
             return self.sample_bilinear_level(u, v, 0);
         }
@@ -129,20 +130,25 @@ impl Texture {
     }
 
     /// Color sampling with gamma correction (linear output expected by pipeline).
-    pub fn sample_color_with_density(&self, u: f32, v: f32, uv_density: f32) -> Vector3<f32> {
+    pub fn sample_color_with_density(&self, u: f32, v: f32, uv_density: f32) -> Vector4<f32> {
         let linear = self.sample_data_with_density(u, v, uv_density);
-        Vector3::new(linear.x.powf(2.2), linear.y.powf(2.2), linear.z.powf(2.2))
+        Vector4::new(
+            linear.x.powf(2.2),
+            linear.y.powf(2.2),
+            linear.z.powf(2.2),
+            linear.w,
+        )
     }
 
     /// For color map (Albedo, Emissive, Background)
     /// Performs sRGB -> Linear conversion (Gamma 2.2)
-    pub fn sample_color(&self, u: f32, v: f32) -> Vector3<f32> {
+    pub fn sample_color(&self, u: f32, v: f32) -> Vector4<f32> {
         self.sample_color_with_density(u, v, 0.0)
     }
 
     /// For data map (Metallic, Roughness, Normal, AO)
     /// Returns linear values directly without Gamma correction
-    pub fn sample_data(&self, u: f32, v: f32) -> Vector3<f32> {
+    pub fn sample_data(&self, u: f32, v: f32) -> Vector4<f32> {
         self.sample_data_with_density(u, v, 0.0)
     }
 }

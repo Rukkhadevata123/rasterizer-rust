@@ -90,7 +90,7 @@ intensity = 5.0
 
 [[objects]]
 path = "assets/glbs/old_rusty_car.glb"
-position = [0.0, 0.0, 0.0]
+position = [0.0, -0.4, 0.0]
 rotation = [0.0, -45.0, 0.0] # Angles in degrees (XYZ)
 scale = [2.0, 2.0, 2.0]
 

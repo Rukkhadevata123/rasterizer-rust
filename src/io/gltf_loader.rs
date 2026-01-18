@@ -1,5 +1,5 @@
 use crate::core::geometry::Vertex;
-use crate::scene::material::{Material, PbrMaterial};
+use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
 use crate::scene::texture::Texture;
@@ -97,20 +97,19 @@ fn process_node(
 
     // 2. Process Mesh
     if let Some(mesh) = node.mesh() {
-        for primitive in mesh.primitives() {
-            // Check Alpha Mode
-            // Many assets have a "shadow plane" with AlphaMode::BLEND.
-            // Since we are an opaque rasterizer, these look terrible (solid planes).
-            // We skip them for now.
-            // TODO: Better handling of blended materials.
-            let mat = primitive.material();
-            if mat.alpha_mode() == gltf::material::AlphaMode::Blend {
-                warn!(
-                    "Skipping primitive in mesh '{}' due to AlphaMode::BLEND (Shadow Plane?)",
-                    mesh.name().unwrap_or("unnamed")
-                );
-                continue;
+        // --- Skip Shadow/Cheat Planes ---
+        // If the node name indicates it's a shadow plane, we simply skip processing its mesh.
+        if let Some(name) = node.name() {
+            let name_lower = name.to_lowercase();
+            if name_lower.contains("plane") || name_lower.contains("shadow") {
+                info!("Skipping shadow plane node: {}", name);
+                return; // Do not process this mesh
             }
+        }
+
+        for primitive in mesh.primitives() {
+            let _mat = primitive.material();
+            // Removed skipping of AlphaMode::Blend
 
             let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
             // --- Indices ---
@@ -230,6 +229,7 @@ fn convert_material(mat: &gltf::Material, textures: &[Arc<Texture>]) -> Material
     // Factors
     let albedo_factor = pbr.base_color_factor();
     let albedo = Vector3::new(albedo_factor[0], albedo_factor[1], albedo_factor[2]);
+    let alpha = albedo_factor[3];
     let metallic = pbr.metallic_factor();
     let roughness = pbr.roughness_factor();
     let emissive_factor = mat.emissive_factor();
@@ -260,12 +260,20 @@ fn convert_material(mat: &gltf::Material, textures: &[Arc<Texture>]) -> Material
     let ao_texture = get_occlusion_tex(mat.occlusion_texture());
     let emissive_texture = get_tex(mat.emissive_texture());
 
+    let alpha_mode = match mat.alpha_mode() {
+        gltf::material::AlphaMode::Opaque => AlphaMode::Opaque,
+        gltf::material::AlphaMode::Mask => AlphaMode::Mask(mat.alpha_cutoff().unwrap_or(0.5)),
+        gltf::material::AlphaMode::Blend => AlphaMode::Blend,
+    };
+
     Material::Pbr(PbrMaterial {
         albedo,
+        alpha,
         metallic,
         roughness,
         ao: 1.0, // Base factor, usually 1.0 in GLTF if texture exists
         emissive,
+        alpha_mode,
         albedo_texture,
         metallic_roughness_texture,
         normal_texture,

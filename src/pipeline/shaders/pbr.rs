@@ -255,7 +255,7 @@ impl Shader for PbrShader {
         varying: Self::Varying,
         material: Option<&Material>,
         uv_density: f32,
-    ) -> Vector3<f32> {
+    ) -> Vector4<f32> {
         // 1. Retrieve Material Properties
         let mat = if let Some(Material::Pbr(m)) = material {
             m
@@ -263,10 +263,11 @@ impl Shader for PbrShader {
             &self.fallback_material
         };
 
-        let albedo = if let Some(tex) = &mat.albedo_texture {
-            tex.sample_color_with_density(varying.uv.x, varying.uv.y, uv_density)
+        let (albedo, alpha) = if let Some(tex) = &mat.albedo_texture {
+            let s = tex.sample_color_with_density(varying.uv.x, varying.uv.y, uv_density);
+            (s.xyz(), s.w * mat.alpha)
         } else {
-            mat.albedo
+            (mat.albedo, mat.alpha)
         };
 
         // Metallic/Roughness uses sample_data (no Gamma correction)
@@ -292,6 +293,7 @@ impl Shader for PbrShader {
         // Emissive Map should be sRGB -> Linear
         let emissive_color = if let Some(tex) = &mat.emissive_texture {
             tex.sample_color_with_density(varying.uv.x, varying.uv.y, uv_density)
+                .xyz()
                 .component_mul(&mat.emissive)
         } else {
             mat.emissive
@@ -317,7 +319,7 @@ impl Shader for PbrShader {
                 let tbn = Matrix3::from_columns(&[t, b, geom_normal]);
 
                 // 2.4 Sample Normal Map
-                let packed_normal = normal_map.sample_data(varying.uv.x, varying.uv.y);
+                let packed_normal = normal_map.sample_data(varying.uv.x, varying.uv.y).xyz();
 
                 // 2.5 Decode
                 // Since we fixed Texture V-flip:
@@ -399,6 +401,7 @@ impl Shader for PbrShader {
         // TODO: Future: Implement IBL for better ambient lighting
         let ambient = self.ambient_light.component_mul(&albedo) * ao;
 
-        ambient + lo + emissive_color
+        let final_color = ambient + lo + emissive_color;
+        Vector4::new(final_color.x, final_color.y, final_color.z, alpha)
     }
 }
