@@ -8,7 +8,7 @@ exposure = 1.0
 
 # --- Environment & Background ---
 ambient_light = [0.1, 0.1, 0.1]
-# background_image = "assets/background.jpg"
+# background_image = "assets/objs/background.jpg"
 # background_color = [0.05, 0.05, 0.05]
 background_gradient_top = [0.2, 0.2, 0.3]
 background_gradient_bottom = [0.05, 0.05, 0.1]
@@ -64,7 +64,7 @@ attenuation = [1.0, 0.09, 0.032]
 
 # The Cow (Spot)
 [[objects]]
-path = "assets/spot/spot_triangulated.obj"
+path = "assets/objs/spot/spot_triangulated.obj"
 position = [-1.0, 0.0, 0.5]
 rotation = [0.0, 30.0, 0.0]
 scale = [1.0, 1.0, 1.0]
@@ -74,13 +74,13 @@ roughness = 0.3
 ao = 0.99
 emissive = [0.01, 0.02, 0.03]
 emissive_intensity = 0.7
-# albedo_texture = "assets/spot/spot_texture.png"
-# metallic_roughness_texture = "assets/test_mr_texture.png"
-# normal_texture = "assets/test_normal_map.png"
+# albedo_texture = "assets/objs/spot/spot_texture.png"
+# metallic_roughness_texture = "assets/objs/test_mr_texture.png"
+# normal_texture = "assets/objs/test_normal_map.png"
 
 # The Sphere
 [[objects]]
-path = "assets/simple/sphere.obj"
+path = "assets/objs/simple/sphere.obj"
 position = [1.5, 0.5, -1.0]
 scale = [1.5, 1.5, 1.5]
 albedo = [0.1, 0.1, 0.8]

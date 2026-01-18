@@ -42,7 +42,7 @@ impl Default for Config {
             ],
             objects: vec![
                 ObjectConfig {
-                    path: "assets/spot/spot_triangulated.obj".to_string(),
+                    path: "assets/objs/spot/spot_triangulated.obj".to_string(),
                     position: [-1.0, 0.0, 0.5],
                     rotation: [0.0, 30.0, 0.0],
                     scale: [1.0, 1.0, 1.0],
@@ -57,7 +57,7 @@ impl Default for Config {
                     normal_texture: None,
                 },
                 ObjectConfig {
-                    path: "assets/simple/sphere.obj".to_string(),
+                    path: "assets/objs/simple/sphere.obj".to_string(),
                     position: [1.5, 0.5, -1.0],
                     scale: [1.5, 1.5, 1.5],
                     albedo: Some([0.1, 0.1, 0.8]),

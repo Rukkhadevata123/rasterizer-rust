@@ -368,6 +368,7 @@ impl Shader for PbrShader {
         }
 
         // 4. Ambient (Using configurable ambient_light)
+        // TODO: Future: Implement IBL for better ambient lighting
         let ambient = self.ambient_light.component_mul(&albedo) * ao;
 
         ambient + lo + mat.emissive
