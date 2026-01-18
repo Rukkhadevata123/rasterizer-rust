@@ -65,6 +65,14 @@ pub fn run_gui(mut config: Config, config_path: &str) {
         _ => 2,
     };
 
+    renderer.rasterizer.set_cull_mode(match cull_mode_idx {
+        0 => CullMode::None,
+        1 => CullMode::Front,
+        _ => CullMode::Back,
+    });
+    // Also apply initial wireframe setting
+    renderer.rasterizer.wireframe = config.render.wireframe;
+
     let mut buffer = vec![0u32; width * height];
 
     // 3. Main Loop
@@ -88,6 +96,20 @@ pub fn run_gui(mut config: Config, config_path: &str) {
                     cam_controller.zoom_speed = new_config.camera.zoom_speed;
 
                     config.render = new_config.render;
+
+                    // Update renderer settings from new config
+                    renderer.rasterizer.wireframe = config.render.wireframe;
+                    cull_mode_idx = match config.render.cull_mode.as_str() {
+                        "none" => 0,
+                        "front" => 1,
+                        _ => 2,
+                    };
+                    renderer.rasterizer.set_cull_mode(match cull_mode_idx {
+                        0 => CullMode::None,
+                        1 => CullMode::Front,
+                        _ => CullMode::Back,
+                    });
+
                     info!("Hot reload successful!");
                 }
                 Err(e) => warn!("Failed to reload config: {}", e),
