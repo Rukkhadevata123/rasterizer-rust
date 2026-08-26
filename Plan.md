@@ -149,4 +149,3 @@ cargo check --release
 ```
 
 Rendering phases should also run a small deterministic CLI render and inspect or compare the generated image.
-
