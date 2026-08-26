@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --release --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --release
+
+      - name: Check release build
+        run: cargo check --release
+
+      - name: Run headless smoke render
+        shell: pwsh
+        run: |
+          $config = Get-Content scene.toml -Raw
+          $config = $config.Replace('width = 1280', 'width = 160')
+          $config = $config.Replace('height = 720', 'height = 90')
+          $config = $config.Replace('samples = 2', 'samples = 1')
+          $config = $config.Replace('shadow_map_size = 1024', 'shadow_map_size = 128')
+          $config = $config.Replace('output = "outputs/output_gltf.png"', 'output = "target/ci-smoke.png"')
+          Set-Content target/ci-scene.toml $config
+          cargo run --release -- --config target/ci-scene.toml
+          if (-not (Test-Path target/ci-smoke.png)) {
+            throw 'Smoke render did not create target/ci-smoke.png'
+          }

@@ -73,7 +73,7 @@ src
 
 ### Prerequisites
 
-- Rust (latest stable)
+- Rust stable (`Cargo.toml` declares Rust 1.85 as the intended edition-2024 minimum; CI currently validates the runner's active stable toolchain)
 - Cargo
 
 ### Usage

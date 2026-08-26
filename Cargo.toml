@@ -2,6 +2,7 @@
 name = "rasterizer-rust"
 version = "3.5.1"
 edition = "2024"
+rust-version = "1.85"
 authors = ["Rukkhadevata123 <rukkhadevata@foxmail.com>"]
 description = "A high-performance, multi-threaded software rasterizer in Rust implementing PBR, shadow mapping, and an interactive GUI."
 license = "MIT"

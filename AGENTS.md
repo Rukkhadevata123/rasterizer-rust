@@ -14,7 +14,7 @@ Runtime assets live in `assets/`; `scene.toml` is the primary example configurat
 
 ## Build, Test, and Development Commands
 
-Rust 1.85 or newer is required for edition 2024.
+Use the repository's current stable Rust toolchain. `Cargo.toml` declares Rust 1.85 as the intended minimum for edition 2024, but routine local and CI validation uses the active stable toolchain; there is currently no separate MSRV verification job.
 
 ```bash
 cargo run --release -- --config scene.toml

@@ -39,19 +39,22 @@ Current baseline: 35 tests, no `unsafe` in `src/` or `tests/`, and deterministic
 
 ## Phase 3: Configuration, Validation, and Error Foundations
 
-Status: planned
+Status: in progress; 3A completed
 
 This phase precedes the glTF rewrite because import, image, CLI, and GUI errors should share one stable model.
 
 ### 3A: Rust Support and CI
 
-- Declare `rust-version = "1.85"` in `Cargo.toml`.
-- Add CI for:
+Status: completed
+
+- [x] Declare `rust-version = "1.85"` as the intended edition-2024 minimum; document that it is not yet exercised by a separate MSRV job.
+- [x] Add Windows CI using the runner's current stable Rust toolchain for:
   - `cargo fmt --all -- --check`;
   - `cargo clippy --release --all-targets --all-features -- -D warnings`;
   - `cargo test --release`;
   - `cargo check --release`.
-- Add a small headless smoke render if the runner can support all dependencies without GUI interaction.
+- [x] Add a small headless smoke render on the Windows CI runner without GUI interaction.
+- Do not install or switch to a second Rust version during routine CI; exact MSRV verification can be added later as a dedicated compatibility job if needed.
 
 ### 3B: Typed Configuration and Consistent Defaults
 
@@ -83,7 +86,7 @@ This phase precedes the glTF rewrite because import, image, CLI, and GUI errors 
 
 Suggested commits:
 
-1. `declare rust support and add ci`
+1. `declare rust support and add ci` (completed)
 2. `define typed scene configuration`
 3. `validate render configuration`
 4. `propagate application errors`
@@ -95,7 +98,7 @@ Exit criteria:
 - CLI failures return nonzero status.
 - Defaults are consistent for empty and partial TOML documents.
 - Paths behave identically regardless of launch working directory.
-- CI runs the complete release-mode test baseline.
+- CI runs the complete release-mode test baseline on the current stable toolchain.
 
 ## Phase 4: glTF Structural Correctness
 
@@ -148,7 +151,8 @@ Keep fixtures in the kilobyte range and independent of demonstration assets.
 
 ### 4F: Model Normalization Policy
 
-- Replace unconditional center-and-normalize behavior with an explicit policy such as `preserve`, `center`, or `normalize`.
+- Replace unconditional center-and-normalize behavior with an explicit policy such as `preserve`, `center`, or
+ormalize`.
 - Document the default and test object scale/placement across multiple assets.
 
 Non-goals for this phase:
@@ -467,4 +471,4 @@ Repository state when this roadmap was revised:
 - 35 tests are present;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 3A through 3C. Do not begin the glTF importer rewrite, RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 3B through 3C. Do not begin the glTF importer rewrite, RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
