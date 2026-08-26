@@ -152,3 +152,101 @@ impl Texture {
         self.sample_data_with_density(u, v, 0.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{Rgba, RgbaImage};
+    use std::sync::Arc;
+
+    fn test_image() -> DynamicImage {
+        let mut image = RgbaImage::new(2, 2);
+        image.put_pixel(0, 0, Rgba([255, 0, 0, 255]));
+        image.put_pixel(1, 0, Rgba([0, 255, 0, 255]));
+        image.put_pixel(0, 1, Rgba([0, 0, 255, 255]));
+        image.put_pixel(1, 1, Rgba([255, 255, 255, 255]));
+        DynamicImage::ImageRgba8(image)
+    }
+
+    fn assert_vec4_approx(actual: Vector4<f32>, expected: Vector4<f32>) {
+        assert!(
+            (actual - expected).norm() < 1e-5,
+            "expected {expected:?}, got {actual:?}"
+        );
+    }
+
+    #[test]
+    fn bilinear_sampling_interpolates_four_texels() {
+        let texture = Texture::from_image(test_image(), false);
+        assert_vec4_approx(
+            texture.sample_data(0.5, 0.5),
+            Vector4::new(0.5, 0.5, 0.5, 1.0),
+        );
+    }
+
+    #[test]
+    fn sampling_repeats_outside_unit_interval() {
+        let texture = Texture::from_image(test_image(), false);
+        assert_vec4_approx(
+            texture.sample_data(0.25, 0.25),
+            texture.sample_data(1.25, -0.75),
+        );
+    }
+
+    #[test]
+    fn square_texture_generates_complete_mip_chain() {
+        let texture = Texture::from_image(DynamicImage::new_rgba8(4, 4), true);
+        let dimensions: Vec<_> = texture
+            .mips
+            .iter()
+            .map(|image| (image.width(), image.height()))
+            .collect();
+
+        assert_eq!(dimensions, vec![(4, 4), (2, 2), (1, 1)]);
+    }
+
+    #[test]
+    fn density_selects_expected_mip_level() {
+        let solid = |width, height, color| {
+            Arc::new(DynamicImage::ImageRgba8(RgbaImage::from_pixel(
+                width,
+                height,
+                Rgba(color),
+            )))
+        };
+        let texture = Texture {
+            mips: vec![
+                solid(4, 4, [255, 0, 0, 255]),
+                solid(2, 2, [0, 255, 0, 255]),
+                solid(1, 1, [0, 0, 255, 255]),
+            ],
+            width: 4,
+            height: 4,
+        };
+
+        assert_vec4_approx(
+            texture.sample_data_with_density(0.5, 0.5, 0.25),
+            Vector4::new(1.0, 0.0, 0.0, 1.0),
+        );
+        assert_vec4_approx(
+            texture.sample_data_with_density(0.5, 0.5, 0.5),
+            Vector4::new(0.0, 1.0, 0.0, 1.0),
+        );
+        assert_vec4_approx(
+            texture.sample_data_with_density(0.5, 0.5, 1.0),
+            Vector4::new(0.0, 0.0, 1.0, 1.0),
+        );
+    }
+
+    #[test]
+    fn color_sampling_decodes_srgb_but_preserves_alpha() {
+        let texture = Texture::from_image(test_image(), false);
+        let data = texture.sample_data(0.5, 0.5);
+        let color = texture.sample_color(0.5, 0.5);
+
+        assert!(color.x < data.x);
+        assert!(color.y < data.y);
+        assert!(color.z < data.z);
+        assert_eq!(color.w, data.w);
+    }
+}

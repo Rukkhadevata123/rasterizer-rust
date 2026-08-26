@@ -291,3 +291,62 @@ impl Config {
         toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {}", e))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_document_uses_repository_defaults() {
+        let config: Config = toml::from_str("").expect("empty TOML should use defaults");
+
+        assert_eq!(config.render.width, 1280);
+        assert_eq!(config.render.height, 720);
+        assert_eq!(config.render.samples, 1);
+        assert_eq!(config.camera.position, [0.0, 4.0, 5.0]);
+        assert!(config.ground.enabled);
+        assert!(config.lights.is_empty());
+        assert!(config.objects.is_empty());
+    }
+
+    #[test]
+    fn parses_representative_scene_configuration() {
+        let source = r#"
+            [render]
+            width = 320
+            height = 180
+            samples = 2
+            cull_mode = "none"
+
+            [camera]
+            position = [1.0, 2.0, 3.0]
+            target = [0.0, 0.0, 0.0]
+            up = [0.0, 1.0, 0.0]
+            fov = 60.0
+
+            [ground]
+            enabled = false
+
+            [[lights]]
+            type = "point"
+            position = [2.0, 3.0, 4.0]
+            color = [1.0, 0.5, 0.25]
+            intensity = 8.0
+
+            [[objects]]
+            path = "fixture.glb"
+            rotation = [0.0, 90.0, 0.0]
+        "#;
+
+        let config: Config = toml::from_str(source).expect("representative config should parse");
+
+        assert_eq!(config.render.width, 320);
+        assert_eq!(config.render.height, 180);
+        assert_eq!(config.render.samples, 2);
+        assert_eq!(config.render.cull_mode, "none");
+        assert_eq!(config.camera.fov, 60.0);
+        assert!(!config.ground.enabled);
+        assert_eq!(config.lights.len(), 1);
+        assert_eq!(config.objects[0].scale, [1.0, 1.0, 1.0]);
+    }
+}

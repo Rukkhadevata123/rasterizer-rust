@@ -168,3 +168,69 @@ pub fn ndc_to_screen(ndc_x: f32, ndc_y: f32, width: f32, height: f32) -> Point2<
         (1.0 - (ndc_y + 1.0) * 0.5) * height,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_point_approx(actual: Point3<f32>, expected: Point3<f32>) {
+        assert!(
+            (actual - expected).norm() < 1e-5,
+            "expected {expected:?}, got {actual:?}"
+        );
+    }
+
+    #[test]
+    fn translation_moves_points_without_affecting_directions() {
+        let matrix = TransformFactory::translation(&Vector3::new(2.0, -3.0, 4.0));
+        assert_point_approx(
+            matrix.transform_point(&Point3::new(1.0, 2.0, 3.0)),
+            Point3::new(3.0, -1.0, 7.0),
+        );
+        assert_eq!(
+            matrix.transform_vector(&Vector3::new(1.0, 2.0, 3.0)),
+            Vector3::new(1.0, 2.0, 3.0)
+        );
+    }
+
+    #[test]
+    fn object_transform_composes_scale_rotation_and_translation() {
+        let transform = TransformFactory::translation(&Vector3::new(1.0, 2.0, 3.0))
+            * TransformFactory::rotation_y(std::f32::consts::FRAC_PI_2)
+            * TransformFactory::scaling_nonuniform(&Vector3::new(2.0, 1.0, 1.0));
+
+        assert_point_approx(
+            transform.transform_point(&Point3::new(1.0, 0.0, 0.0)),
+            Point3::new(1.0, 2.0, 1.0),
+        );
+    }
+
+    #[test]
+    fn view_maps_camera_to_origin_and_target_down_negative_z() {
+        let eye = Point3::new(0.0, 0.0, 5.0);
+        let target = Point3::origin();
+        let view = TransformFactory::view(&eye, &target, &Vector3::y());
+
+        assert_point_approx(view.transform_point(&eye), Point3::origin());
+        assert_point_approx(view.transform_point(&target), Point3::new(0.0, 0.0, -5.0));
+    }
+
+    #[test]
+    fn perspective_maps_near_and_far_planes_to_ndc_range() {
+        let projection = TransformFactory::perspective(1.0, 60.0_f32.to_radians(), 0.1, 100.0);
+        let near = apply_perspective_division(&(projection * Vector4::new(0.0, 0.0, -0.1, 1.0)));
+        let far = apply_perspective_division(&(projection * Vector4::new(0.0, 0.0, -100.0, 1.0)));
+
+        assert!((near.z + 1.0).abs() < 1e-4, "near z was {}", near.z);
+        assert!((far.z - 1.0).abs() < 1e-4, "far z was {}", far.z);
+    }
+
+    #[test]
+    fn viewport_flips_y_axis() {
+        assert_eq!(ndc_to_screen(-1.0, 1.0, 100.0, 50.0), Point2::new(0.0, 0.0));
+        assert_eq!(
+            ndc_to_screen(1.0, -1.0, 100.0, 50.0),
+            Point2::new(100.0, 50.0)
+        );
+    }
+}

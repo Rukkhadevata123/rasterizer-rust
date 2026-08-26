@@ -1,13 +1,7 @@
-mod app;
-mod core;
-mod io;
-mod pipeline;
-mod scene;
-mod ui;
-
 use clap::Parser;
-use io::config::Config;
 use log::{info, warn};
+use rasterizer_rust::app;
+use rasterizer_rust::io::config::Config;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

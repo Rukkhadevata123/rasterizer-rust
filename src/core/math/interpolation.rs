@@ -84,3 +84,59 @@ pub fn perspective_correct_barycentric(
     let inv_sum = 1.0 / sum;
     Some(Vector3::new(wa * inv_sum, wb * inv_sum, wc * inv_sum))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_approx(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 1e-5,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    #[test]
+    fn returns_expected_barycentric_coordinates() {
+        let bary = barycentric_coordinates(
+            Point2::new(0.25, 0.25),
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            Point2::new(0.0, 1.0),
+        )
+        .expect("triangle is not degenerate");
+
+        assert_approx(bary.x, 0.5);
+        assert_approx(bary.y, 0.25);
+        assert_approx(bary.z, 0.25);
+        assert!(is_inside_triangle(bary));
+    }
+
+    #[test]
+    fn rejects_degenerate_triangle() {
+        let bary = barycentric_coordinates(
+            Point2::new(0.5, 0.0),
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            Point2::new(2.0, 0.0),
+        );
+
+        assert!(bary.is_none());
+    }
+
+    #[test]
+    fn perspective_correction_favors_smaller_w() {
+        let corrected = perspective_correct_barycentric(
+            Vector3::new(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+            1.0,
+            2.0,
+            4.0,
+        )
+        .expect("weights have a finite sum");
+
+        assert_approx(corrected.x, 4.0 / 7.0);
+        assert_approx(corrected.y, 2.0 / 7.0);
+        assert_approx(corrected.z, 1.0 / 7.0);
+        assert_approx(corrected.sum(), 1.0);
+    }
+}
