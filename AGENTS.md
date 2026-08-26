@@ -1,74 +1,43 @@
-# AGENTS.md
+# Repository Guidelines
 
-## Build & Run
+## Project Structure & Module Organization
 
-- **Rust edition 2024** requires Rust 1.85+. Cargo.toml: `edition = "2024"`.
-- Single binary crate (not a workspace). Binary name: `rasterizer` (Cargo.toml `[[bin]]`).
+This is a single Rust 2024 binary crate. `src/main.rs` parses CLI arguments and delegates to `src/app.rs`. Code is grouped by responsibility:
+
+- `src/core/`: rasterization, framebuffer, geometry, math, and pipeline traits.
+- `src/pipeline/`: render passes, renderer orchestration, and PBR/shadow shaders.
+- `src/scene/`: cameras, lights, materials, models, meshes, and textures.
+- `src/io/`: TOML configuration, glTF loading, and PNG output.
+- `src/ui/`: interactive input handling.
+
+Runtime assets live in `assets/`; `scene.toml` is the primary example configuration. Keep generated images in `outputs/` or another ignored output path.
+
+## Build, Test, and Development Commands
+
+Rust 1.85 or newer is required for edition 2024.
 
 ```bash
-# CLI mode: render one frame to PNG (default output.png)
 cargo run --release -- --config scene.toml
-
-# GUI mode: real-time interactive viewer (minifb window)
 cargo run --release -- --config scene.toml --gui
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features
+cargo test
 ```
 
-- Always use `--release` — debug builds are unusably slow due to software rasterization.
-- `cargo test` does nothing: there are zero tests in the repo.
-- `cargo fmt` and `cargo clippy` use defaults (no rustfmt.toml / clippy.toml).
-- Default asset path: `assets/glbs/old_rusty_car.glb`. The default config references it.
+Always render with `--release`; debug rasterization is impractically slow. The first command renders one PNG, while the second opens the `minifb` viewer. In GUI mode, `R` reloads configuration but not models or textures.
 
-## Architecture
+## Coding Style & Naming Conventions
 
-```
-src/
-  main.rs        → CLI arg parsing (clap), dispatches to app
-  app.rs         → run_gui() / run_cli() orchestrators
-  core/          → Engine kernel
-    pipeline.rs   → Shader trait + Interpolatable trait (the programmable pipeline interface)
-    rasterizer.rs → Scanline rasterization, clipping, cull modes, blend modes
-    framebuffer.rs→ Thread-safe color+depth buffers (UnsafeCell + AtomicU32 + striped Mutex)
-    geometry.rs   → Vertex struct
-    math/         → Transform factories, barycentric interpolation
-    color.rs      → ACES tone mapping, linear→sRGB
-  pipeline/      → High-level render orchestration
-    passes.rs     → shadow_pass + main_pass + post_process pipeline stages
-    renderer.rs   → Renderer (owns Rasterizer + FrameBuffer), draw_mesh/draw_model
-    shaders/      → PBR and Shadow shader implementations of Shader trait
-  scene/         → Scene graph & asset management
-    loader.rs     → init_scene_resources(), build_lights_from_config() — entry for scene setup
-    context.rs    → RenderContext (camera + lights + objects)
-    camera.rs     → Perspective/orthographic camera
-    material.rs   → Material enum (Pbr), AlphaMode
-    model.rs / mesh.rs → Geometry containers
-    texture.rs    → Image loading, mipmapping, trilinear filtering
-    light.rs      → Light enum (Directional, Point)
-    scene_object.rs→ SceneObject (model + transform)
-  io/            → File I/O
-    config.rs     → TOML config deserialization (serde)
-    gltf_loader.rs→ glTF 2.0 .glb/.gltf importer
-    image.rs      → PNG output via the `image` crate
-  ui/
-    input.rs      → FPS camera controller (WASD + mouse)
-```
+Use standard `rustfmt` output and address Clippy warnings. Follow Rust conventions: `snake_case` for modules, functions, and variables; `PascalCase` for types and traits; `SCREAMING_SNAKE_CASE` for constants. Preserve the boundary between low-level `core` code and higher-level scene and pipeline orchestration.
 
-## Concurrency Model
+## Testing Guidelines
 
-- **Rayon** used for all parallelism: vertex processing, triangle rasterization, post-processing, depth clear.
-- `FrameBuffer` (`src/core/framebuffer.rs`):
-  - `UnsafeCell<Vec<Vector3>>` for color, `Vec<AtomicU32>` for depth.
-  - 1024 striped `Mutex` locks for color writes (locked per-pixel by index hash).
-  - Manually implements `unsafe impl Sync` — be cautious modifying this.
-  - Depth uses CAS loop (`test_and_update_depth`) for lock-free concurrent depth testing.
-- Transparent triangles are sorted `par_sort_unstable_by` by view-space Z, then rasterized **sequentially** to preserve blending order.
+Unit tests live in nearby `#[cfg(test)]` modules, and cross-module rendering tests live under `tests/`. Name tests after observable outcomes, such as `triangle_crossing_near_plane_is_clipped_and_rendered`. Run the full suite with `cargo test --release`. There is no coverage target yet; rendering changes should also produce a release PNG for visual regression checks.
 
-## Config / Hot Reload
+## Concurrency & Safety
 
-- Config is TOML (`scene.toml`). Struct: `io::config::Config`.
-- GUI: press **R** to hot-reload config from disk (re-parses lights, transforms, render settings — does NOT reload models/textures).
+Rayon drives parallel rendering. `FrameBuffer` combines `UnsafeCell`, atomics, striped mutexes, and a manual `Sync` implementation. Changes to buffer access or depth testing must preserve documented safety invariants. Transparent triangles must remain sequential after back-to-front sorting so blending order is stable.
 
-## Key Conventions
+## Commit & Pull Request Guidelines
 
-- `.gitignore` blocks `TESTS.md`, `legacy/`, `python_files/`, `obj_not_upload`.
-- No CI / GitHub workflows / pre-commit hooks are configured.
-- No `AGENTS.md` or `CLAUDE.md` sibling files exist; this is the first.
+Recent history uses short, lowercase summaries. Prefer concise imperative subjects, for example `fix near-plane clipping`, and keep commits focused. Pull requests should explain motivation, summarize implementation, list validation commands, link relevant issues, and include before/after images for rendering or GUI changes.
