@@ -33,10 +33,10 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(width: usize, height: usize, sample_count: usize) -> Self {
+    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
         Self {
             rasterizer: Rasterizer::new(),
-            framebuffer: FrameBuffer::new(width, height, sample_count),
+            framebuffer: FrameBuffer::new(width, height, supersample_scale),
         }
     }
 

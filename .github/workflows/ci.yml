@@ -36,7 +36,7 @@ jobs:
           $config = Get-Content scene.toml -Raw
           $config = $config.Replace('width = 1280', 'width = 160')
           $config = $config.Replace('height = 720', 'height = 90')
-          $config = $config.Replace('samples = 2', 'samples = 1')
+          $config = $config.Replace('supersample_scale = 2', 'supersample_scale = 1')
           $config = $config.Replace('shadow_map_size = 1024', 'shadow_map_size = 128')
           $config = $config.Replace('output = "outputs/output_gltf.png"', 'output = "target/ci-smoke.png"')
           Set-Content target/ci-scene.toml $config

@@ -1,5 +1,5 @@
 use crate::core::math::transform::TransformFactory;
-use crate::io::config::Config;
+use crate::io::config::{Config, LightKind, ProjectionMode};
 use crate::io::gltf_loader::load_gltf;
 use crate::scene::camera::Camera;
 use crate::scene::context::{RenderContext, ShadowLight};
@@ -19,8 +19,8 @@ pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Option<ShadowLi
 
     for light_config in &config.lights {
         let color = Vector3::from(light_config.color);
-        match light_config.r#type.as_str() {
-            "directional" => {
+        match light_config.kind {
+            LightKind::Directional => {
                 if let Some(direction) = light_config.direction {
                     let direction = Vector3::from(direction).normalize();
                     let light_index = lights.len();
@@ -35,7 +35,7 @@ pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Option<ShadowLi
                     });
                 }
             }
-            "point" => {
+            LightKind::Point => {
                 if let Some(position) = light_config.position {
                     let mut light =
                         Light::new_point(Point3::from(position), color, light_config.intensity);
@@ -50,7 +50,6 @@ pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Option<ShadowLi
                     lights.push(light);
                 }
             }
-            _ => {}
         }
     }
 
@@ -110,7 +109,7 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
     let cam_up = Vector3::from(config.camera.up);
     let aspect_ratio = config.render.width as f32 / config.render.height as f32;
 
-    let camera = if config.camera.projection == "orthographic" {
+    let camera = if config.camera.projection == ProjectionMode::Orthographic {
         Camera::new_orthographic(
             cam_pos,
             cam_target,
@@ -212,7 +211,7 @@ mod tests {
 
     fn point_light() -> LightConfig {
         LightConfig {
-            r#type: "point".to_string(),
+            kind: LightKind::Point,
             position: Some([1.0, 2.0, 3.0]),
             direction: None,
             color: [1.0, 1.0, 1.0],
@@ -223,7 +222,7 @@ mod tests {
 
     fn directional_light(direction: [f32; 3]) -> LightConfig {
         LightConfig {
-            r#type: "directional".to_string(),
+            kind: LightKind::Directional,
             position: None,
             direction: Some(direction),
             color: [1.0, 1.0, 1.0],

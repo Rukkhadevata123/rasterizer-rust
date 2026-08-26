@@ -7,7 +7,7 @@
 width = 1280
 height = 720
 output = "outputs/output_gltf.png"
-samples = 2           # MSAA samples (currently implemented as SSAA in some paths or placeholder)
+supersample_scale = 2 # SSAA scale: 2 renders a 2x2 sample grid per output pixel
 exposure = 1.0        # Tone mapping exposure
 
 # --- Lighting & Environment ---

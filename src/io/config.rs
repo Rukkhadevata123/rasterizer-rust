@@ -3,16 +3,12 @@ use std::fs;
 use std::path::Path;
 
 #[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Config {
-    #[serde(default)]
     pub render: RenderConfig,
-    #[serde(default)]
     pub camera: CameraConfig,
-    #[serde(default)]
     pub ground: GroundConfig,
-    #[serde(default)]
     pub lights: Vec<LightConfig>,
-    #[serde(default)]
     pub objects: Vec<ObjectConfig>,
 }
 
@@ -23,167 +19,105 @@ impl Default for Config {
             camera: CameraConfig::default(),
             ground: GroundConfig::default(),
             lights: vec![LightConfig {
-                r#type: "directional".to_string(),
+                kind: LightKind::Directional,
                 direction: Some([-1.0, -2.0, -1.0]),
                 color: [1.0, 0.95, 0.8],
                 intensity: 3.5,
                 position: None,
                 attenuation: None,
             }],
-            objects: vec![
-                // Default now points to a GLTF
-                ObjectConfig {
-                    path: "assets/glbs/old_rusty_car.glb".to_string(),
-                    position: [0.0, 0.0, 0.0],
-                    rotation: [0.0, -45.0, 0.0],
-                    scale: [2.0, 2.0, 2.0],
-                },
-            ],
+            objects: vec![ObjectConfig {
+                path: "assets/glbs/old_rusty_car.glb".to_string(),
+                position: [0.0, 0.0, 0.0],
+                rotation: [0.0, -45.0, 0.0],
+                scale: [2.0, 2.0, 2.0],
+            }],
         }
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct RenderConfig {
-    // --- Output & Quality ---
-    #[serde(default = "default_width")]
-    pub width: usize,
-    #[serde(default = "default_height")]
-    pub height: usize,
-    #[serde(default = "default_output")]
-    pub output: String,
-    #[serde(default = "default_samples")]
-    pub samples: usize,
-    #[serde(default = "default_exposure")]
-    pub exposure: f32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CullModeConfig {
+    #[default]
+    Back,
+    Front,
+    None,
+}
 
-    // --- Environment & Background ---
-    #[serde(default = "default_ambient")]
+#[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RenderConfig {
+    pub width: usize,
+    pub height: usize,
+    pub output: String,
+    pub supersample_scale: usize,
+    pub exposure: f32,
     pub ambient_light: [f32; 3],
-    #[serde(default)]
     pub background_image: Option<String>,
     pub background_color: Option<[f32; 3]>,
     pub background_gradient_top: Option<[f32; 3]>,
     pub background_gradient_bottom: Option<[f32; 3]>,
-
-    // --- Shadow System ---
-    #[serde(default = "default_true")]
     pub use_shadows: bool,
-    #[serde(default = "default_shadow_map_size")]
     pub shadow_map_size: usize,
-    #[serde(default = "default_shadow_ortho_size")]
     pub shadow_ortho_size: f32,
-    #[serde(default = "default_shadow_bias")]
     pub shadow_bias: f32,
-    #[serde(default = "default_true")]
     pub use_pcf: bool,
-    #[serde(default = "default_pcf_kernel")]
     pub pcf_kernel_size: i32,
-
-    // --- Tone Mapping & Color ---
-    #[serde(default = "default_true")]
     pub use_aces: bool,
-
-    // --- Pipeline & Debug ---
-    #[serde(default = "default_cull_mode")]
-    pub cull_mode: String, // "back", "front", "none"
-    #[serde(default = "default_false")]
+    pub cull_mode: CullModeConfig,
     pub wireframe: bool,
-    #[serde(default = "default_false")]
     pub use_mipmap: bool,
 }
 
 impl Default for RenderConfig {
     fn default() -> Self {
         Self {
-            width: default_width(),
-            height: default_height(),
-            output: default_output(),
-            samples: default_samples(),
-            exposure: default_exposure(),
-            ambient_light: default_ambient(),
+            width: 1280,
+            height: 720,
+            output: "output_default.png".to_string(),
+            supersample_scale: 1,
+            exposure: 1.0,
+            ambient_light: [0.1, 0.1, 0.1],
             background_image: None,
             background_color: None,
             background_gradient_top: Some([0.2, 0.2, 0.3]),
             background_gradient_bottom: Some([0.05, 0.05, 0.1]),
-            use_shadows: default_true(),
-            shadow_map_size: default_shadow_map_size(),
-            shadow_ortho_size: default_shadow_ortho_size(),
-            shadow_bias: default_shadow_bias(),
-            use_pcf: default_true(),
-            pcf_kernel_size: default_pcf_kernel(),
-            use_aces: default_true(),
-            cull_mode: default_cull_mode(),
-            wireframe: default_false(),
-            use_mipmap: default_false(),
+            use_shadows: true,
+            shadow_map_size: 720,
+            shadow_ortho_size: 8.0,
+            shadow_bias: 0.01,
+            use_pcf: true,
+            pcf_kernel_size: 1,
+            use_aces: true,
+            cull_mode: CullModeConfig::Back,
+            wireframe: false,
+            use_mipmap: false,
         }
     }
 }
 
-// Defaults matching scene.toml
-fn default_width() -> usize {
-    1280
-}
-fn default_height() -> usize {
-    720
-}
-fn default_output() -> String {
-    "output_default.png".to_string()
-}
-fn default_shadow_map_size() -> usize {
-    720
-}
-fn default_samples() -> usize {
-    1
-}
-fn default_ambient() -> [f32; 3] {
-    [0.1, 0.1, 0.1]
-}
-fn default_shadow_bias() -> f32 {
-    0.01
-}
-fn default_shadow_ortho_size() -> f32 {
-    8.0
-}
-fn default_exposure() -> f32 {
-    1.0
-}
-fn default_cull_mode() -> String {
-    "back".to_string()
-}
-fn default_false() -> bool {
-    false
-}
-fn default_true() -> bool {
-    true
-}
-fn default_pcf_kernel() -> i32 {
-    1
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectionMode {
+    #[default]
+    Perspective,
+    Orthographic,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct CameraConfig {
-    #[serde(default)]
     pub position: [f32; 3],
-    #[serde(default)]
     pub target: [f32; 3],
-    #[serde(default)]
     pub up: [f32; 3],
-    #[serde(default = "default_fov")]
     pub fov: f32,
-    #[serde(default = "default_projection")]
-    pub projection: String,
-    #[serde(default = "default_ortho_height")]
+    pub projection: ProjectionMode,
     pub ortho_height: f32,
-    #[serde(default = "default_near")]
     pub near: f32,
-    #[serde(default = "default_far")]
     pub far: f32,
-    #[serde(default = "default_speed")]
     pub speed: f32,
-    #[serde(default = "default_sensitivity")]
     pub sensitivity: f32,
-    #[serde(default = "default_zoom_speed")]
     pub zoom_speed: f32,
 }
 
@@ -193,48 +127,22 @@ impl Default for CameraConfig {
             position: [0.0, 4.0, 5.0],
             target: [0.0, 0.0, 0.0],
             up: [0.0, 1.0, 0.0],
-            fov: default_fov(),
-            projection: default_projection(),
-            ortho_height: default_ortho_height(),
-            near: default_near(),
-            far: default_far(),
-            speed: default_speed(),
-            sensitivity: default_sensitivity(),
-            zoom_speed: default_zoom_speed(),
+            fov: 45.0,
+            projection: ProjectionMode::Perspective,
+            ortho_height: 10.0,
+            near: 0.1,
+            far: 100.0,
+            speed: 5.0,
+            sensitivity: 0.005,
+            zoom_speed: 0.02,
         }
     }
 }
 
-fn default_fov() -> f32 {
-    45.0
-}
-fn default_projection() -> String {
-    "perspective".to_string()
-}
-fn default_ortho_height() -> f32 {
-    10.0
-}
-fn default_near() -> f32 {
-    0.1
-}
-fn default_far() -> f32 {
-    100.0
-}
-fn default_speed() -> f32 {
-    5.0
-}
-fn default_sensitivity() -> f32 {
-    0.005
-}
-fn default_zoom_speed() -> f32 {
-    0.02
-}
-
 #[derive(Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct GroundConfig {
-    #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_ground_size")]
     pub size: f32,
     pub albedo: Option<[f32; 3]>,
     pub metallic: Option<f32>,
@@ -244,8 +152,8 @@ pub struct GroundConfig {
 impl Default for GroundConfig {
     fn default() -> Self {
         Self {
-            enabled: default_true(),
-            size: default_ground_size(),
+            enabled: true,
+            size: 10.0,
             albedo: Some([0.8, 0.8, 0.8]),
             metallic: Some(0.0),
             roughness: Some(0.8),
@@ -253,13 +161,18 @@ impl Default for GroundConfig {
     }
 }
 
-fn default_ground_size() -> f32 {
-    10.0
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LightKind {
+    Directional,
+    Point,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LightConfig {
-    pub r#type: String,
+    #[serde(rename = "type")]
+    pub kind: LightKind,
     pub position: Option<[f32; 3]>,
     pub direction: Option<[f32; 3]>,
     pub color: [f32; 3],
@@ -268,10 +181,9 @@ pub struct LightConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObjectConfig {
     pub path: String,
-
-    // --- Transform ---
     #[serde(default)]
     pub position: [f32; 3],
     #[serde(default)]
@@ -286,9 +198,9 @@ fn default_scale() -> [f32; 3] {
 
 impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let content =
-            fs::read_to_string(path).map_err(|e| format!("Failed to read config file: {}", e))?;
-        toml::from_str(&content).map_err(|e| format!("Failed to parse TOML: {}", e))
+        let content = fs::read_to_string(path)
+            .map_err(|error| format!("Failed to read config file: {error}"))?;
+        toml::from_str(&content).map_err(|error| format!("Failed to parse TOML: {error}"))
     }
 }
 
@@ -297,16 +209,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_document_uses_repository_defaults() {
+    fn empty_document_uses_complete_repository_defaults() {
         let config: Config = toml::from_str("").expect("empty TOML should use defaults");
 
         assert_eq!(config.render.width, 1280);
         assert_eq!(config.render.height, 720);
-        assert_eq!(config.render.samples, 1);
+        assert_eq!(config.render.supersample_scale, 1);
+        assert_eq!(config.render.cull_mode, CullModeConfig::Back);
         assert_eq!(config.camera.position, [0.0, 4.0, 5.0]);
+        assert_eq!(config.camera.projection, ProjectionMode::Perspective);
         assert!(config.ground.enabled);
-        assert!(config.lights.is_empty());
-        assert!(config.objects.is_empty());
+        assert_eq!(config.lights.len(), 1);
+        assert_eq!(config.lights[0].kind, LightKind::Directional);
+        assert_eq!(config.objects.len(), 1);
+        assert_eq!(config.objects[0].path, "assets/glbs/old_rusty_car.glb");
+    }
+
+    #[test]
+    fn partial_tables_preserve_struct_defaults() {
+        let config: Config = toml::from_str(
+            r#"
+                [render]
+                width = 320
+
+                [camera]
+                fov = 60.0
+
+                [ground]
+                roughness = 0.25
+            "#,
+        )
+        .expect("partial tables should inherit defaults");
+
+        assert_eq!(config.render.width, 320);
+        assert_eq!(config.render.height, 720);
+        assert_eq!(config.render.background_gradient_top, Some([0.2, 0.2, 0.3]));
+        assert_eq!(config.camera.position, [0.0, 4.0, 5.0]);
+        assert_eq!(config.camera.target, [0.0, 0.0, 0.0]);
+        assert_eq!(config.camera.up, [0.0, 1.0, 0.0]);
+        assert_eq!(config.camera.fov, 60.0);
+        assert_eq!(config.ground.albedo, Some([0.8, 0.8, 0.8]));
+        assert_eq!(config.ground.roughness, Some(0.25));
+        assert_eq!(config.lights.len(), 1);
+        assert_eq!(config.objects.len(), 1);
     }
 
     #[test]
@@ -315,7 +260,7 @@ mod tests {
             [render]
             width = 320
             height = 180
-            samples = 2
+            supersample_scale = 2
             cull_mode = "none"
 
             [camera]
@@ -323,6 +268,7 @@ mod tests {
             target = [0.0, 0.0, 0.0]
             up = [0.0, 1.0, 0.0]
             fov = 60.0
+            projection = "orthographic"
 
             [ground]
             enabled = false
@@ -342,11 +288,38 @@ mod tests {
 
         assert_eq!(config.render.width, 320);
         assert_eq!(config.render.height, 180);
-        assert_eq!(config.render.samples, 2);
-        assert_eq!(config.render.cull_mode, "none");
+        assert_eq!(config.render.supersample_scale, 2);
+        assert_eq!(config.render.cull_mode, CullModeConfig::None);
         assert_eq!(config.camera.fov, 60.0);
+        assert_eq!(config.camera.projection, ProjectionMode::Orthographic);
         assert!(!config.ground.enabled);
         assert_eq!(config.lights.len(), 1);
+        assert_eq!(config.lights[0].kind, LightKind::Point);
         assert_eq!(config.objects[0].scale, [1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn rejects_unknown_typed_values() {
+        for source in [
+            "[render]\ncull_mode = \"sideways\"",
+            "[camera]\nprojection = \"fisheye\"",
+            "[[lights]]\ntype = \"spot\"\ncolor = [1.0, 1.0, 1.0]\nintensity = 1.0",
+        ] {
+            assert!(toml::from_str::<Config>(source).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_legacy_samples_field() {
+        assert!(toml::from_str::<Config>("[render]\nsamples = 4").is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_fields() {
+        assert!(toml::from_str::<Config>("unexpected = true").is_err());
+        assert!(toml::from_str::<Config>("[camera]\nunknown = 1").is_err());
+        assert!(
+            toml::from_str::<Config>("[[objects]]\npath = \"fixture.glb\"\nunknown = 1").is_err()
+        );
     }
 }

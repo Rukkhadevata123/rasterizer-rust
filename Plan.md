@@ -35,11 +35,11 @@ Status: completed
 - Associated each shadow map with its selected directional light rather than assuming light index zero.
 - Rebuilt supersampling and shadow buffers during hot reload, rejected invalid sizes, and required restart for window-size changes.
 
-Current baseline: 35 tests, no `unsafe` in `src/` or `tests/`, and deterministic output between one and eight Rayon workers for the smoke scene.
+Baseline after Phase 2: 35 tests, no `unsafe` in `src/` or `tests/`, and deterministic output between one and eight Rayon workers for the smoke scene.
 
 ## Phase 3: Configuration, Validation, and Error Foundations
 
-Status: in progress; 3A completed
+Status: in progress; 3A and 3B completed
 
 This phase precedes the glTF rewrite because import, image, CLI, and GUI errors should share one stable model.
 
@@ -58,10 +58,12 @@ Status: completed
 
 ### 3B: Typed Configuration and Consistent Defaults
 
-- Replace projection, cull mode, and light type strings with Serde enums.
-- Decide and test whether an empty document means repository defaults or an intentionally empty scene; remove the current mixed semantics.
-- Fix partial-table defaults so omitted camera fields use `CameraConfig::default()` values rather than zero arrays.
-- Rename `samples` to `supersample_scale` because `2` means a 2×2 grid, not two samples. Do not keep a permanent duplicate field; a temporary Serde alias is acceptable only for one migration commit if explicitly documented.
+Status: completed
+
+- [x] Replace projection, cull mode, and light type strings with Serde enums.
+- [x] Define an empty document as the complete repository-default scene and test that behavior.
+- [x] Fix partial-table defaults so omitted fields inherit their complete struct defaults rather than type-level zero values.
+- [x] Rename the old `samples` field to `supersample_scale` because `2` means a 2×2 grid, not two samples; reject the old field instead of retaining a compatibility path.
 
 ### 3C: Validation and Checked Dimensions
 
@@ -87,7 +89,7 @@ Status: completed
 Suggested commits:
 
 1. `declare rust support and add ci` (completed)
-2. `define typed scene configuration`
+2. `define typed scene configuration` (completed)
 3. `validate render configuration`
 4. `propagate application errors`
 5. `resolve assets relative to config`
@@ -468,7 +470,7 @@ Repository state when this roadmap was revised:
 - branch: `main`;
 - completed commits include `c32a12f` for band ownership and `2bc0630` for remaining Phase 2 safety;
 - working tree should be clean before starting implementation;
-- 35 tests are present;
+- 39 tests are present after Phase 3B;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 3B through 3C. Do not begin the glTF importer rewrite, RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 3C. Do not begin the glTF importer rewrite, RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

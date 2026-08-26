@@ -1,5 +1,5 @@
 use crate::core::rasterizer::CullMode;
-use crate::io::config::{Config, RenderConfig};
+use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
 use crate::pipeline::passes::{post_process_to_buffer, render_main_pass, render_shadow_pass};
 use crate::pipeline::renderer::Renderer;
@@ -9,10 +9,25 @@ use log::{debug, info, warn};
 use minifb::{Key, MouseButton, Window, WindowOptions};
 use std::time::Instant;
 
+fn cull_mode_index(mode: CullModeConfig) -> usize {
+    match mode {
+        CullModeConfig::None => 0,
+        CullModeConfig::Front => 1,
+        CullModeConfig::Back => 2,
+    }
+}
+
+fn cull_mode_from_index(index: usize) -> CullMode {
+    match index {
+        0 => CullMode::None,
+        1 => CullMode::Front,
+        _ => CullMode::Back,
+    }
+}
 struct HotReloadRenderSettings {
     render: RenderConfig,
     resize_requested: bool,
-    sample_count_rejected: bool,
+    supersample_scale_rejected: bool,
     shadow_map_size_rejected: bool,
 }
 
@@ -23,20 +38,20 @@ fn apply_hot_reload_render_settings(
     renderer: &mut Renderer,
     shadow_renderer: &mut Renderer,
 ) -> HotReloadRenderSettings {
-    let sample_count_rejected = render.samples == 0
+    let supersample_scale_rejected = render.supersample_scale == 0
         || window_width
-            .checked_mul(render.samples)
+            .checked_mul(render.supersample_scale)
             .and_then(|width| {
                 window_height
-                    .checked_mul(render.samples)
+                    .checked_mul(render.supersample_scale)
                     .map(|height| (width, height))
             })
             .and_then(|(width, height)| width.checked_mul(height))
             .is_none();
-    if sample_count_rejected {
-        render.samples = renderer.framebuffer.sample_count;
-    } else if renderer.framebuffer.sample_count != render.samples {
-        *renderer = Renderer::new(window_width, window_height, render.samples);
+    if supersample_scale_rejected {
+        render.supersample_scale = renderer.framebuffer.supersample_scale;
+    } else if renderer.framebuffer.supersample_scale != render.supersample_scale {
+        *renderer = Renderer::new(window_width, window_height, render.supersample_scale);
     }
 
     let shadow_map_size_rejected = render.shadow_map_size == 0
@@ -59,7 +74,7 @@ fn apply_hot_reload_render_settings(
     HotReloadRenderSettings {
         render,
         resize_requested,
-        sample_count_rejected,
+        supersample_scale_rejected,
         shadow_map_size_rejected,
     }
 }
@@ -94,7 +109,7 @@ pub fn run_gui(mut config: Config, config_path: &str) {
     let mut context = init_scene_resources(&config);
 
     // Renderers
-    let mut renderer = Renderer::new(width, height, config.render.samples);
+    let mut renderer = Renderer::new(width, height, config.render.supersample_scale);
     let mut shadow_renderer = Renderer::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
@@ -113,17 +128,10 @@ pub fn run_gui(mut config: Config, config_path: &str) {
     let mut last_frame_time = Instant::now();
     let mut last_right_click = false;
     let mut last_middle_click = false;
-    let mut cull_mode_idx = match config.render.cull_mode.as_str() {
-        "none" => 0,
-        "front" => 1,
-        _ => 2,
-    };
-
-    renderer.rasterizer.set_cull_mode(match cull_mode_idx {
-        0 => CullMode::None,
-        1 => CullMode::Front,
-        _ => CullMode::Back,
-    });
+    let mut cull_mode_idx = cull_mode_index(config.render.cull_mode);
+    renderer
+        .rasterizer
+        .set_cull_mode(cull_mode_from_index(cull_mode_idx));
     // Also apply initial wireframe setting
     renderer.rasterizer.wireframe = config.render.wireframe;
 
@@ -161,8 +169,8 @@ pub fn run_gui(mut config: Config, config_path: &str) {
                             "Ignoring hot-reloaded render size; restart the GUI to resize the window."
                         );
                     }
-                    if render_settings.sample_count_rejected {
-                        warn!("Ignoring invalid hot-reloaded sample count.");
+                    if render_settings.supersample_scale_rejected {
+                        warn!("Ignoring invalid hot-reloaded supersampling scale.");
                     }
                     if render_settings.shadow_map_size_rejected {
                         warn!("Ignoring invalid hot-reloaded shadow-map size.");
@@ -170,16 +178,10 @@ pub fn run_gui(mut config: Config, config_path: &str) {
                     config.render = render_settings.render;
 
                     renderer.rasterizer.wireframe = config.render.wireframe;
-                    cull_mode_idx = match config.render.cull_mode.as_str() {
-                        "none" => 0,
-                        "front" => 1,
-                        _ => 2,
-                    };
-                    renderer.rasterizer.set_cull_mode(match cull_mode_idx {
-                        0 => CullMode::None,
-                        1 => CullMode::Front,
-                        _ => CullMode::Back,
-                    });
+                    cull_mode_idx = cull_mode_index(config.render.cull_mode);
+                    renderer
+                        .rasterizer
+                        .set_cull_mode(cull_mode_from_index(cull_mode_idx));
 
                     info!("Hot reload successful!");
                 }
@@ -193,11 +195,7 @@ pub fn run_gui(mut config: Config, config_path: &str) {
         let right_click = window.get_mouse_down(MouseButton::Right);
         if right_click && !last_right_click {
             cull_mode_idx = (cull_mode_idx + 1) % 3;
-            let new_mode = match cull_mode_idx {
-                0 => CullMode::None,
-                1 => CullMode::Front,
-                _ => CullMode::Back,
-            };
+            let new_mode = cull_mode_from_index(cull_mode_idx);
             renderer.rasterizer.set_cull_mode(new_mode);
             info!("Cull mode changed to: {:?}", new_mode);
         }
@@ -245,7 +243,7 @@ pub fn run_cli(config: Config) {
     let mut renderer = Renderer::new(
         config.render.width,
         config.render.height,
-        config.render.samples,
+        config.render.supersample_scale,
     );
     let mut shadow_renderer = Renderer::new(
         config.render.shadow_map_size,
@@ -253,11 +251,7 @@ pub fn run_cli(config: Config) {
         1,
     );
 
-    let cull_mode = match config.render.cull_mode.as_str() {
-        "front" => CullMode::Front,
-        "none" => CullMode::None,
-        _ => CullMode::Back,
-    };
+    let cull_mode = cull_mode_from_index(cull_mode_index(config.render.cull_mode));
     renderer.rasterizer.set_cull_mode(cull_mode);
     renderer.rasterizer.wireframe = config.render.wireframe;
 
@@ -293,7 +287,7 @@ mod tests {
         let render = RenderConfig {
             width: 160,
             height: 90,
-            samples: 2,
+            supersample_scale: 2,
             shadow_map_size: 128,
             ..Default::default()
         };
@@ -302,10 +296,10 @@ mod tests {
             apply_hot_reload_render_settings(render, 80, 45, &mut renderer, &mut shadow_renderer);
 
         assert!(settings.resize_requested);
-        assert!(!settings.sample_count_rejected);
+        assert!(!settings.supersample_scale_rejected);
         assert!(!settings.shadow_map_size_rejected);
         assert_eq!((settings.render.width, settings.render.height), (80, 45));
-        assert_eq!(renderer.framebuffer.sample_count, 2);
+        assert_eq!(renderer.framebuffer.supersample_scale, 2);
         assert_eq!(renderer.framebuffer.buffer_width, 160);
         assert_eq!(renderer.framebuffer.buffer_height, 90);
         assert_eq!(shadow_renderer.framebuffer.width, 128);
@@ -319,7 +313,7 @@ mod tests {
         let render = RenderConfig {
             width: 80,
             height: 45,
-            samples: 1,
+            supersample_scale: 1,
             shadow_map_size: 64,
             ..Default::default()
         };
@@ -328,10 +322,10 @@ mod tests {
             apply_hot_reload_render_settings(render, 80, 45, &mut renderer, &mut shadow_renderer);
 
         assert!(!settings.resize_requested);
-        assert!(!settings.sample_count_rejected);
+        assert!(!settings.supersample_scale_rejected);
         assert!(!settings.shadow_map_size_rejected);
         assert_eq!((settings.render.width, settings.render.height), (80, 45));
-        assert_eq!(renderer.framebuffer.sample_count, 1);
+        assert_eq!(renderer.framebuffer.supersample_scale, 1);
         assert_eq!(shadow_renderer.framebuffer.width, 64);
     }
     #[test]
@@ -341,7 +335,7 @@ mod tests {
         let render = RenderConfig {
             width: 80,
             height: 45,
-            samples: 0,
+            supersample_scale: 0,
             shadow_map_size: 0,
             ..Default::default()
         };
@@ -349,11 +343,11 @@ mod tests {
         let settings =
             apply_hot_reload_render_settings(render, 80, 45, &mut renderer, &mut shadow_renderer);
 
-        assert!(settings.sample_count_rejected);
+        assert!(settings.supersample_scale_rejected);
         assert!(settings.shadow_map_size_rejected);
-        assert_eq!(settings.render.samples, 2);
+        assert_eq!(settings.render.supersample_scale, 2);
         assert_eq!(settings.render.shadow_map_size, 64);
-        assert_eq!(renderer.framebuffer.sample_count, 2);
+        assert_eq!(renderer.framebuffer.supersample_scale, 2);
         assert_eq!(shadow_renderer.framebuffer.width, 64);
     }
 }

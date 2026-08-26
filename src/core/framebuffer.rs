@@ -16,22 +16,22 @@ impl Sample {
 pub struct FrameBuffer {
     pub width: usize,
     pub height: usize,
-    pub sample_count: usize,
+    pub supersample_scale: usize,
     pub buffer_width: usize,
     pub buffer_height: usize,
     samples: Vec<Sample>,
 }
 
 impl FrameBuffer {
-    pub fn new(width: usize, height: usize, sample_count: usize) -> Self {
-        let buffer_width = width * sample_count;
-        let buffer_height = height * sample_count;
+    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
+        let buffer_width = width * supersample_scale;
+        let buffer_height = height * supersample_scale;
         let size = buffer_width * buffer_height;
 
         Self {
             width,
             height,
-            sample_count,
+            supersample_scale,
             buffer_width,
             buffer_height,
             samples: vec![Sample::cleared(Vector3::zeros(), f32::INFINITY); size],
@@ -81,21 +81,21 @@ impl FrameBuffer {
             return None;
         }
 
-        if self.sample_count == 1 {
+        if self.supersample_scale == 1 {
             return Some(self.samples[self.index(x, y)].color);
         }
 
         let mut sum_color = Vector3::zeros();
-        let start_x = x * self.sample_count;
-        let start_y = y * self.sample_count;
+        let start_x = x * self.supersample_scale;
+        let start_y = y * self.supersample_scale;
 
-        for dy in 0..self.sample_count {
-            for dx in 0..self.sample_count {
+        for dy in 0..self.supersample_scale {
+            for dx in 0..self.supersample_scale {
                 sum_color += self.samples[self.index(start_x + dx, start_y + dy)].color;
             }
         }
 
-        let samples = (self.sample_count * self.sample_count) as f32;
-        Some(sum_color / samples)
+        let sample_total = (self.supersample_scale * self.supersample_scale) as f32;
+        Some(sum_color / sample_total)
     }
 }
