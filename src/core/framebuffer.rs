@@ -1,31 +1,26 @@
 use nalgebra::Vector3;
-use std::cell::UnsafeCell;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU32, Ordering};
+use rayon::prelude::*;
 
-/// Represents a 2D buffer containing color and depth information.
-/// Thread-safe for parallel rendering using atomic depth and striped locking for color.
+#[derive(Clone, Copy, Debug)]
+pub struct Sample {
+    pub color: Vector3<f32>,
+    pub depth: f32,
+}
+
+impl Sample {
+    fn cleared(color: Vector3<f32>, depth: f32) -> Self {
+        Self { color, depth }
+    }
+}
+
 pub struct FrameBuffer {
     pub width: usize,
     pub height: usize,
     pub sample_count: usize,
     pub buffer_width: usize,
     pub buffer_height: usize,
-
-    /// Color buffer wrapped in UnsafeCell to allow interior mutability.
-    /// Safety is guaranteed by `locks` and depth testing.
-    pub color_buffer: UnsafeCell<Vec<Vector3<f32>>>,
-
-    /// Depth buffer stored as atomic bits of f32.
-    pub depth_buffer: Vec<AtomicU32>,
-
-    /// Striped locks to protect color writes.
-    /// We map pixel coordinates to a lock index to reduce contention.
-    locks: Vec<Mutex<()>>,
+    samples: Vec<Sample>,
 }
-
-// We implement Sync because we manage thread safety manually via Atomics and Locks.
-unsafe impl Sync for FrameBuffer {}
 
 impl FrameBuffer {
     pub fn new(width: usize, height: usize, sample_count: usize) -> Self {
@@ -33,30 +28,13 @@ impl FrameBuffer {
         let buffer_height = height * sample_count;
         let size = buffer_width * buffer_height;
 
-        // Initialize depth with f32::INFINITY bits
-        let inf_bits = f32::INFINITY.to_bits();
-        let mut depth_buffer = Vec::with_capacity(size);
-        for _ in 0..size {
-            depth_buffer.push(AtomicU32::new(inf_bits));
-        }
-
-        // Create a pool of locks (e.g., 1024 locks) to reduce memory overhead
-        // compared to one lock per pixel.
-        let lock_count = 1024;
-        let mut locks = Vec::with_capacity(lock_count);
-        for _ in 0..lock_count {
-            locks.push(Mutex::new(()));
-        }
-
         Self {
             width,
             height,
             sample_count,
             buffer_width,
             buffer_height,
-            color_buffer: UnsafeCell::new(vec![Vector3::zeros(); size]),
-            depth_buffer,
-            locks,
+            samples: vec![Sample::cleared(Vector3::zeros(), f32::INFINITY); size],
         }
     }
 
@@ -70,99 +48,41 @@ impl FrameBuffer {
         y * self.buffer_width + x
     }
 
-    /// Thread-safe depth test and update.
-    /// Returns true if the new depth is closer than the existing value.
-    /// If true, it updates the depth buffer atomically.
-    #[inline]
-    pub fn test_and_update_depth(&self, x: usize, y: usize, new_depth: f32) -> bool {
-        if !self.in_bounds(x, y) {
-            return false;
-        }
-        let idx = self.index(x, y);
-        let new_bits = new_depth.to_bits();
-        let depth_atomic = &self.depth_buffer[idx];
-
-        // CAS Loop (Compare and Swap)
-        let mut current_bits = depth_atomic.load(Ordering::Relaxed);
-        loop {
-            let current_depth = f32::from_bits(current_bits);
-            if new_depth >= current_depth {
-                return false; // Failed test
-            }
-
-            // Try to swap
-            match depth_atomic.compare_exchange_weak(
-                current_bits,
-                new_bits,
-                Ordering::Acquire,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return true,                             // Success
-                Err(updated_bits) => current_bits = updated_bits, // Retry with new value
-            }
-        }
+    pub fn sample(&self, x: usize, y: usize) -> Option<&Sample> {
+        self.in_bounds(x, y)
+            .then(|| &self.samples[self.index(x, y)])
     }
 
-    /// Performs depth test without updating the buffer.
-    /// Returns true if new_depth < current_depth.
-    #[inline]
-    pub fn test_depth(&self, x: usize, y: usize, new_depth: f32) -> bool {
-        if !self.in_bounds(x, y) {
-            return false;
-        }
-        let idx = self.index(x, y);
-        let current_bits = self.depth_buffer[idx].load(Ordering::Relaxed);
-        let current_depth = f32::from_bits(current_bits);
-        new_depth < current_depth
+    pub(crate) fn samples_mut(&mut self) -> &mut [Sample] {
+        &mut self.samples
     }
 
-    /// Thread-safe alpha blending.
-    #[inline]
-    pub fn blend_pixel_safe(&self, x: usize, y: usize, src_color: Vector3<f32>, alpha: f32) {
-        if self.in_bounds(x, y) {
-            let idx = self.index(x, y);
-            let lock_idx = idx % self.locks.len();
-            let _guard = self.locks[lock_idx].lock().unwrap();
-
-            unsafe {
-                let buffer = &mut *self.color_buffer.get();
-                let dst_color = buffer[idx];
-                buffer[idx] = src_color * alpha + dst_color * (1.0 - alpha);
-            }
-        }
+    pub fn depth_values(&self) -> Vec<f32> {
+        self.samples.iter().map(|sample| sample.depth).collect()
     }
 
-    /// Thread-safe pixel write.
-    /// Should only be called AFTER depth_test_and_update returns true.
-    #[inline]
-    pub fn set_pixel_safe(&self, x: usize, y: usize, color: Vector3<f32>) {
-        if self.in_bounds(x, y) {
-            let idx = self.index(x, y);
-
-            // Map pixel index to a lock index (simple hashing)
-            let lock_idx = idx % self.locks.len();
-            let _guard = self.locks[lock_idx].lock().unwrap();
-
-            // Unsafe access is safe because we hold the lock for this "stripe" of pixels
-            unsafe {
-                let buffer = &mut *self.color_buffer.get();
-                buffer[idx] = color;
-            }
-        }
+    pub fn clear_with<F>(&mut self, depth: f32, color_at: F)
+    where
+        F: Fn(usize, usize) -> Vector3<f32> + Sync,
+    {
+        let width = self.buffer_width;
+        self.samples
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, sample) in row.iter_mut().enumerate() {
+                    *sample = Sample::cleared(color_at(x, y), depth);
+                }
+            });
     }
 
-    // Legacy helper for single-threaded context or read-only
     pub fn get_pixel(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
         if x >= self.width || y >= self.height {
             return None;
         }
 
-        // Reading doesn't strictly need locks if we accept tearing during rendering,
-        // but for outputting the final image (when rendering is done), it's safe.
-        let buffer = unsafe { &*self.color_buffer.get() };
-
         if self.sample_count == 1 {
-            return Some(buffer[self.index(x, y)]);
+            return Some(self.samples[self.index(x, y)].color);
         }
 
         let mut sum_color = Vector3::zeros();
@@ -171,8 +91,7 @@ impl FrameBuffer {
 
         for dy in 0..self.sample_count {
             for dx in 0..self.sample_count {
-                let idx = self.index(start_x + dx, start_y + dy);
-                sum_color += buffer[idx];
+                sum_color += self.samples[self.index(start_x + dx, start_y + dy)].color;
             }
         }
 

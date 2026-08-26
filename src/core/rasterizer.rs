@@ -1,4 +1,4 @@
-use crate::core::framebuffer::FrameBuffer;
+use crate::core::framebuffer::{FrameBuffer, Sample};
 use crate::core::math::interpolation::{
     barycentric_coordinates, is_inside_triangle, perspective_correct_barycentric,
 };
@@ -8,7 +8,8 @@ use crate::scene::material::{AlphaMode, Material};
 use nalgebra::{Point2, Vector4};
 use rayon::prelude::*;
 
-/// The Rasterizer is responsible for drawing geometric primitives onto the FrameBuffer.
+const RASTER_BAND_HEIGHT: usize = 16;
+
 pub struct Rasterizer {
     pub cull_mode: CullMode,
     pub wireframe: bool,
@@ -24,10 +25,21 @@ pub enum CullMode {
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum BlendMode {
-    /// Opaque rendering: Writes to depth buffer, replaces color.
     Opaque,
-    /// Alpha blending: Reads depth buffer (no write), blends color: src * a + dst * (1-a).
     Alpha,
+}
+
+pub(crate) struct PreparedTriangle<'a, V> {
+    screen_coords: [Point2<f32>; 3],
+    clip_z: [f32; 3],
+    w_values: [f32; 3],
+    varyings: [V; 3],
+    material: Option<&'a Material>,
+    uv_density: f32,
+    start_x: usize,
+    end_x: usize,
+    start_y: usize,
+    end_y: usize,
 }
 
 impl Default for Rasterizer {
@@ -49,93 +61,109 @@ impl Rasterizer {
         self.cull_mode = mode;
     }
 
-    /// Rasterize a single triangle given clip-space coordinates and corresponding varyings.
-    ///
-    /// This function performs **Sutherland–Hodgman clipping** against the canonical
-    /// view frustum (W-normalization planes) in Homogeneous Clip Space.
-    ///
-    /// # Optimization
-    /// Uses a double-buffering strategy for the vertex lists to minimize heap allocations
-    /// during the multi-stage clipping process.
-    pub fn rasterize_triangle<S: Shader>(
+    pub(crate) fn prepare_triangle<'a, S: Shader>(
         &self,
-        framebuffer: &FrameBuffer,
-        shader: &S,
+        framebuffer_width: usize,
+        framebuffer_height: usize,
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[S::Varying; 3],
-        material: Option<&Material>,
-    ) where
+        material: Option<&'a Material>,
+    ) -> Vec<PreparedTriangle<'a, S::Varying>>
+    where
         S::Varying: Interpolatable + Copy,
     {
-        // 1. Initialize buffers
-        // We allocate capacity for 16 vertices, which is sufficient for almost all
-        // clipped triangles (a triangle clipped by a cube can have at most 7-9 vertices).
-        // Allocating here once is much faster than allocating inside the loop.
-        let mut current_poly: Vec<(Vector4<f32>, S::Varying)> = Vec::with_capacity(16);
-        let mut clip_buffer: Vec<(Vector4<f32>, S::Varying)> = Vec::with_capacity(16);
+        let mut current_poly = Vec::with_capacity(16);
+        let mut clip_buffer = Vec::with_capacity(16);
 
-        // Fill initial polygon
-        for i in 0..3 {
-            current_poly.push((clip_coords[i], varyings[i]));
+        for index in 0..3 {
+            current_poly.push((clip_coords[index], varyings[index]));
         }
 
-        // 2. Define Clip Planes
-        // Format: (Axis Index, Sign).
-        // Plane Eq: Sign * P[Axis] <= P.w
-        // 0=X, 1=Y, 2=Z
         let planes = [
-            (0, 1.0),  // Right:  +X <= W
-            (0, -1.0), // Left:   -X <= W
-            (1, 1.0),  // Top:    +Y <= W
-            (1, -1.0), // Bottom: -Y <= W
-            (2, 1.0),  // Far:    +Z <= W
-            (2, -1.0), // Near:   -Z <= W
+            (0, 1.0),
+            (0, -1.0),
+            (1, 1.0),
+            (1, -1.0),
+            (2, 1.0),
+            (2, -1.0),
         ];
 
-        // 3. Perform Clipping
         for &(axis, sign) in &planes {
-            // If the polygon is already fully clipped, stop early
             if current_poly.is_empty() {
-                return;
+                return Vec::new();
             }
 
-            // Clip current_poly against the plane, writing results to clip_buffer
-            self.clip_polygon_against_plane::<S>(&current_poly, &mut clip_buffer, axis, sign);
-
-            // Swap buffers: clip_buffer becomes the input for the next stage
-            // current_poly is cleared inside the clip function, so we just swap structure content
+            Self::clip_polygon_against_plane::<S>(&current_poly, &mut clip_buffer, axis, sign);
             std::mem::swap(&mut current_poly, &mut clip_buffer);
         }
 
-        // 4. Triangulate and Rasterize
-        // The result is a convex polygon. We assume it's a fan centered at v0.
         if current_poly.len() < 3 {
+            return Vec::new();
+        }
+
+        let first = current_poly[0];
+        (1..current_poly.len() - 1)
+            .filter_map(|index| {
+                let second = current_poly[index];
+                let third = current_poly[index + 1];
+                self.prepare_screen_triangle(
+                    framebuffer_width,
+                    framebuffer_height,
+                    &[first.0, second.0, third.0],
+                    &[first.1, second.1, third.1],
+                    material,
+                )
+            })
+            .collect()
+    }
+
+    pub(crate) fn rasterize_prepared<S: Shader>(
+        &self,
+        framebuffer: &mut FrameBuffer,
+        shader: &S,
+        triangles: &[PreparedTriangle<'_, S::Varying>],
+    ) where
+        S::Varying: Interpolatable + Copy,
+    {
+        if triangles.is_empty() {
             return;
         }
 
-        let v0 = current_poly[0];
-        for i in 1..(current_poly.len() - 1) {
-            let v1 = current_poly[i];
-            let v2 = current_poly[i + 1];
+        let width = framebuffer.buffer_width;
+        let height = framebuffer.buffer_height;
+        let band_count = height.div_ceil(RASTER_BAND_HEIGHT);
+        let mut band_bins = vec![Vec::new(); band_count];
 
-            self.rasterize_screen_triangle(
-                framebuffer,
-                shader,
-                &[v0.0, v1.0, v2.0],
-                &[v0.1, v1.1, v2.1],
-                material,
-            );
+        for (triangle_index, triangle) in triangles.iter().enumerate() {
+            let first_band = triangle.start_y / RASTER_BAND_HEIGHT;
+            let last_band = triangle.end_y / RASTER_BAND_HEIGHT;
+            for band in &mut band_bins[first_band..=last_band] {
+                band.push(triangle_index);
+            }
         }
+
+        framebuffer
+            .samples_mut()
+            .par_chunks_mut(width * RASTER_BAND_HEIGHT)
+            .enumerate()
+            .for_each(|(band_index, samples)| {
+                let band_start_y = band_index * RASTER_BAND_HEIGHT;
+                let band_end_y = (band_start_y + samples.len() / width - 1).min(height - 1);
+
+                for &triangle_index in &band_bins[band_index] {
+                    self.rasterize_triangle_band(
+                        samples,
+                        width,
+                        band_start_y,
+                        band_end_y,
+                        shader,
+                        &triangles[triangle_index],
+                    );
+                }
+            });
     }
 
-    /// Clips a polygon against a specific plane.
-    ///
-    /// - `input`: Source vertices.
-    /// - `output`: Destination buffer (will be cleared before writing).
-    /// - `axis`: 0 (X), 1 (Y), or 2 (Z).
-    /// - `sign`: +1.0 or -1.0.
     fn clip_polygon_against_plane<S: Shader>(
-        &self,
         input: &[(Vector4<f32>, S::Varying)],
         output: &mut Vec<(Vector4<f32>, S::Varying)>,
         axis: usize,
@@ -144,45 +172,37 @@ impl Rasterizer {
         S::Varying: Interpolatable + Copy,
     {
         output.clear();
-
         if input.is_empty() {
             return;
         }
 
-        let mut prev = input[input.len() - 1];
-        // Point is inside if: sign * p[axis] <= p.w
-        // We use a small EPS for robustness against floating point errors.
-        let is_inside = |p: &Vector4<f32>| sign * p[axis] <= p.w + 1e-6;
+        let is_inside = |position: &Vector4<f32>| sign * position[axis] <= position.w + 1e-6;
+        let mut previous = input[input.len() - 1];
+        let mut previous_inside = is_inside(&previous.0);
 
-        let mut prev_inside = is_inside(&prev.0);
+        for current in input {
+            let current_inside = is_inside(&current.0);
 
-        for curr in input {
-            let curr_inside = is_inside(&curr.0);
-
-            if curr_inside {
-                if !prev_inside {
-                    // OUT -> IN: Intersection point + Current point
-                    if let Some(inter) = Self::intersect_edge_plane::<S>(prev, *curr, axis, sign) {
-                        output.push(inter);
-                    }
+            if current_inside {
+                if !previous_inside
+                    && let Some(intersection) =
+                        Self::intersect_edge_plane::<S>(previous, *current, axis, sign)
+                {
+                    output.push(intersection);
                 }
-                // IN -> IN: Current point
-                output.push(*curr);
-            } else if prev_inside {
-                // IN -> OUT: Intersection point only
-                if let Some(inter) = Self::intersect_edge_plane::<S>(prev, *curr, axis, sign) {
-                    output.push(inter);
-                }
+                output.push(*current);
+            } else if previous_inside
+                && let Some(intersection) =
+                    Self::intersect_edge_plane::<S>(previous, *current, axis, sign)
+            {
+                output.push(intersection);
             }
-            // OUT -> OUT: Do nothing
 
-            prev = *curr;
-            prev_inside = curr_inside;
+            previous = *current;
+            previous_inside = current_inside;
         }
     }
 
-    /// Computes the intersection of a line segment and a clip plane.
-    /// Linearly interpolates both Position and Varying attributes.
     #[inline(always)]
     fn intersect_edge_plane<S: Shader>(
         a: (Vector4<f32>, S::Varying),
@@ -193,234 +213,214 @@ impl Rasterizer {
     where
         S::Varying: Interpolatable + Copy,
     {
-        // Plane equation: sign * P[axis] = P.w
-        // Parameter t = (a.w - sign * a[axis]) / ((sign * b[axis] - sign * a[axis]) - (b.w - a.w))
-        // Simplifies to: numerator / denominator
-
-        let ac = a.0[axis];
-        let bc = b.0[axis];
-        let aw = a.0.w;
-        let bw = b.0.w;
-
-        // Denominator = sign*(bc - ac) - (bw - aw)
-        // This represents the "signed distance difference" relative to the W plane.
-        let denom = sign * (bc - ac) - (bw - aw);
-
-        // Check for parallel lines or very small intersections to avoid NaN
-        if denom.abs() < 1e-9 {
+        let denominator = sign * (b.0[axis] - a.0[axis]) - (b.0.w - a.0.w);
+        if denominator.abs() < 1e-9 {
             return None;
         }
 
-        let t = (aw - sign * ac) / denom;
-
-        // Valid intersection should be within [0, 1], but we allow slight tolerance
-        // for floating point inaccuracies.
+        let t = (a.0.w - sign * a.0[axis]) / denominator;
         if !t.is_finite() {
             return None;
         }
 
-        // Interpolate Position
-        let pos = a.0 + (b.0 - a.0) * t;
-
-        // Interpolate Varying
-        let vary = a.1 * (1.0 - t) + b.1 * t;
-
-        Some((pos, vary))
+        Some((a.0 + (b.0 - a.0) * t, a.1 * (1.0 - t) + b.1 * t))
     }
 
-    /// Internal function to rasterize a triangle that is guaranteed to be inside the frustum.
-    /// Performs perspective division, viewport transform, and pixel shading.
-    fn rasterize_screen_triangle<S: Shader>(
+    fn prepare_screen_triangle<'a, V: Interpolatable + Copy>(
         &self,
-        framebuffer: &FrameBuffer,
-        shader: &S,
+        framebuffer_width: usize,
+        framebuffer_height: usize,
         clip_coords: &[Vector4<f32>; 3],
-        varyings: &[S::Varying; 3],
-        material: Option<&Material>,
-    ) where
-        S::Varying: Interpolatable
-            + Copy
-            + std::ops::Add<Output = S::Varying>
-            + std::ops::Mul<f32, Output = S::Varying>,
-    {
-        // Use the actual buffer dimensions for rasterization
-        let width = framebuffer.buffer_width as f32;
-        let height = framebuffer.buffer_height as f32;
-
-        // 1. Perspective Division & Viewport Transform
+        varyings: &[V; 3],
+        material: Option<&'a Material>,
+    ) -> Option<PreparedTriangle<'a, V>> {
+        let width = framebuffer_width as f32;
+        let height = framebuffer_height as f32;
         let mut screen_coords = [Point2::origin(); 3];
         let mut w_values = [0.0; 3];
+        let mut clip_z = [0.0; 3];
 
-        for i in 0..3 {
-            // Note: We safeguard against w near 0, though clipping should effectively prevent this.
-            if clip_coords[i].w.abs() < 1e-6 {
-                return;
+        for index in 0..3 {
+            if clip_coords[index].w.abs() < 1e-6 {
+                return None;
             }
 
-            let ndc = apply_perspective_division(&clip_coords[i]);
-            w_values[i] = clip_coords[i].w;
-            screen_coords[i] = ndc_to_screen(ndc.x, ndc.y, width, height);
+            let ndc = apply_perspective_division(&clip_coords[index]);
+            if !ndc.coords.iter().all(|component| component.is_finite()) {
+                return None;
+            }
+
+            w_values[index] = clip_coords[index].w;
+            clip_z[index] = clip_coords[index].z;
+            screen_coords[index] = ndc_to_screen(ndc.x, ndc.y, width, height);
         }
 
-        // 2. Backface Culling
-        let v0 = screen_coords[0];
-        let v1 = screen_coords[1];
-        let v2 = screen_coords[2];
-        let edge1 = v1 - v0;
-        let edge2 = v2 - v1;
+        let edge1 = screen_coords[1] - screen_coords[0];
+        let edge2 = screen_coords[2] - screen_coords[1];
         let signed_area = edge1.x * edge2.y - edge1.y * edge2.x;
+        if signed_area.abs() < 1e-6 {
+            return None;
+        }
 
         match self.cull_mode {
-            CullMode::Back if signed_area >= 0.0 => return,
-            CullMode::Front if signed_area <= 0.0 => return,
+            CullMode::Back if signed_area >= 0.0 => return None,
+            CullMode::Front if signed_area <= 0.0 => return None,
             _ => {}
         }
 
-        // Note: Depth must be perspective-correct interpolated per-pixel (not linearly in NDC).
-        // We'll compute the corrected z_ndc inside the pixel loop using `perspective_correct_interpolate`.
-
-        // Compute simple triangle-level UV density estimator used for mipmap LOD selection.
-        // area_screen = 0.5 * |(x1-x0)*(y2-y0) - (x2-x0)*(y1-y0)|
-        let area_screen =
-            0.5 * ((v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)).abs();
-        let uv_density = if area_screen > 1e-6 {
-            // Ask the varying (via trait) whether it exposes UVs and compute
-            // triangle-level UV density: sqrt(Area_uv / Area_screen).
-            if let (Some(uv0), Some(uv1), Some(uv2)) = (
-                varyings[0].get_uv(),
-                varyings[1].get_uv(),
-                varyings[2].get_uv(),
-            ) {
-                // area_uv = 0.5 * |(u1-u0)*(v2-v0) - (u2-u0)*(v1-v0)|
+        let area_screen = signed_area.abs() * 0.5;
+        let uv_density = match (
+            varyings[0].get_uv(),
+            varyings[1].get_uv(),
+            varyings[2].get_uv(),
+        ) {
+            (Some(uv0), Some(uv1), Some(uv2)) => {
                 let area_uv = 0.5
                     * ((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y)).abs();
                 (area_uv / area_screen).sqrt()
-            } else {
-                0.0
             }
-        } else {
-            0.0
+            _ => 0.0,
         };
 
-        // 3. Compute Bounding Box
-        let (min_x, min_y, max_x, max_y) = self.compute_bounding_box(&screen_coords);
+        let min_x = screen_coords[0]
+            .x
+            .min(screen_coords[1].x)
+            .min(screen_coords[2].x)
+            .floor() as i32;
+        let min_y = screen_coords[0]
+            .y
+            .min(screen_coords[1].y)
+            .min(screen_coords[2].y)
+            .floor() as i32;
+        let max_x = screen_coords[0]
+            .x
+            .max(screen_coords[1].x)
+            .max(screen_coords[2].x)
+            .ceil() as i32;
+        let max_y = screen_coords[0]
+            .y
+            .max(screen_coords[1].y)
+            .max(screen_coords[2].y)
+            .ceil() as i32;
 
-        // Scissor Test
         if max_x < 0
             || max_y < 0
-            || min_x >= framebuffer.buffer_width as i32
-            || min_y >= framebuffer.buffer_height as i32
+            || min_x >= framebuffer_width as i32
+            || min_y >= framebuffer_height as i32
         {
+            return None;
+        }
+
+        Some(PreparedTriangle {
+            screen_coords,
+            clip_z,
+            w_values,
+            varyings: *varyings,
+            material,
+            uv_density,
+            start_x: min_x.max(0) as usize,
+            end_x: max_x.min(framebuffer_width as i32 - 1) as usize,
+            start_y: min_y.max(0) as usize,
+            end_y: max_y.min(framebuffer_height as i32 - 1) as usize,
+        })
+    }
+
+    fn rasterize_triangle_band<S: Shader>(
+        &self,
+        samples: &mut [Sample],
+        framebuffer_width: usize,
+        band_start_y: usize,
+        band_end_y: usize,
+        shader: &S,
+        triangle: &PreparedTriangle<'_, S::Varying>,
+    ) where
+        S::Varying: Interpolatable + Copy,
+    {
+        let start_y = triangle.start_y.max(band_start_y);
+        let end_y = triangle.end_y.min(band_end_y);
+        if start_y > end_y {
             return;
         }
 
-        let start_x = min_x.max(0) as usize;
-        let end_x = (max_x.min(framebuffer.buffer_width as i32 - 1)) as usize;
-        let start_y = min_y.max(0) as usize;
-        let end_y = (max_y.min(framebuffer.buffer_height as i32 - 1)) as usize;
-
-        // Retrieve Alpha Mode parameters for pixel discard logic
-        let (alpha_mode, alpha_cutoff) = if let Some(Material::Pbr(mat)) = material {
-            match mat.alpha_mode {
+        let (alpha_mode, alpha_cutoff) = match triangle.material {
+            Some(Material::Pbr(material)) => match material.alpha_mode {
                 AlphaMode::Mask(cutoff) => (AlphaMode::Mask(cutoff), cutoff),
                 mode => (mode, 0.5),
-            }
-        } else {
-            (AlphaMode::Opaque, 0.5)
+            },
+            None => (AlphaMode::Opaque, 0.5),
         };
 
-        // 4. Pixel Loop
-        // Rayon parallel iterator: work-stealing is effective here as row workloads vary.
-        (start_y..=end_y).into_par_iter().for_each(|y| {
-            for x in start_x..=end_x {
+        for y in start_y..=end_y {
+            let row_offset = (y - band_start_y) * framebuffer_width;
+            for x in triangle.start_x..=triangle.end_x {
                 let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
-
-                if let Some(bary) = barycentric_coordinates(
+                let Some(barycentric) = barycentric_coordinates(
                     pixel_center,
-                    screen_coords[0],
-                    screen_coords[1],
-                    screen_coords[2],
-                ) {
-                    if !is_inside_triangle(bary) {
-                        continue;
+                    triangle.screen_coords[0],
+                    triangle.screen_coords[1],
+                    triangle.screen_coords[2],
+                ) else {
+                    continue;
+                };
+
+                if !is_inside_triangle(barycentric) {
+                    continue;
+                }
+
+                if self.wireframe
+                    && barycentric.x > 0.02
+                    && barycentric.y > 0.02
+                    && barycentric.z > 0.02
+                {
+                    continue;
+                }
+
+                let z_ndc = barycentric.x * triangle.clip_z[0] / triangle.w_values[0]
+                    + barycentric.y * triangle.clip_z[1] / triangle.w_values[1]
+                    + barycentric.z * triangle.clip_z[2] / triangle.w_values[2];
+                let depth = z_ndc * 0.5 + 0.5;
+                if !depth.is_finite() {
+                    continue;
+                }
+
+                let sample = &mut samples[row_offset + x];
+                if depth >= sample.depth {
+                    continue;
+                }
+
+                let varying = perspective_correct_barycentric(
+                    barycentric,
+                    triangle.w_values[0],
+                    triangle.w_values[1],
+                    triangle.w_values[2],
+                )
+                .map(|weights| {
+                    triangle.varyings[0] * weights.x
+                        + triangle.varyings[1] * weights.y
+                        + triangle.varyings[2] * weights.z
+                })
+                .unwrap_or_else(|| {
+                    triangle.varyings[0] * barycentric.x
+                        + triangle.varyings[1] * barycentric.y
+                        + triangle.varyings[2] * barycentric.z
+                });
+
+                let color = shader.fragment(varying, triangle.material, triangle.uv_density);
+                if matches!(alpha_mode, AlphaMode::Mask(_)) && color.w < alpha_cutoff {
+                    continue;
+                }
+
+                match self.blend_mode {
+                    BlendMode::Opaque => {
+                        sample.depth = depth;
+                        sample.color = color.xyz();
                     }
-
-                    // --- Wireframe Mode ---
-                    if self.wireframe {
-                        // Simple wireframe threshold: discard pixels not near the edges
-                        let threshold = 0.02;
-                        if bary.x > threshold && bary.y > threshold && bary.z > threshold {
-                            continue;
-                        }
+                    BlendMode::Alpha if color.w > 0.001 => {
+                        sample.color = color.xyz() * color.w + sample.color * (1.0 - color.w);
                     }
-
-                    // Perspective Correct Interpolation for Z
-                    // Z in NDC [-1, 1], we map to [0, 1] for depth buffer
-                    // Note: In standard OpenGL, gl_FragCoord.z is (z_ndc + 1) / 2
-                    // We use 1/w interpolation for correctness.
-                    let z_ndc = bary.x * clip_coords[0].z / clip_coords[0].w
-                        + bary.y * clip_coords[1].z / clip_coords[1].w
-                        + bary.z * clip_coords[2].z / clip_coords[2].w;
-
-                    // Depth value to be stored [0.0, 1.0]
-                    // If w < 0 (behind camera), we shouldn't act, but strict clipping handles this.
-                    // Simple Z-buffer approximation:
-                    let depth = z_ndc * 0.5 + 0.5;
-
-                    // Early Depth Test
-                    // For Alpha blending (read-only depth), we must check before shading to save performance.
-                    if self.blend_mode == BlendMode::Alpha && !framebuffer.test_depth(x, y, depth) {
-                        continue;
-                    }
-
-                    // Interpolate Varyings
-                    let varying_interp = if let Some(v) =
-                        perspective_correct_barycentric(bary, w_values[0], w_values[1], w_values[2])
-                    {
-                        varyings[0] * v.x + varyings[1] * v.y + varyings[2] * v.z
-                    } else {
-                        // Numeric instability fallback
-                        varyings[0] * bary.x + varyings[1] * bary.y + varyings[2] * bary.z
-                    };
-
-                    // Execute Fraction Shader
-                    let color = shader.fragment(varying_interp, material, uv_density);
-
-                    // --- Alpha Test (Discard) ---
-                    if let AlphaMode::Mask(_) = alpha_mode
-                        && color.w < alpha_cutoff
-                    {
-                        continue; // Discard pixel
-                    }
-
-                    // --- Output Merger ---
-                    match self.blend_mode {
-                        BlendMode::Opaque => {
-                            // Opaque Pass: Read-Modify-Write Depth
-                            if framebuffer.test_and_update_depth(x, y, depth) {
-                                framebuffer.set_pixel_safe(x, y, color.xyz());
-                            }
-                        }
-                        BlendMode::Alpha => {
-                            // Transparent Pass: Read Depth, Blend Color.
-                            // Note: We already did an early depth test, but checking again is strictly
-                            // more correct if the depth buffer is being updated concurrently (though unlikely in sorted pass).
-                            // We'll skip the second check for performance as per original implementation logic.
-                            if color.w > 0.001 {
-                                framebuffer.blend_pixel_safe(x, y, color.xyz(), color.w);
-                            }
-                        }
-                    }
+                    BlendMode::Alpha => {}
                 }
             }
-        });
-    }
-
-    fn compute_bounding_box(&self, points: &[Point2<f32>; 3]) -> (i32, i32, i32, i32) {
-        let min_x = points[0].x.min(points[1].x).min(points[2].x).floor() as i32;
-        let min_y = points[0].y.min(points[1].y).min(points[2].y).floor() as i32;
-        let max_x = points[0].x.max(points[1].x).max(points[2].x).ceil() as i32;
-        let max_y = points[0].y.max(points[1].y).max(points[2].y).ceil() as i32;
-        (min_x, min_y, max_x, max_y)
+        }
     }
 }

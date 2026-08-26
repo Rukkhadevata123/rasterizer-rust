@@ -31,8 +31,8 @@ A high-performance, multi-threaded software rasterizer built from scratch in Rus
 
 ### High Performance Architecture
 
-- **Massive Parallelism:** Leveraging `Rayon` to parallelize vertex processing, triangle rasterization, fragment shading, and post-processing steps.
-- **Thread Safety:** Custom-built `FrameBuffer` utilizing atomic depth buffers and striped locking mechanisms for contention-free concurrent writing.
+- **Massive Parallelism:** Leveraging `Rayon` for triangle preparation, exclusive horizontal-band rasterization, buffer clearing, and post-processing.
+- **Thread Safety:** Lock-free safe Rust framebuffer writes through exclusive horizontal-band ownership, keeping depth and color updates consistent.
 - **Clipping:** Robust Homogeneous Clip Space clipping (Sutherland–Hodgman) to handle primitives correctly near the camera plane.
 - **Optimization:** Data-oriented design with pre-transform optimizations for complex scene sorting.
 
@@ -51,7 +51,7 @@ The project follows a clean, modular architecture separating core engine logic f
 src
 ├── core               # The Engine Kernel
 │   ├── rasterizer.rs  # Scanline rasterization & clipping logic
-│   ├── framebuffer.rs # Thread-safe atomic buffer management
+│   ├── framebuffer.rs # Safe color/depth sample storage and resolve
 │   ├── geometry.rs    # Vertex layout & geometric primitives
 │   └── math           # Transform factories & interpolation helpers
 ├── pipeline           # The Rendering Pipeline

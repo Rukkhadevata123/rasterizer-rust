@@ -13,7 +13,6 @@ use crate::scene::texture::Texture;
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
 /// Executes the Shadow Mapping Pass.
 pub fn render_shadow_pass(
@@ -49,12 +48,7 @@ pub fn render_shadow_pass(
         shadow_renderer.draw_model(&obj.model, &shader);
     }
 
-    let shadow_depth_data: Vec<f32> = shadow_renderer
-        .framebuffer
-        .depth_buffer
-        .iter()
-        .map(|atomic| f32::from_bits(atomic.load(Ordering::Relaxed)))
-        .collect();
+    let shadow_depth_data = shadow_renderer.framebuffer.depth_values();
 
     (Some(Arc::new(shadow_depth_data)), light_space_matrix)
 }

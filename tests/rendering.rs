@@ -131,16 +131,26 @@ fn alpha_mask_discards_fragments_below_cutoff() {
         renderer.framebuffer.get_pixel(16, 16).unwrap(),
         Vector3::zeros()
     );
-    assert!(renderer.framebuffer.test_depth(16, 16, 0.5));
+    assert!(
+        renderer
+            .framebuffer
+            .sample(16, 16)
+            .unwrap()
+            .depth
+            .is_infinite()
+    );
 }
 
 #[test]
 fn framebuffer_resolves_supersampled_pixels() {
-    let framebuffer = FrameBuffer::new(1, 1, 2);
-    framebuffer.set_pixel_safe(0, 0, Vector3::new(1.0, 0.0, 0.0));
-    framebuffer.set_pixel_safe(1, 0, Vector3::new(0.0, 1.0, 0.0));
-    framebuffer.set_pixel_safe(0, 1, Vector3::new(0.0, 0.0, 1.0));
-    framebuffer.set_pixel_safe(1, 1, Vector3::new(1.0, 1.0, 1.0));
+    let mut framebuffer = FrameBuffer::new(1, 1, 2);
+    framebuffer.clear_with(f32::INFINITY, |x, y| match (x, y) {
+        (0, 0) => Vector3::new(1.0, 0.0, 0.0),
+        (1, 0) => Vector3::new(0.0, 1.0, 0.0),
+        (0, 1) => Vector3::new(0.0, 0.0, 1.0),
+        (1, 1) => Vector3::new(1.0, 1.0, 1.0),
+        _ => unreachable!(),
+    });
 
     assert_vec3_approx(
         framebuffer.get_pixel(0, 0).unwrap(),
@@ -193,4 +203,101 @@ fn cull_mode_can_reject_one_winding() {
     let back = render(CullMode::Back);
     let front = render(CullMode::Front);
     assert_ne!(back.norm_squared() > 0.0, front.norm_squared() > 0.0);
+}
+#[test]
+fn triangle_rasterization_crosses_band_boundaries() {
+    let shader = ClipSpaceShader;
+    let color = Vector4::new(0.2, 0.4, 0.8, 1.0);
+    let mut vertices = vec![
+        Vertex::new(Point3::new(-1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(-1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
+    ];
+    for vertex in &mut vertices {
+        vertex.tangent = color;
+    }
+    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
+    let mut renderer = Renderer::new(48, 70, 1);
+    renderer.rasterizer.set_cull_mode(CullMode::None);
+
+    renderer.draw_mesh(&mesh, &shader, None);
+
+    for y in [0, 15, 16, 31, 32, 47, 48, 63, 64, 69] {
+        assert_vec3_approx(renderer.framebuffer.get_pixel(24, y).unwrap(), color.xyz());
+    }
+}
+
+#[test]
+fn overlapping_triangles_produce_deterministic_depth_and_color() {
+    let shader = ClipSpaceShader;
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+
+    for triangle_index in 0..128_u32 {
+        let is_nearest = triangle_index == 57;
+        let z = if is_nearest {
+            -0.9
+        } else {
+            -0.5 + triangle_index as f32 * 0.005
+        };
+        let color = if is_nearest {
+            Vector4::new(0.0, 1.0, 0.0, 1.0)
+        } else {
+            Vector4::new(1.0, 0.0, 0.0, 1.0)
+        };
+        let base = vertices.len() as u32;
+        let mesh = triangle(z, color);
+        vertices.extend(mesh.vertices);
+        indices.extend([base, base + 1, base + 2]);
+    }
+    let mesh = Mesh::new(vertices, indices, 0);
+
+    for _ in 0..16 {
+        let mut renderer = Renderer::new(64, 64, 1);
+        renderer.rasterizer.set_cull_mode(CullMode::None);
+        renderer.draw_mesh(&mesh, &shader, None);
+
+        let sample = renderer.framebuffer.sample(32, 32).unwrap();
+        assert_vec3_approx(sample.color, Vector3::new(0.0, 1.0, 0.0));
+        assert!((sample.depth - 0.05).abs() < 1e-5);
+    }
+}
+
+#[test]
+fn transparent_triangles_preserve_input_order_within_each_band() {
+    let shader = ClipSpaceShader;
+    let far = triangle(0.5, Vector4::new(1.0, 0.0, 0.0, 0.5));
+    let near = triangle(-0.5, Vector4::new(0.0, 0.0, 1.0, 0.5));
+    let material = Material::Pbr(PbrMaterial {
+        alpha_mode: AlphaMode::Blend,
+        ..Default::default()
+    });
+    let mut renderer = Renderer::new(64, 64, 1);
+    renderer.rasterizer.set_cull_mode(CullMode::None);
+    renderer.rasterizer.blend_mode = rasterizer_rust::core::rasterizer::BlendMode::Alpha;
+    renderer.draw_sorted_triangles(
+        vec![
+            (
+                &far.vertices[0],
+                &far.vertices[1],
+                &far.vertices[2],
+                &material,
+            ),
+            (
+                &near.vertices[0],
+                &near.vertices[1],
+                &near.vertices[2],
+                &material,
+            ),
+        ],
+        &shader,
+    );
+
+    for y in [8, 24, 40, 56] {
+        assert_vec3_approx(
+            renderer.framebuffer.get_pixel(32, y).unwrap(),
+            Vector3::new(0.25, 0.0, 0.5),
+        );
+    }
 }

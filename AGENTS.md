@@ -36,7 +36,7 @@ Unit tests live in nearby `#[cfg(test)]` modules, and cross-module rendering tes
 
 ## Concurrency & Safety
 
-Rayon drives parallel rendering. `FrameBuffer` combines `UnsafeCell`, atomics, striped mutexes, and a manual `Sync` implementation. Changes to buffer access or depth testing must preserve documented safety invariants. Transparent triangles must remain sequential after back-to-front sorting so blending order is stable.
+Rayon drives parallel rendering through exclusive horizontal framebuffer bands. `FrameBuffer` stores ordinary color/depth samples without locks, atomics, `UnsafeCell`, or manual `Sync`; keep rasterization writes inside disjoint mutable bands. Transparent triangles are globally sorted back-to-front and must retain that order within every band. A future 2D tile renderer remains a Phase 6 benchmark-driven option.
 
 ## Commit & Pull Request Guidelines
 
