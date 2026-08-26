@@ -1,5 +1,5 @@
 use crate::core::rasterizer::CullMode;
-use crate::io::config::Config;
+use crate::io::config::{Config, RenderConfig};
 use crate::io::image::save_buffer_to_image;
 use crate::pipeline::passes::{post_process_to_buffer, render_main_pass, render_shadow_pass};
 use crate::pipeline::renderer::Renderer;
@@ -9,6 +9,60 @@ use log::{debug, info, warn};
 use minifb::{Key, MouseButton, Window, WindowOptions};
 use std::time::Instant;
 
+struct HotReloadRenderSettings {
+    render: RenderConfig,
+    resize_requested: bool,
+    sample_count_rejected: bool,
+    shadow_map_size_rejected: bool,
+}
+
+fn apply_hot_reload_render_settings(
+    mut render: RenderConfig,
+    window_width: usize,
+    window_height: usize,
+    renderer: &mut Renderer,
+    shadow_renderer: &mut Renderer,
+) -> HotReloadRenderSettings {
+    let sample_count_rejected = render.samples == 0
+        || window_width
+            .checked_mul(render.samples)
+            .and_then(|width| {
+                window_height
+                    .checked_mul(render.samples)
+                    .map(|height| (width, height))
+            })
+            .and_then(|(width, height)| width.checked_mul(height))
+            .is_none();
+    if sample_count_rejected {
+        render.samples = renderer.framebuffer.sample_count;
+    } else if renderer.framebuffer.sample_count != render.samples {
+        *renderer = Renderer::new(window_width, window_height, render.samples);
+    }
+
+    let shadow_map_size_rejected = render.shadow_map_size == 0
+        || render
+            .shadow_map_size
+            .checked_mul(render.shadow_map_size)
+            .is_none();
+    if shadow_map_size_rejected {
+        render.shadow_map_size = shadow_renderer.framebuffer.width;
+    } else if shadow_renderer.framebuffer.width != render.shadow_map_size
+        || shadow_renderer.framebuffer.height != render.shadow_map_size
+    {
+        *shadow_renderer = Renderer::new(render.shadow_map_size, render.shadow_map_size, 1);
+    }
+
+    let resize_requested = render.width != window_width || render.height != window_height;
+    render.width = window_width;
+    render.height = window_height;
+
+    HotReloadRenderSettings {
+        render,
+        resize_requested,
+        sample_count_rejected,
+        shadow_map_size_rejected,
+    }
+}
 /// Runs the application in GUI mode with real-time rendering and interactivity.
 pub fn run_gui(mut config: Config, config_path: &str) {
     let width = config.render.width;
@@ -86,18 +140,35 @@ pub fn run_gui(mut config: Config, config_path: &str) {
             info!("Reloading configuration...");
             match Config::load(config_path) {
                 Ok(new_config) => {
-                    let (new_lights, new_shadow_pos) = build_lights_from_config(&new_config);
+                    let (new_lights, new_shadow_light) = build_lights_from_config(&new_config);
                     context.lights = new_lights;
-                    context.shadow_light_pos = new_shadow_pos;
+                    context.shadow_light = new_shadow_light;
                     update_scene_objects(&mut context.scene_objects, &new_config);
 
                     cam_controller.speed = new_config.camera.speed;
                     cam_controller.sensitivity = new_config.camera.sensitivity;
                     cam_controller.zoom_speed = new_config.camera.zoom_speed;
 
-                    config.render = new_config.render;
+                    let render_settings = apply_hot_reload_render_settings(
+                        new_config.render,
+                        width,
+                        height,
+                        &mut renderer,
+                        &mut shadow_renderer,
+                    );
+                    if render_settings.resize_requested {
+                        warn!(
+                            "Ignoring hot-reloaded render size; restart the GUI to resize the window."
+                        );
+                    }
+                    if render_settings.sample_count_rejected {
+                        warn!("Ignoring invalid hot-reloaded sample count.");
+                    }
+                    if render_settings.shadow_map_size_rejected {
+                        warn!("Ignoring invalid hot-reloaded shadow-map size.");
+                    }
+                    config.render = render_settings.render;
 
-                    // Update renderer settings from new config
                     renderer.rasterizer.wireframe = config.render.wireframe;
                     cull_mode_idx = match config.render.cull_mode.as_str() {
                         "none" => 0,
@@ -140,9 +211,8 @@ pub fn run_gui(mut config: Config, config_path: &str) {
         last_middle_click = middle_click;
 
         // --- Render ---
-        let (shadow_map, light_matrix) =
-            render_shadow_pass(&config, &context, &mut shadow_renderer);
-        render_main_pass(&config, &context, &mut renderer, shadow_map, light_matrix);
+        let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
+        render_main_pass(&config, &context, &mut renderer, &shadow);
 
         // --- Display ---
         post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
@@ -192,11 +262,11 @@ pub fn run_cli(config: Config) {
     renderer.rasterizer.wireframe = config.render.wireframe;
 
     // Render
-    let (shadow_map, light_matrix) = render_shadow_pass(&config, &context, &mut shadow_renderer);
-    if shadow_map.is_some() {
+    let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
+    if shadow.depth.is_some() {
         debug!("Shadow pass completed.");
     }
-    render_main_pass(&config, &context, &mut renderer, shadow_map, light_matrix);
+    render_main_pass(&config, &context, &mut renderer, &shadow);
 
     info!("Render completed in {:.2?}", start_time.elapsed());
 
@@ -211,4 +281,79 @@ pub fn run_cli(config: Config) {
         &config.render.output,
     );
     info!("Done.");
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hot_reload_rebuilds_sample_and_shadow_buffers() {
+        let mut renderer = Renderer::new(80, 45, 1);
+        let mut shadow_renderer = Renderer::new(64, 64, 1);
+        let render = RenderConfig {
+            width: 160,
+            height: 90,
+            samples: 2,
+            shadow_map_size: 128,
+            ..Default::default()
+        };
+
+        let settings =
+            apply_hot_reload_render_settings(render, 80, 45, &mut renderer, &mut shadow_renderer);
+
+        assert!(settings.resize_requested);
+        assert!(!settings.sample_count_rejected);
+        assert!(!settings.shadow_map_size_rejected);
+        assert_eq!((settings.render.width, settings.render.height), (80, 45));
+        assert_eq!(renderer.framebuffer.sample_count, 2);
+        assert_eq!(renderer.framebuffer.buffer_width, 160);
+        assert_eq!(renderer.framebuffer.buffer_height, 90);
+        assert_eq!(shadow_renderer.framebuffer.width, 128);
+        assert_eq!(shadow_renderer.framebuffer.height, 128);
+    }
+
+    #[test]
+    fn hot_reload_keeps_window_size_when_no_resize_is_requested() {
+        let mut renderer = Renderer::new(80, 45, 1);
+        let mut shadow_renderer = Renderer::new(64, 64, 1);
+        let render = RenderConfig {
+            width: 80,
+            height: 45,
+            samples: 1,
+            shadow_map_size: 64,
+            ..Default::default()
+        };
+
+        let settings =
+            apply_hot_reload_render_settings(render, 80, 45, &mut renderer, &mut shadow_renderer);
+
+        assert!(!settings.resize_requested);
+        assert!(!settings.sample_count_rejected);
+        assert!(!settings.shadow_map_size_rejected);
+        assert_eq!((settings.render.width, settings.render.height), (80, 45));
+        assert_eq!(renderer.framebuffer.sample_count, 1);
+        assert_eq!(shadow_renderer.framebuffer.width, 64);
+    }
+    #[test]
+    fn hot_reload_rejects_zero_sized_render_resources() {
+        let mut renderer = Renderer::new(80, 45, 2);
+        let mut shadow_renderer = Renderer::new(64, 64, 1);
+        let render = RenderConfig {
+            width: 80,
+            height: 45,
+            samples: 0,
+            shadow_map_size: 0,
+            ..Default::default()
+        };
+
+        let settings =
+            apply_hot_reload_render_settings(render, 80, 45, &mut renderer, &mut shadow_renderer);
+
+        assert!(settings.sample_count_rejected);
+        assert!(settings.shadow_map_size_rejected);
+        assert_eq!(settings.render.samples, 2);
+        assert_eq!(settings.render.shadow_map_size, 64);
+        assert_eq!(renderer.framebuffer.sample_count, 2);
+        assert_eq!(shadow_renderer.framebuffer.width, 64);
+    }
 }

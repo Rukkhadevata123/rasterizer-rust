@@ -25,7 +25,7 @@ A high-performance, multi-threaded software rasterizer built from scratch in Rus
 ### Advanced Rendering Capabilities
 
 - **Transparency:** Correct rendering of semi-transparent objects (glass, ice) using back-to-front sorting and alpha blending logic.
-- **Shadow Mapping:** Real-time soft shadows using Percentage-Closer Filtering (PCF) and adaptive shadow bias to eliminate artifacts.
+- **Shadow Mapping:** Real-time soft shadows using Percentage-Closer Filtering (PCF), adaptive bias, and alpha-tested cutout casters.
 - **Anti-Aliasing:** SSAA (Super-Sample Anti-Aliasing) support for smooth edges.
 - **Texture Filtering:** Trilinear filtering with mipmap support for high-quality texturing without aliasing.
 
@@ -40,7 +40,7 @@ A high-performance, multi-threaded software rasterizer built from scratch in Rus
 
 - **Windowing:** Lightweight, zero-bloat window management via `minifb`.
 - **Camera:** FPS-style free-roam camera with WASD movement and mouse look.
-- **Hot Reloading:** Instant feedback loop logic — press 'R' to reload scene configurations without restarting the application.
+- **Hot Reloading:** Press `R` to reload lights, transforms, render settings, supersampling buffers, and shadow-map buffers. Window dimensions and model/texture assets require a restart.
 - **Runtime Tools:** Toggle wireframe modes (`Middle Click`) and cull modes (`Right Click`) on the fly.
 
 ## Project Structure

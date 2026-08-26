@@ -66,6 +66,7 @@ pub struct PbrShader {
     // Shadow Mapping Fields
     pub shadow_map: Option<Arc<Vec<f32>>>,
     pub shadow_map_size: usize,
+    pub shadow_light_index: Option<usize>,
     pub light_space_matrix: Matrix4<f32>,
     pub shadow_bias: f32,
     pub use_pcf: bool,
@@ -95,6 +96,7 @@ impl PbrShader {
             ambient_light: Vector3::new(0.03, 0.03, 0.03), // Default low ambient
             shadow_map: None,
             shadow_map_size: 0,
+            shadow_light_index: None,
             light_space_matrix: Matrix4::identity(),
             shadow_bias: 0.005,
             use_pcf: true,
@@ -105,10 +107,15 @@ impl PbrShader {
 
     // --- Shadow Calculation ---
     fn calculate_shadow(&self, world_pos: &Point3<f32>, n_dot_l: f32) -> f32 {
-        if self.shadow_map.is_none() {
+        let Some(shadow_map) = self.shadow_map.as_ref() else {
+            return 1.0;
+        };
+        let Some(expected_len) = self.shadow_map_size.checked_mul(self.shadow_map_size) else {
+            return 1.0;
+        };
+        if self.shadow_map_size == 0 || shadow_map.len() != expected_len {
             return 1.0;
         }
-        let shadow_map = self.shadow_map.as_ref().unwrap();
 
         // 1. Transform world position to light space
         let light_space_pos = self.light_space_matrix * world_pos.to_homogeneous();
@@ -363,10 +370,7 @@ impl Shader for PbrShader {
             let n_dot_l = n.dot(&l).max(0.0);
             let n_dot_h = n.dot(&h).max(0.0);
             let h_dot_v = h.dot(&v).max(0.0);
-
-            // --- SHADOW CALCULATION ---
-            // Only apply shadow for the first light (assuming it's the main directional light)
-            let shadow = if i == 0 {
+            let shadow = if self.shadow_light_index == Some(i) {
                 self.calculate_shadow(&varying.world_pos, n_dot_l)
             } else {
                 1.0

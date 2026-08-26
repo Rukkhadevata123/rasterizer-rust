@@ -2,7 +2,7 @@ use crate::core::math::transform::TransformFactory;
 use crate::io::config::Config;
 use crate::io::gltf_loader::load_gltf;
 use crate::scene::camera::Camera;
-use crate::scene::context::RenderContext;
+use crate::scene::context::{RenderContext, ShadowLight};
 use crate::scene::light::Light;
 use crate::scene::material::{Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
@@ -13,34 +13,39 @@ use log::{error, info};
 use nalgebra::{Point3, Vector3};
 
 /// Helper to rebuild light list from config (used in Init and Hot Reload)
-pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Point3<f32>) {
+pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Option<ShadowLight>) {
     let mut lights = Vec::new();
-    let mut shadow_light_pos = Point3::new(0.0, 10.0, 0.0);
-    let mut has_shadow_light = false;
+    let mut shadow_light = None;
 
-    for l in &config.lights {
-        let color = Vector3::from(l.color);
-        match l.r#type.as_str() {
+    for light_config in &config.lights {
+        let color = Vector3::from(light_config.color);
+        match light_config.r#type.as_str() {
             "directional" => {
-                if let Some(dir) = l.direction {
-                    let dir_vec = Vector3::from(dir).normalize();
-                    lights.push(Light::new_directional(dir_vec, color, l.intensity));
-                    if !has_shadow_light {
-                        shadow_light_pos = Point3::origin() - dir_vec * 10.0;
-                        has_shadow_light = true;
-                    }
+                if let Some(direction) = light_config.direction {
+                    let direction = Vector3::from(direction).normalize();
+                    let light_index = lights.len();
+                    lights.push(Light::new_directional(
+                        direction,
+                        color,
+                        light_config.intensity,
+                    ));
+                    shadow_light.get_or_insert(ShadowLight {
+                        light_index,
+                        position: Point3::origin() - direction * 10.0,
+                    });
                 }
             }
             "point" => {
-                if let Some(pos) = l.position {
-                    let mut light = Light::new_point(Point3::from(pos), color, l.intensity);
+                if let Some(position) = light_config.position {
+                    let mut light =
+                        Light::new_point(Point3::from(position), color, light_config.intensity);
                     if let Light::Point {
                         ref mut attenuation,
                         ..
                     } = light
-                        && let Some(a) = l.attenuation
+                        && let Some(value) = light_config.attenuation
                     {
-                        *attenuation = (a[0], a[1], a[2]);
+                        *attenuation = (value[0], value[1], value[2]);
                     }
                     lights.push(light);
                 }
@@ -48,7 +53,8 @@ pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Point3<f32>) {
             _ => {}
         }
     }
-    (lights, shadow_light_pos)
+
+    (lights, shadow_light)
 }
 
 /// Helper to update existing SceneObjects with new parameters from config.
@@ -127,7 +133,7 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
     };
 
     // 2. Lights
-    let (lights, shadow_light_pos) = build_lights_from_config(config);
+    let (lights, shadow_light) = build_lights_from_config(config);
 
     // 3. Objects
     let mut scene_objects: Vec<SceneObject> = Vec::new();
@@ -196,6 +202,61 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
         camera,
         lights,
         scene_objects,
-        shadow_light_pos,
+        shadow_light,
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::io::config::LightConfig;
+
+    fn point_light() -> LightConfig {
+        LightConfig {
+            r#type: "point".to_string(),
+            position: Some([1.0, 2.0, 3.0]),
+            direction: None,
+            color: [1.0, 1.0, 1.0],
+            intensity: 2.0,
+            attenuation: None,
+        }
+    }
+
+    fn directional_light(direction: [f32; 3]) -> LightConfig {
+        LightConfig {
+            r#type: "directional".to_string(),
+            position: None,
+            direction: Some(direction),
+            color: [1.0, 1.0, 1.0],
+            intensity: 3.0,
+            attenuation: None,
+        }
+    }
+
+    #[test]
+    fn shadow_light_tracks_first_valid_directional_light_index() {
+        let config = Config {
+            lights: vec![point_light(), directional_light([0.0, -1.0, 0.0])],
+            ..Default::default()
+        };
+
+        let (lights, shadow_light) = build_lights_from_config(&config);
+        let shadow_light = shadow_light.expect("directional light should cast shadows");
+
+        assert_eq!(lights.len(), 2);
+        assert_eq!(shadow_light.light_index, 1);
+        assert!((shadow_light.position - Point3::new(0.0, 10.0, 0.0)).norm() < 1e-5);
+    }
+
+    #[test]
+    fn point_only_scene_has_no_shadow_light() {
+        let config = Config {
+            lights: vec![point_light()],
+            ..Default::default()
+        };
+
+        let (lights, shadow_light) = build_lights_from_config(&config);
+
+        assert_eq!(lights.len(), 1);
+        assert!(shadow_light.is_none());
     }
 }

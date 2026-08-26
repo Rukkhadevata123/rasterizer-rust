@@ -14,52 +14,81 @@ use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
 use std::sync::Arc;
 
-/// Executes the Shadow Mapping Pass.
+pub struct ShadowPassOutput {
+    pub depth: Option<Arc<Vec<f32>>>,
+    pub size: usize,
+    pub light_space_matrix: Matrix4<f32>,
+    pub light_index: Option<usize>,
+}
+
+impl ShadowPassOutput {
+    fn disabled() -> Self {
+        Self {
+            depth: None,
+            size: 0,
+            light_space_matrix: Matrix4::identity(),
+            light_index: None,
+        }
+    }
+}
+
 pub fn render_shadow_pass(
     config: &Config,
     context: &RenderContext,
     shadow_renderer: &mut Renderer,
-) -> (Option<Arc<Vec<f32>>>, Matrix4<f32>) {
+) -> ShadowPassOutput {
     if !config.render.use_shadows {
-        return (None, Matrix4::identity());
+        return ShadowPassOutput::disabled();
     }
 
-    let light_target = Point3::new(0.0, 0.0, 0.0);
-    let light_dir = (light_target - context.shadow_light_pos).normalize();
+    let Some(shadow_light) = context.shadow_light else {
+        return ShadowPassOutput::disabled();
+    };
+
+    let light_target = Point3::origin();
+    let light_dir = (light_target - shadow_light.position).normalize();
     let light_up = if light_dir.y.abs() > 0.9 {
         Vector3::z()
     } else {
         Vector3::y()
     };
 
-    let light_view = TransformFactory::view(&context.shadow_light_pos, &light_target, &light_up);
+    let light_view = TransformFactory::view(&shadow_light.position, &light_target, &light_up);
     let ortho_size = config.render.shadow_ortho_size;
-    let light_proj =
+    let light_projection =
         TransformFactory::orthographic(-ortho_size, ortho_size, -ortho_size, ortho_size, 0.1, 50.0);
-    let light_space_matrix = light_proj * light_view;
+    let light_space_matrix = light_projection * light_view;
 
     shadow_renderer.clear_with_options(ClearOptions {
         depth: f32::INFINITY,
         ..Default::default()
     });
 
-    for obj in &context.scene_objects {
-        let shader = ShadowShader::new(obj.transform, light_view, light_proj);
-        shadow_renderer.draw_model(&obj.model, &shader);
+    for object in &context.scene_objects {
+        let shader = ShadowShader::new(object.transform, light_view, light_projection);
+        for mesh in &object.model.meshes {
+            let material = object.model.materials.get(mesh.material_id);
+            if matches!(material, Some(Material::Pbr(material)) if material.alpha_mode == AlphaMode::Blend)
+            {
+                continue;
+            }
+            shadow_renderer.draw_mesh(mesh, &shader, material);
+        }
     }
 
-    let shadow_depth_data = shadow_renderer.framebuffer.depth_values();
-
-    (Some(Arc::new(shadow_depth_data)), light_space_matrix)
+    ShadowPassOutput {
+        depth: Some(Arc::new(shadow_renderer.framebuffer.depth_values())),
+        size: shadow_renderer.framebuffer.width,
+        light_space_matrix,
+        light_index: Some(shadow_light.light_index),
+    }
 }
-
 /// Executes the Main Rendering Pass.
 pub fn render_main_pass(
     config: &Config,
     context: &RenderContext,
     renderer: &mut Renderer,
-    shadow_map: Option<Arc<Vec<f32>>>,
-    light_space_matrix: Matrix4<f32>,
+    shadow: &ShadowPassOutput,
 ) {
     let bg_texture = if let Some(path) = &config.render.background_image {
         Texture::load(path, config.render.use_mipmap).ok()
@@ -101,9 +130,10 @@ pub fn render_main_pass(
 
         shader.lights = context.lights.clone();
         shader.ambient_light = ambient_light;
-        shader.shadow_map = shadow_map.clone();
-        shader.shadow_map_size = config.render.shadow_map_size;
-        shader.light_space_matrix = light_space_matrix;
+        shader.shadow_map = shadow.depth.clone();
+        shader.shadow_map_size = shadow.size;
+        shader.shadow_light_index = shadow.light_index;
+        shader.light_space_matrix = shadow.light_space_matrix;
         shader.shadow_bias = config.render.shadow_bias;
         shader.use_pcf = config.render.use_pcf;
         shader.pcf_kernel_size = config.render.pcf_kernel_size;

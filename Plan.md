@@ -28,15 +28,15 @@ Status: completed
 
 ## Phase 2: Correct Framebuffer and Rendering Safety
 
-Status: in progress; framebuffer concurrency model completed, remaining items deferred
+Status: completed
 
 - [x] Replace shared framebuffer synchronization with exclusive horizontal-band ownership.
 - [x] Store depth and color together so the winning fragment commits both values consistently.
 - [x] Remove framebuffer locks, atomics, `UnsafeCell`, manual `Sync`, and the old per-pixel compatibility APIs.
 - [x] Split triangle preparation from band-owned rasterization while preserving transparent order within each band.
-- [ ] Fix alpha-mask and blended-material behavior in the shadow pass.
-- [ ] Associate the shadow map with an explicit light instead of assuming light index zero.
-- [ ] Rebuild or reject incompatible renderer settings during hot reload, especially resolution, sample scale, and shadow-map size.
+- [x] Make the shadow pass sample masked-material alpha and exclude blended materials from depth casting.
+- [x] Associate each shadow map with the selected directional light instead of assuming light index zero.
+- [x] Rebuild sample and shadow buffers during hot reload, reject invalid sizes, and require a restart for window-size changes.
 
 ## Phase 3: Harden glTF Import
 
