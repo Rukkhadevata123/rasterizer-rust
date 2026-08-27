@@ -22,6 +22,11 @@ pub enum ApplicationError {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("failed to determine the process working directory: {source}")]
+    CurrentDirectory {
+        #[source]
+        source: std::io::Error,
+    },
     #[error("failed to read config '{}': {source}", path.display())]
     Read {
         path: PathBuf,

@@ -3,11 +3,11 @@ use image::ImageBuffer;
 use std::path::Path;
 
 /// Saves a u32 (0RGB) buffer to a PNG file.
-pub fn save_buffer_to_image(
+pub fn save_buffer_to_image<P: AsRef<Path>>(
     buffer: &[u32],
     width: usize,
     height: usize,
-    path: &str,
+    path: P,
 ) -> Result<(), ImageOutputError> {
     let image_width =
         u32::try_from(width).map_err(|_| ImageOutputError::InvalidDimensions { width, height })?;
@@ -23,7 +23,7 @@ pub fn save_buffer_to_image(
         });
     }
 
-    let output_path = Path::new(path);
+    let output_path = path.as_ref();
     if let Some(parent) = output_path.parent()
         && !parent.as_os_str().is_empty()
     {

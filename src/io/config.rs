@@ -2,7 +2,7 @@ use crate::core::framebuffer::FrameBuffer;
 use crate::error::ConfigError;
 use serde::Deserialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -12,6 +12,8 @@ pub struct Config {
     pub ground: GroundConfig,
     pub lights: Vec<LightConfig>,
     pub objects: Vec<ObjectConfig>,
+    #[serde(skip)]
+    pub base_dir: PathBuf,
 }
 
 impl Default for Config {
@@ -34,6 +36,7 @@ impl Default for Config {
                 rotation: [0.0, -45.0, 0.0],
                 scale: [2.0, 2.0, 2.0],
             }],
+            base_dir: PathBuf::new(),
         }
     }
 }
@@ -205,15 +208,39 @@ impl Config {
             path: path.to_path_buf(),
             source,
         })?;
-        let config: Self = toml::from_str(&content).map_err(|source| ConfigError::Parse {
+        let mut config: Self = toml::from_str(&content).map_err(|source| ConfigError::Parse {
             path: path.to_path_buf(),
             source,
         })?;
+        let absolute_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|source| ConfigError::CurrentDirectory { source })?
+                .join(path)
+        };
+        config.base_dir = absolute_path
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .to_path_buf();
         config.validate().map_err(|reason| ConfigError::Invalid {
             path: path.to_path_buf(),
             reason,
         })?;
         Ok(config)
+    }
+
+    pub fn base_dir(&self) -> &Path {
+        &self.base_dir
+    }
+
+    pub fn resolve_path<P: AsRef<Path>>(&self, path: P) -> PathBuf {
+        let path = path.as_ref();
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.base_dir.join(path)
+        }
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -504,6 +531,7 @@ mod tests {
     #[test]
     fn rejects_unknown_fields() {
         assert!(toml::from_str::<Config>("unexpected = true").is_err());
+        assert!(toml::from_str::<Config>("base_dir = \"override\"").is_err());
         assert!(toml::from_str::<Config>("[camera]\nunknown = 1").is_err());
         assert!(
             toml::from_str::<Config>("[[objects]]\npath = \"fixture.glb\"\nunknown = 1").is_err()
@@ -572,5 +600,26 @@ mod tests {
                 .unwrap_err()
                 .contains("lights[0].position")
         );
+    }
+
+    #[test]
+    fn resolves_relative_paths_against_config_directory() {
+        let config_path = std::env::temp_dir()
+            .join("rasterizer-config-path-tests")
+            .join("nested")
+            .join("scene.toml");
+        std::fs::create_dir_all(config_path.parent().unwrap())
+            .expect("fixture directory should be created");
+        std::fs::write(&config_path, "objects = []").expect("fixture config should be written");
+
+        let config = Config::load(&config_path).expect("fixture config should load");
+        assert_eq!(config.base_dir(), config_path.parent().unwrap());
+        assert_eq!(
+            config.resolve_path("assets/model.glb"),
+            config_path.parent().unwrap().join("assets/model.glb")
+        );
+
+        let absolute = std::env::temp_dir().join("absolute-model.glb");
+        assert_eq!(config.resolve_path(&absolute), absolute);
     }
 }

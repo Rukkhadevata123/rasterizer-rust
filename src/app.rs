@@ -294,14 +294,15 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     info!("Render completed in {:.2?}", start_time.elapsed());
 
     // Save
-    info!("Saving output to '{}'...", config.render.output);
+    let output_path = config.resolve_path(&config.render.output);
+    info!("Saving output to '{}'...", output_path.display());
     let mut buffer = vec![0u32; config.render.width * config.render.height];
     post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
     save_buffer_to_image(
         &buffer,
         config.render.width,
         config.render.height,
-        &config.render.output,
+        &output_path,
     )?;
     info!("Done.");
     Ok(())

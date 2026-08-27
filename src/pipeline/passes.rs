@@ -92,10 +92,11 @@ pub fn render_main_pass(
     shadow: &ShadowPassOutput,
 ) -> Result<(), AssetError> {
     let bg_texture = if let Some(path) = &config.render.background_image {
+        let background_path = config.resolve_path(path);
         Some(
-            Texture::load(path, config.render.use_mipmap).map_err(|source| {
+            Texture::load(&background_path, config.render.use_mipmap).map_err(|source| {
                 AssetError::BackgroundImage {
-                    path: path.clone().into(),
+                    path: background_path,
                     source,
                 }
             })?,

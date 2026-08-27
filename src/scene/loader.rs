@@ -162,10 +162,11 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
     // 3.2 Loaded Objects
     for (object_index, obj_conf) in config.objects.iter().enumerate() {
         // Direct GLTF Loading
-        let mut model = load_gltf(&obj_conf.path, config.render.use_mipmap).map_err(|source| {
+        let model_path = config.resolve_path(&obj_conf.path);
+        let mut model = load_gltf(&model_path, config.render.use_mipmap).map_err(|source| {
             AssetError::Model {
                 object_index,
-                path: obj_conf.path.clone().into(),
+                path: model_path,
                 source,
             }
         })?;

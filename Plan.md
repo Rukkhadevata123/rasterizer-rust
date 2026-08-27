@@ -39,7 +39,7 @@ Baseline after Phase 2: 35 tests, no `unsafe` in `src/` or `tests/`, and determi
 
 ## Phase 3: Configuration, Validation, and Error Foundations
 
-Status: in progress; 3A, 3B, 3C, and 3D completed
+Status: completed
 
 This phase precedes the glTF rewrite because import, image, CLI, and GUI errors should share one stable model.
 
@@ -86,9 +86,11 @@ Status: completed
 
 ### 3E: Configuration-Relative Paths
 
-- Resolve model, texture, background, and output paths consistently relative to the loaded configuration file.
-- Carry the configuration base directory explicitly rather than relying on process working directory.
-- Test configs loaded from nested directories.
+Status: completed
+
+- [x] Resolve model, texture, background, and output paths consistently relative to the loaded configuration file.
+- [x] Carry the configuration base directory explicitly rather than relying on process working directory.
+- [x] Test configs loaded from nested directories.
 
 Suggested commits:
 
@@ -96,7 +98,7 @@ Suggested commits:
 2. `define typed scene configuration` (completed)
 3. `validate render configuration` (completed)
 4. `propagate application errors` (completed)
-5. `resolve assets relative to config`
+5. `resolve assets relative to config` (completed)
 
 Exit criteria:
 
@@ -474,7 +476,7 @@ Repository state when this roadmap was revised:
 - branch: `main`;
 - completed commits include `c32a12f` for band ownership and `2bc0630` for remaining Phase 2 safety;
 - working tree should be clean before starting implementation;
-- 52 tests are present after Phase 3D;
+- 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 3E. Do not begin the glTF importer rewrite, RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 4A. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
