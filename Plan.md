@@ -158,12 +158,14 @@ Status: completed
 
 ### 4E: Attribute and Index Validation
 
-- Require POSITION.
-- Validate NORMAL, TEXCOORD, and TANGENT counts against POSITION.
-- Validate every index before accessing a vertex.
-- Reject non-finite positions and unsafe zero-length normal/tangent normalization.
-- Generate missing normals using a documented area- or angle-weighted method.
-- If a normal map requires missing tangents, disable that map with an explicit diagnostic or return Unsupported until Phase 6 adds MikkTSpace.
+Status: completed
+
+- [x] Require POSITION.
+- [x] Validate NORMAL, TEXCOORD, and TANGENT counts against POSITION.
+- [x] Validate every index before accessing a vertex.
+- [x] Reject non-finite positions and unsafe zero-length normal/tangent normalization.
+- [x] Generate missing normals using a documented area-weighted method.
+- [x] Return an explicit Unsupported diagnostic when a normal map requires missing tangents, pending MikkTSpace in Phase 6.
 
 ### 4F: Model Normalization Policy
 

@@ -113,7 +113,7 @@ fn phase_4c_supported_triangle_modes_are_converted_to_triangle_lists() {
     assert_eq!(model.meshes[0].indices, [0, 1, 2]);
     assert_eq!(model.meshes[1].indices, [0, 1, 2]);
     assert_eq!(model.meshes[2].indices, [0, 1, 2, 2, 1, 3]);
-    assert_eq!(model.meshes[3].indices, [0, 1, 2, 0, 2, 3]);
+    assert_eq!(model.meshes[3].indices, [0, 1, 3, 0, 3, 2]);
 }
 
 #[test]
@@ -142,6 +142,92 @@ fn mismatched_attributes_return_primitive_context() {
             assert!(context.reason.contains("NORMAL"));
             assert!(context.reason.contains("2 values"));
             assert!(context.reason.contains("3"));
+        }
+        error => panic!("expected contextual primitive error, got {error}"),
+    }
+}
+
+#[test]
+fn phase_4e_out_of_bounds_indices_return_primitive_context() {
+    let path = fixture_path("invalid-index.gltf");
+    let error = match load_gltf(&path, false) {
+        Ok(_) => panic!("out-of-bounds indices should be rejected"),
+        Err(error) => error,
+    };
+
+    match error {
+        GltfError::Primitive { context } => {
+            assert_eq!(context.path, path);
+            assert!(context.reason.contains("index 3"));
+            assert!(context.reason.contains("3 POSITION"));
+        }
+        error => panic!("expected contextual primitive error, got {error}"),
+    }
+}
+
+#[test]
+fn phase_4e_missing_normals_are_generated_from_triangle_area() {
+    let model = match load_gltf(fixture_path("triangle-modes.gltf"), false) {
+        Ok(model) => model,
+        Err(error) => panic!("triangle fixture should load: {error}"),
+    };
+
+    for mesh in &model.meshes {
+        for vertex in &mesh.vertices {
+            assert!((vertex.normal.x - 0.0).abs() < 1.0e-6);
+            assert!((vertex.normal.y - 0.0).abs() < 1.0e-6);
+            assert!((vertex.normal.z - 1.0).abs() < 1.0e-6);
+        }
+    }
+}
+
+#[test]
+fn phase_4e_invalid_attributes_return_contextual_errors() {
+    let missing_position_path = fixture_path("missing-position.gltf");
+    let missing_position_error = match load_gltf(&missing_position_path, false) {
+        Ok(_) => panic!("missing-position.gltf should be rejected"),
+        Err(error) => error,
+    };
+    match missing_position_error {
+        GltfError::Import { path, source } => {
+            assert_eq!(path, missing_position_path);
+            assert!(source.to_string().contains("POSITION"));
+        }
+        error => panic!("expected glTF validation error, got {error}"),
+    }
+
+    for (name, diagnostic) in [
+        ("non-finite-position.gltf", "POSITION[0]"),
+        ("zero-normal.gltf", "NORMAL[0]"),
+        ("zero-tangent.gltf", "TANGENT[0]"),
+    ] {
+        let error = match load_gltf(fixture_path(name), false) {
+            Ok(_) => panic!("{name} should be rejected"),
+            Err(error) => error,
+        };
+        match error {
+            GltfError::Primitive { context } => assert!(
+                context.reason.contains(diagnostic),
+                "{name} diagnostic was: {}",
+                context.reason
+            ),
+            error => panic!("expected contextual primitive error, got {error}"),
+        }
+    }
+}
+
+#[test]
+fn phase_4e_normal_map_without_tangents_is_explicitly_unsupported() {
+    let error = match load_gltf(fixture_path("normal-map-without-tangents.gltf"), false) {
+        Ok(_) => panic!("normal map without tangents should be rejected"),
+        Err(error) => error,
+    };
+
+    match error {
+        GltfError::Primitive { context } => {
+            assert!(context.reason.contains("unsupported normal map"));
+            assert!(context.reason.contains("TANGENT"));
+            assert!(context.reason.contains("Phase 6"));
         }
         error => panic!("expected contextual primitive error, got {error}"),
     }

@@ -180,6 +180,21 @@ impl SceneImporter<'_> {
                     ));
                 }
 
+                if let Some((position_index, _)) = positions
+                    .iter()
+                    .enumerate()
+                    .find(|(_, position)| position.iter().any(|value| !value.is_finite()))
+                {
+                    return Err(primitive_error(
+                        self.path,
+                        self.scene_index,
+                        node,
+                        mesh.index(),
+                        primitive_index,
+                        format!("POSITION[{position_index}] contains a non-finite value"),
+                    ));
+                }
+
                 for (attribute, count) in [
                     ("NORMAL", normals.len()),
                     ("TEXCOORD_0", uvs.len()),
@@ -212,6 +227,94 @@ impl SceneImporter<'_> {
                         )
                     })?;
 
+                if let Some(&index) = indices
+                    .iter()
+                    .find(|&&index| index as usize >= positions.len())
+                {
+                    return Err(primitive_error(
+                        self.path,
+                        self.scene_index,
+                        node,
+                        mesh.index(),
+                        primitive_index,
+                        format!(
+                            "index {index} is out of bounds for {} POSITION values",
+                            positions.len()
+                        ),
+                    ));
+                }
+
+                let normals = if normals.is_empty() {
+                    generate_area_weighted_normals(&positions, &indices).map_err(|reason| {
+                        primitive_error(
+                            self.path,
+                            self.scene_index,
+                            node,
+                            mesh.index(),
+                            primitive_index,
+                            reason,
+                        )
+                    })?
+                } else {
+                    normals
+                        .into_iter()
+                        .enumerate()
+                        .map(|(normal_index, normal)| {
+                            normalized_vector3(normal, "NORMAL", normal_index)
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|reason| {
+                            primitive_error(
+                                self.path,
+                                self.scene_index,
+                                node,
+                                mesh.index(),
+                                primitive_index,
+                                reason,
+                            )
+                        })?
+                };
+
+                let tangents = tangents
+                    .into_iter()
+                    .enumerate()
+                    .map(|(tangent_index, tangent)| {
+                        let direction = normalized_vector3(
+                            [tangent[0], tangent[1], tangent[2]],
+                            "TANGENT",
+                            tangent_index,
+                        )?;
+                        if !tangent[3].is_finite() {
+                            return Err(format!(
+                                "TANGENT[{tangent_index}] handedness is non-finite"
+                            ));
+                        }
+                        Ok([direction.x, direction.y, direction.z, tangent[3]])
+                    })
+                    .collect::<Result<Vec<_>, String>>()
+                    .map_err(|reason| {
+                        primitive_error(
+                            self.path,
+                            self.scene_index,
+                            node,
+                            mesh.index(),
+                            primitive_index,
+                            reason,
+                        )
+                    })?;
+
+                let prim_mat = primitive.material();
+                if prim_mat.normal_texture().is_some() && tangents.is_empty() {
+                    return Err(primitive_error(
+                        self.path,
+                        self.scene_index,
+                        node,
+                        mesh.index(),
+                        primitive_index,
+                        "unsupported normal map without TANGENT attribute; tangent generation is planned for Phase 6",
+                    ));
+                }
+
                 // --- Bake Vertices ---
                 let mut vertices = Vec::with_capacity(positions.len());
                 for i in 0..positions.len() {
@@ -219,12 +322,18 @@ impl SceneImporter<'_> {
                     let pos_local = Point3::from(positions[i]);
                     let pos_world = global_transform.transform_point(&pos_local);
 
-                    let normal_local = if !normals.is_empty() {
-                        Vector3::from(normals[i])
-                    } else {
-                        Vector3::y()
-                    };
-                    let normal_world = (normal_matrix * normal_local).normalize();
+                    let normal_world =
+                        normalize_transformed_vector(normal_matrix * normals[i], "NORMAL", i)
+                            .map_err(|reason| {
+                                primitive_error(
+                                    self.path,
+                                    self.scene_index,
+                                    node,
+                                    mesh.index(),
+                                    primitive_index,
+                                    reason,
+                                )
+                            })?;
 
                     // Tangent Handling with Sign
                     let tangent_world = if !tangents.is_empty() {
@@ -233,7 +342,18 @@ impl SceneImporter<'_> {
                         let t_sign = tangents[i][3]; // Extract Sign (W)
 
                         // Rotate the vector part
-                        let t_vec_world = (normal_matrix * t_vec_local).normalize();
+                        let t_vec_world =
+                            normalize_transformed_vector(normal_matrix * t_vec_local, "TANGENT", i)
+                                .map_err(|reason| {
+                                    primitive_error(
+                                        self.path,
+                                        self.scene_index,
+                                        node,
+                                        mesh.index(),
+                                        primitive_index,
+                                        reason,
+                                    )
+                                })?;
 
                         // Store as Vector4
                         Vector4::new(t_vec_world.x, t_vec_world.y, t_vec_world.z, t_sign)
@@ -256,7 +376,6 @@ impl SceneImporter<'_> {
                 }
 
                 // --- Material Handling ---
-                let prim_mat = primitive.material();
                 let mat_idx = if let Some(gltf_idx) = prim_mat.index() {
                     // Check cache
                     if let Some(&local_idx) = self.material_cache.get(&gltf_idx) {
@@ -346,6 +465,54 @@ fn triangle_list_indices(mode: gltf::mesh::Mode, indices: &[u32]) -> Result<Vec<
         }
         unsupported => Err(format!("unsupported primitive mode {unsupported:?}")),
     }
+}
+
+/// Accumulates unnormalized face normals, weighting each contribution by triangle area.
+fn generate_area_weighted_normals(
+    positions: &[[f32; 3]],
+    indices: &[u32],
+) -> Result<Vec<Vector3<f32>>, String> {
+    let mut normals = vec![Vector3::zeros(); positions.len()];
+    for triangle in indices.chunks_exact(3) {
+        let first = Vector3::from(positions[triangle[0] as usize]);
+        let second = Vector3::from(positions[triangle[1] as usize]);
+        let third = Vector3::from(positions[triangle[2] as usize]);
+        let face_normal = (second - first).cross(&(third - first));
+        for &index in triangle {
+            normals[index as usize] += face_normal;
+        }
+    }
+
+    normals
+        .into_iter()
+        .enumerate()
+        .map(|(normal_index, normal)| {
+            normalize_transformed_vector(normal, "generated NORMAL", normal_index)
+        })
+        .collect()
+}
+
+fn normalized_vector3(
+    value: [f32; 3],
+    attribute: &str,
+    index: usize,
+) -> Result<Vector3<f32>, String> {
+    normalize_transformed_vector(Vector3::from(value), attribute, index)
+}
+
+fn normalize_transformed_vector(
+    value: Vector3<f32>,
+    attribute: &str,
+    index: usize,
+) -> Result<Vector3<f32>, String> {
+    let length_squared = value.norm_squared();
+    if !value.iter().all(|component| component.is_finite()) || !length_squared.is_finite() {
+        return Err(format!("{attribute}[{index}] contains a non-finite value"));
+    }
+    if length_squared <= f32::EPSILON {
+        return Err(format!("{attribute}[{index}] has zero length"));
+    }
+    Ok(value / length_squared.sqrt())
 }
 
 /// Converts glTF material to Engine PbrMaterial
