@@ -200,15 +200,17 @@ Exit criteria:
 
 ## Phase 5: Rendering State and Submission Architecture
 
-Status: planned
+Status: in progress
 
 This phase must precede `doubleSided`, complete sampler semantics, and major performance work.
 
 ### 5A: Decouple Core Rasterization from Scene Materials
 
-- Remove `scene::Material` and `AlphaMode` dependencies from `core/rasterizer.rs` and `core/pipeline.rs`.
-- Make fragment execution return an explicit result such as discard or RGBA output.
-- Keep material lookup and alpha-cutoff decisions in shaders or render-command construction.
+Status: completed
+
+- [x] Remove `scene::Material` and `AlphaMode` dependencies from `core/rasterizer.rs` and `core/pipeline.rs`.
+- [x] Make fragment execution return an explicit discard or RGBA result.
+- [x] Keep material lookup and alpha-cutoff decisions in shaders or render-command construction.
 
 Exit condition: `src/core/` no longer imports scene material types.
 
@@ -490,4 +492,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 5A. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 5B. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

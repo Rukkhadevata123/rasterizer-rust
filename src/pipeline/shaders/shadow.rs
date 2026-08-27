@@ -1,6 +1,6 @@
 use crate::core::geometry::Vertex;
-use crate::core::pipeline::{Interpolatable, Shader};
-use crate::scene::material::Material;
+use crate::core::pipeline::{FragmentOutput, Interpolatable, Shader};
+use crate::scene::material::{AlphaMode, Material};
 use nalgebra::{Matrix4, Vector2, Vector4};
 use std::ops::{Add, Mul};
 
@@ -47,7 +47,7 @@ impl ShadowShader {
     }
 }
 
-impl Shader for ShadowShader {
+impl<'a> Shader<Option<&'a Material>> for ShadowShader {
     type Varying = ShadowVarying;
 
     fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
@@ -62,25 +62,28 @@ impl Shader for ShadowShader {
     fn fragment(
         &self,
         varying: Self::Varying,
-        material: Option<&Material>,
+        material: Option<&'a Material>,
         uv_density: f32,
-    ) -> Vector4<f32> {
-        let alpha = material
-            .map(|material| match material {
-                Material::Pbr(material) => material.alpha,
-            })
-            .unwrap_or(1.0);
-        let texture_alpha = material
-            .and_then(|material| match material {
-                Material::Pbr(material) => material.albedo_texture.as_ref(),
-            })
+    ) -> FragmentOutput {
+        let pbr_material = material.map(|material| match material {
+            Material::Pbr(material) => material,
+        });
+        let alpha = pbr_material.map_or(1.0, |material| material.alpha);
+        let texture_alpha = pbr_material
+            .and_then(|material| material.albedo_texture.as_ref())
             .map(|texture| {
                 texture
                     .sample_color_with_density(varying.uv.x, varying.uv.y, uv_density)
                     .w
             })
             .unwrap_or(1.0);
+        let alpha = alpha * texture_alpha;
 
-        Vector4::new(0.0, 0.0, 0.0, alpha * texture_alpha)
+        if matches!(pbr_material.map(|material| material.alpha_mode), Some(AlphaMode::Mask(cutoff)) if alpha < cutoff)
+        {
+            return FragmentOutput::Discard;
+        }
+
+        FragmentOutput::Color(Vector4::new(0.0, 0.0, 0.0, alpha))
     }
 }

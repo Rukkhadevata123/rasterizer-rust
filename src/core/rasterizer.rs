@@ -3,8 +3,7 @@ use crate::core::math::interpolation::{
     barycentric_coordinates, is_inside_triangle, perspective_correct_barycentric,
 };
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
-use crate::core::pipeline::{Interpolatable, Shader};
-use crate::scene::material::{AlphaMode, Material};
+use crate::core::pipeline::{FragmentOutput, Interpolatable, Shader};
 use nalgebra::{Point2, Vector4};
 use rayon::prelude::*;
 
@@ -29,12 +28,12 @@ pub enum BlendMode {
     Alpha,
 }
 
-pub(crate) struct PreparedTriangle<'a, V> {
+pub(crate) struct PreparedTriangle<V, C> {
     screen_coords: [Point2<f32>; 3],
     clip_z: [f32; 3],
     w_values: [f32; 3],
     varyings: [V; 3],
-    material: Option<&'a Material>,
+    fragment_context: C,
     uv_density: f32,
     start_x: usize,
     end_x: usize,
@@ -61,16 +60,18 @@ impl Rasterizer {
         self.cull_mode = mode;
     }
 
-    pub(crate) fn prepare_triangle<'a, S: Shader>(
+    pub(crate) fn prepare_triangle<S, C>(
         &self,
         framebuffer_width: usize,
         framebuffer_height: usize,
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[S::Varying; 3],
-        material: Option<&'a Material>,
-    ) -> Vec<PreparedTriangle<'a, S::Varying>>
+        fragment_context: C,
+    ) -> Vec<PreparedTriangle<S::Varying, C>>
     where
+        S: Shader<C>,
         S::Varying: Interpolatable + Copy,
+        C: Copy + Send + Sync,
     {
         let mut current_poly = Vec::with_capacity(16);
         let mut clip_buffer = Vec::with_capacity(16);
@@ -93,7 +94,7 @@ impl Rasterizer {
                 return Vec::new();
             }
 
-            Self::clip_polygon_against_plane::<S>(&current_poly, &mut clip_buffer, axis, sign);
+            Self::clip_polygon_against_plane::<S, C>(&current_poly, &mut clip_buffer, axis, sign);
             std::mem::swap(&mut current_poly, &mut clip_buffer);
         }
 
@@ -111,19 +112,21 @@ impl Rasterizer {
                     framebuffer_height,
                     &[first.0, second.0, third.0],
                     &[first.1, second.1, third.1],
-                    material,
+                    fragment_context,
                 )
             })
             .collect()
     }
 
-    pub(crate) fn rasterize_prepared<S: Shader>(
+    pub(crate) fn rasterize_prepared<S, C>(
         &self,
         framebuffer: &mut FrameBuffer,
         shader: &S,
-        triangles: &[PreparedTriangle<'_, S::Varying>],
+        triangles: &[PreparedTriangle<S::Varying, C>],
     ) where
+        S: Shader<C>,
         S::Varying: Interpolatable + Copy,
+        C: Copy + Send + Sync,
     {
         if triangles.is_empty() {
             return;
@@ -163,13 +166,15 @@ impl Rasterizer {
             });
     }
 
-    fn clip_polygon_against_plane<S: Shader>(
+    fn clip_polygon_against_plane<S, C>(
         input: &[(Vector4<f32>, S::Varying)],
         output: &mut Vec<(Vector4<f32>, S::Varying)>,
         axis: usize,
         sign: f32,
     ) where
+        S: Shader<C>,
         S::Varying: Interpolatable + Copy,
+        C: Copy + Send + Sync,
     {
         output.clear();
         if input.is_empty() {
@@ -186,14 +191,14 @@ impl Rasterizer {
             if current_inside {
                 if !previous_inside
                     && let Some(intersection) =
-                        Self::intersect_edge_plane::<S>(previous, *current, axis, sign)
+                        Self::intersect_edge_plane::<S, C>(previous, *current, axis, sign)
                 {
                     output.push(intersection);
                 }
                 output.push(*current);
             } else if previous_inside
                 && let Some(intersection) =
-                    Self::intersect_edge_plane::<S>(previous, *current, axis, sign)
+                    Self::intersect_edge_plane::<S, C>(previous, *current, axis, sign)
             {
                 output.push(intersection);
             }
@@ -204,14 +209,16 @@ impl Rasterizer {
     }
 
     #[inline(always)]
-    fn intersect_edge_plane<S: Shader>(
+    fn intersect_edge_plane<S, C>(
         a: (Vector4<f32>, S::Varying),
         b: (Vector4<f32>, S::Varying),
         axis: usize,
         sign: f32,
     ) -> Option<(Vector4<f32>, S::Varying)>
     where
+        S: Shader<C>,
         S::Varying: Interpolatable + Copy,
+        C: Copy + Send + Sync,
     {
         let denominator = sign * (b.0[axis] - a.0[axis]) - (b.0.w - a.0.w);
         if denominator.abs() < 1e-9 {
@@ -226,14 +233,18 @@ impl Rasterizer {
         Some((a.0 + (b.0 - a.0) * t, a.1 * (1.0 - t) + b.1 * t))
     }
 
-    fn prepare_screen_triangle<'a, V: Interpolatable + Copy>(
+    fn prepare_screen_triangle<V, C>(
         &self,
         framebuffer_width: usize,
         framebuffer_height: usize,
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[V; 3],
-        material: Option<&'a Material>,
-    ) -> Option<PreparedTriangle<'a, V>> {
+        fragment_context: C,
+    ) -> Option<PreparedTriangle<V, C>>
+    where
+        V: Interpolatable + Copy,
+        C: Copy,
+    {
         let width = framebuffer_width as f32;
         let height = framebuffer_height as f32;
         let mut screen_coords = [Point2::origin(); 3];
@@ -316,7 +327,7 @@ impl Rasterizer {
             clip_z,
             w_values,
             varyings: *varyings,
-            material,
+            fragment_context,
             uv_density,
             start_x: min_x.max(0) as usize,
             end_x: max_x.min(framebuffer_width as i32 - 1) as usize,
@@ -325,30 +336,24 @@ impl Rasterizer {
         })
     }
 
-    fn rasterize_triangle_band<S: Shader>(
+    fn rasterize_triangle_band<S, C>(
         &self,
         samples: &mut [Sample],
         framebuffer_width: usize,
         band_start_y: usize,
         band_end_y: usize,
         shader: &S,
-        triangle: &PreparedTriangle<'_, S::Varying>,
+        triangle: &PreparedTriangle<S::Varying, C>,
     ) where
+        S: Shader<C>,
         S::Varying: Interpolatable + Copy,
+        C: Copy + Send + Sync,
     {
         let start_y = triangle.start_y.max(band_start_y);
         let end_y = triangle.end_y.min(band_end_y);
         if start_y > end_y {
             return;
         }
-
-        let (alpha_mode, alpha_cutoff) = match triangle.material {
-            Some(Material::Pbr(material)) => match material.alpha_mode {
-                AlphaMode::Mask(cutoff) => (AlphaMode::Mask(cutoff), cutoff),
-                mode => (mode, 0.5),
-            },
-            None => (AlphaMode::Opaque, 0.5),
-        };
 
         for y in start_y..=end_y {
             let row_offset = (y - band_start_y) * framebuffer_width;
@@ -405,10 +410,11 @@ impl Rasterizer {
                         + triangle.varyings[2] * barycentric.z
                 });
 
-                let color = shader.fragment(varying, triangle.material, triangle.uv_density);
-                if matches!(alpha_mode, AlphaMode::Mask(_)) && color.w < alpha_cutoff {
+                let FragmentOutput::Color(color) =
+                    shader.fragment(varying, triangle.fragment_context, triangle.uv_density)
+                else {
                     continue;
-                }
+                };
 
                 match self.blend_mode {
                     BlendMode::Opaque => {

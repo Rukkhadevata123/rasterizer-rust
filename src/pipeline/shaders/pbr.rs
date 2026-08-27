@@ -1,8 +1,7 @@
 use crate::core::geometry::Vertex;
-use crate::core::pipeline::Interpolatable;
-use crate::core::pipeline::Shader;
+use crate::core::pipeline::{FragmentOutput, Interpolatable, Shader};
 use crate::scene::light::Light;
-use crate::scene::material::{Material, PbrMaterial};
+use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use nalgebra::{Matrix3, Matrix4, Point3, Vector2, Vector3, Vector4};
 use std::f32::consts::PI;
 use std::ops::{Add, Mul};
@@ -224,7 +223,7 @@ impl PbrShader {
     }
 }
 
-impl Shader for PbrShader {
+impl<'a> Shader<Option<&'a Material>> for PbrShader {
     type Varying = PbrVarying;
 
     fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
@@ -260,9 +259,9 @@ impl Shader for PbrShader {
     fn fragment(
         &self,
         varying: Self::Varying,
-        material: Option<&Material>,
+        material: Option<&'a Material>,
         uv_density: f32,
-    ) -> Vector4<f32> {
+    ) -> FragmentOutput {
         // 1. Retrieve Material Properties
         let mat = if let Some(Material::Pbr(m)) = material {
             m
@@ -276,6 +275,10 @@ impl Shader for PbrShader {
         } else {
             (mat.albedo, mat.alpha)
         };
+
+        if matches!(mat.alpha_mode, AlphaMode::Mask(cutoff) if alpha < cutoff) {
+            return FragmentOutput::Discard;
+        }
 
         // Metallic/Roughness uses sample_data (no Gamma correction)
         // Standard glTF packing: Green = Roughness, Blue = Metallic
@@ -406,6 +409,11 @@ impl Shader for PbrShader {
         let ambient = self.ambient_light.component_mul(&albedo) * ao;
 
         let final_color = ambient + lo + emissive_color;
-        Vector4::new(final_color.x, final_color.y, final_color.z, alpha)
+        FragmentOutput::Color(Vector4::new(
+            final_color.x,
+            final_color.y,
+            final_color.z,
+            alpha,
+        ))
     }
 }

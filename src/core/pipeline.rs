@@ -1,5 +1,4 @@
 use crate::core::geometry::Vertex;
-use crate::scene::material::Material;
 use nalgebra::Vector4;
 use std::ops::{Add, Mul};
 
@@ -27,7 +26,16 @@ pub trait Interpolatable:
 /// Associated types:
 /// - Varying: per-vertex outputs from the vertex stage that will be interpolated
 ///   for each fragment. Varying must be Interpolatable to support barycentric interpolation.
-pub trait Shader: Send + Sync {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FragmentOutput {
+    Discard,
+    Color(Vector4<f32>),
+}
+
+pub trait Shader<C>: Send + Sync
+where
+    C: Copy + Send + Sync,
+{
     /// Per-vertex varying data to be interpolated and provided to the fragment shader.
     type Varying: Interpolatable;
 
@@ -46,11 +54,8 @@ pub trait Shader: Send + Sync {
 
     /// Fragment shader stage.
     ///
-    /// Computes the final linear RGB color for the current fragment, using the
-    /// interpolated varying and optional material state. The pipeline currently
-    /// expects a Vector3<f32> color in linear 0.0..1.0 range; discard/alpha logic
-    /// is not modeled here (implementations can choose to encode discard by
-    /// returning a special color convention if needed).
+    /// Computes either a discarded fragment or its final linear RGBA color using
+    /// the interpolated varying and caller-provided draw context.
     ///
     /// Additionally, `uv_density` is provided as a triangle-level estimate of how
     /// many texture texels correspond to one screen pixel (sqrt(Area_uv / Area_screen)).
@@ -58,15 +63,10 @@ pub trait Shader: Send + Sync {
     ///
     /// # Arguments
     /// - `varying`: interpolated per-fragment data.
-    /// - `material`: optional material parameters available to the shader.
+    /// - `context`: caller-defined state associated with the prepared triangle.
     /// - `uv_density`: triangle-level UV density estimator (>= 0.0). 0.0 means "no special LOD".
     ///
     /// # Returns
-    /// - `Vector4<f32>`: final RGBA color (linear space).
-    fn fragment(
-        &self,
-        varying: Self::Varying,
-        material: Option<&Material>,
-        uv_density: f32,
-    ) -> Vector4<f32>;
+    /// - `FragmentOutput`: explicit discard or final RGBA color (linear space).
+    fn fragment(&self, varying: Self::Varying, context: C, uv_density: f32) -> FragmentOutput;
 }

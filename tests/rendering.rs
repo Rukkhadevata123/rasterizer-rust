@@ -2,7 +2,7 @@ use image::{DynamicImage, Rgba, RgbaImage};
 use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
 use rasterizer_rust::core::framebuffer::FrameBuffer;
 use rasterizer_rust::core::geometry::Vertex;
-use rasterizer_rust::core::pipeline::{Interpolatable, Shader};
+use rasterizer_rust::core::pipeline::{FragmentOutput, Interpolatable, Shader};
 use rasterizer_rust::core::rasterizer::{CullMode, Rasterizer};
 use rasterizer_rust::pipeline::passes::{post_process_to_buffer, render_shadow_pass};
 use rasterizer_rust::pipeline::renderer::Renderer;
@@ -48,7 +48,7 @@ impl Interpolatable for ColorVarying {}
 
 struct ClipSpaceShader;
 
-impl Shader for ClipSpaceShader {
+impl<'a> Shader<Option<&'a Material>> for ClipSpaceShader {
     type Varying = ColorVarying;
 
     fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
@@ -63,10 +63,17 @@ impl Shader for ClipSpaceShader {
     fn fragment(
         &self,
         varying: Self::Varying,
-        _material: Option<&Material>,
+        material: Option<&'a Material>,
         _uv_density: f32,
-    ) -> Vector4<f32> {
-        varying.color
+    ) -> FragmentOutput {
+        let alpha_mode = material.map(|material| match material {
+            Material::Pbr(material) => material.alpha_mode,
+        });
+        if matches!(alpha_mode, Some(AlphaMode::Mask(cutoff)) if varying.color.w < cutoff) {
+            FragmentOutput::Discard
+        } else {
+            FragmentOutput::Color(varying.color)
+        }
     }
 }
 
@@ -194,6 +201,42 @@ fn headless_pbr_triangle_produces_visible_output() {
     post_process_to_buffer(&renderer.framebuffer, &mut output, &config);
 
     assert_ne!(output[16 * 32 + 16] & 0x00ff_ffff, 0);
+}
+
+#[test]
+fn masked_pbr_fragments_respect_material_alpha() {
+    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    renderer.rasterizer.set_cull_mode(CullMode::None);
+    let shader = PbrShader::new(
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Point3::new(0.0, 0.0, 2.0),
+    );
+    let mesh = triangle(0.0, Vector4::zeros());
+    let discarded = Material::Pbr(PbrMaterial {
+        alpha: 0.25,
+        alpha_mode: AlphaMode::Mask(0.5),
+        ..Default::default()
+    });
+
+    renderer.draw_mesh(&mesh, &shader, Some(&discarded));
+    assert!(
+        renderer
+            .framebuffer
+            .sample(16, 16)
+            .unwrap()
+            .depth
+            .is_infinite()
+    );
+
+    let visible = Material::Pbr(PbrMaterial {
+        alpha: 0.75,
+        alpha_mode: AlphaMode::Mask(0.5),
+        ..Default::default()
+    });
+    renderer.draw_mesh(&mesh, &shader, Some(&visible));
+    assert!((renderer.framebuffer.sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
 
 #[test]
@@ -486,7 +529,10 @@ fn pbr_shadow_uses_recorded_light_index() {
         shader.light_space_matrix = Matrix4::identity();
         shader.shadow_bias = 0.0;
         shader.use_pcf = false;
-        shader.fragment(varying, Some(&material), 0.0).xyz()
+        match shader.fragment(varying, Some(&material), 0.0) {
+            FragmentOutput::Color(color) => color.xyz(),
+            FragmentOutput::Discard => panic!("opaque PBR fragment should produce color"),
+        }
     };
 
     let second_light_shadowed = render(1);

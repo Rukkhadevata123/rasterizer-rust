@@ -57,27 +57,32 @@ impl Renderer {
         });
     }
 
-    pub fn draw_model<S: Shader>(&mut self, model: &Model, shader: &S) {
+    pub fn draw_model<'a, S>(&mut self, model: &'a Model, shader: &S)
+    where
+        S: Shader<Option<&'a Material>>,
+    {
         for mesh in &model.meshes {
             let material = model.materials.get(mesh.material_id);
             self.draw_mesh(mesh, shader, material);
         }
     }
 
-    pub fn draw_sorted_triangles<S: Shader>(
+    pub fn draw_sorted_triangles<'a, S>(
         &mut self,
-        triangles: Vec<(&Vertex, &Vertex, &Vertex, &Material)>,
+        triangles: Vec<(&Vertex, &Vertex, &Vertex, &'a Material)>,
         shader: &S,
-    ) {
+    ) where
+        S: Shader<Option<&'a Material>>,
+    {
         let width = self.framebuffer.buffer_width;
         let height = self.framebuffer.buffer_height;
-        let prepared: Vec<PreparedTriangle<'_, S::Varying>> = triangles
+        let prepared: Vec<PreparedTriangle<S::Varying, Option<&Material>>> = triangles
             .into_iter()
             .flat_map(|(v0, v1, v2, material)| {
                 let (pos0, var0) = shader.vertex(v0);
                 let (pos1, var1) = shader.vertex(v1);
                 let (pos2, var2) = shader.vertex(v2);
-                self.rasterizer.prepare_triangle::<S>(
+                self.rasterizer.prepare_triangle::<S, _>(
                     width,
                     height,
                     &[pos0, pos1, pos2],
@@ -91,10 +96,13 @@ impl Renderer {
             .rasterize_prepared(&mut self.framebuffer, shader, &prepared);
     }
 
-    pub fn draw_mesh<S: Shader>(&mut self, mesh: &Mesh, shader: &S, material: Option<&Material>) {
+    pub fn draw_mesh<'a, S>(&mut self, mesh: &Mesh, shader: &S, material: Option<&'a Material>)
+    where
+        S: Shader<Option<&'a Material>>,
+    {
         let width = self.framebuffer.buffer_width;
         let height = self.framebuffer.buffer_height;
-        let prepared: Vec<PreparedTriangle<'_, S::Varying>> = mesh
+        let prepared: Vec<PreparedTriangle<S::Varying, Option<&Material>>> = mesh
             .indices
             .par_chunks(3)
             .flat_map_iter(|indices| {
@@ -110,7 +118,7 @@ impl Renderer {
                 let (pos2, var2) = shader.vertex(v2);
 
                 self.rasterizer
-                    .prepare_triangle::<S>(
+                    .prepare_triangle::<S, _>(
                         width,
                         height,
                         &[pos0, pos1, pos2],
