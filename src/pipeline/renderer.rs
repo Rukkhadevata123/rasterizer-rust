@@ -1,7 +1,7 @@
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::geometry::Vertex;
 use crate::core::pipeline::Shader;
-use crate::core::rasterizer::{PreparedTriangle, Rasterizer};
+use crate::core::rasterizer::{PreparedTriangle, Rasterizer, RenderState};
 use crate::scene::material::Material;
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
@@ -57,13 +57,13 @@ impl Renderer {
         });
     }
 
-    pub fn draw_model<'a, S>(&mut self, model: &'a Model, shader: &S)
+    pub fn draw_model<'a, S>(&mut self, model: &'a Model, shader: &S, state: RenderState)
     where
         S: Shader<Option<&'a Material>>,
     {
         for mesh in &model.meshes {
             let material = model.materials.get(mesh.material_id);
-            self.draw_mesh(mesh, shader, material);
+            self.draw_mesh(mesh, shader, material, state);
         }
     }
 
@@ -71,6 +71,7 @@ impl Renderer {
         &mut self,
         triangles: Vec<(&Vertex, &Vertex, &Vertex, &'a Material)>,
         shader: &S,
+        state: RenderState,
     ) where
         S: Shader<Option<&'a Material>>,
     {
@@ -87,17 +88,23 @@ impl Renderer {
                     height,
                     &[pos0, pos1, pos2],
                     &[var0, var1, var2],
+                    state,
                     Some(material),
                 )
             })
             .collect();
 
         self.rasterizer
-            .rasterize_prepared(&mut self.framebuffer, shader, &prepared);
+            .rasterize_prepared(&mut self.framebuffer, shader, &prepared, state);
     }
 
-    pub fn draw_mesh<'a, S>(&mut self, mesh: &Mesh, shader: &S, material: Option<&'a Material>)
-    where
+    pub fn draw_mesh<'a, S>(
+        &mut self,
+        mesh: &Mesh,
+        shader: &S,
+        material: Option<&'a Material>,
+        state: RenderState,
+    ) where
         S: Shader<Option<&'a Material>>,
     {
         let width = self.framebuffer.buffer_width;
@@ -123,6 +130,7 @@ impl Renderer {
                         height,
                         &[pos0, pos1, pos2],
                         &[var0, var1, var2],
+                        state,
                         material,
                     )
                     .into_iter()
@@ -130,6 +138,6 @@ impl Renderer {
             .collect();
 
         self.rasterizer
-            .rasterize_prepared(&mut self.framebuffer, shader, &prepared);
+            .rasterize_prepared(&mut self.framebuffer, shader, &prepared, state);
     }
 }

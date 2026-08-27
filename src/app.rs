@@ -1,5 +1,5 @@
 use crate::core::framebuffer::FrameBuffer;
-use crate::core::rasterizer::CullMode;
+use crate::core::rasterizer::{CullMode, RenderState};
 use crate::error::{ApplicationError, WindowError};
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
@@ -145,11 +145,11 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
     let mut last_right_click = false;
     let mut last_middle_click = false;
     let mut cull_mode_idx = cull_mode_index(config.render.cull_mode);
-    renderer
-        .rasterizer
-        .set_cull_mode(cull_mode_from_index(cull_mode_idx));
-    // Also apply initial wireframe setting
-    renderer.rasterizer.wireframe = config.render.wireframe;
+    let mut render_state = RenderState {
+        cull_mode: cull_mode_from_index(cull_mode_idx),
+        wireframe: config.render.wireframe,
+        ..Default::default()
+    };
 
     let mut buffer = vec![0u32; width * height];
 
@@ -193,11 +193,9 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
                 }
                 config.render = render_settings.render;
 
-                renderer.rasterizer.wireframe = config.render.wireframe;
+                render_state.wireframe = config.render.wireframe;
                 cull_mode_idx = cull_mode_index(config.render.cull_mode);
-                renderer
-                    .rasterizer
-                    .set_cull_mode(cull_mode_from_index(cull_mode_idx));
+                render_state.cull_mode = cull_mode_from_index(cull_mode_idx);
 
                 info!("Hot reload successful!");
             }
@@ -210,21 +208,21 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         if right_click && !last_right_click {
             cull_mode_idx = (cull_mode_idx + 1) % 3;
             let new_mode = cull_mode_from_index(cull_mode_idx);
-            renderer.rasterizer.set_cull_mode(new_mode);
+            render_state.cull_mode = new_mode;
             info!("Cull mode changed to: {:?}", new_mode);
         }
         last_right_click = right_click;
 
         let middle_click = window.get_mouse_down(MouseButton::Middle);
         if middle_click && !last_middle_click {
-            renderer.rasterizer.wireframe = !renderer.rasterizer.wireframe;
-            info!("Wireframe mode: {}", renderer.rasterizer.wireframe);
+            render_state.wireframe = !render_state.wireframe;
+            info!("Wireframe mode: {}", render_state.wireframe);
         }
         last_middle_click = middle_click;
 
         // --- Render ---
         let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
-        render_main_pass(&config, &context, &mut renderer, &shadow)?;
+        render_main_pass(&config, &context, &mut renderer, &shadow, render_state)?;
 
         // --- Display ---
         post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
@@ -280,16 +278,18 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         reason,
     })?;
 
-    let cull_mode = cull_mode_from_index(cull_mode_index(config.render.cull_mode));
-    renderer.rasterizer.set_cull_mode(cull_mode);
-    renderer.rasterizer.wireframe = config.render.wireframe;
+    let render_state = RenderState {
+        cull_mode: cull_mode_from_index(cull_mode_index(config.render.cull_mode)),
+        wireframe: config.render.wireframe,
+        ..Default::default()
+    };
 
     // Render
     let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
     if shadow.depth.is_some() {
         debug!("Shadow pass completed.");
     }
-    render_main_pass(&config, &context, &mut renderer, &shadow)?;
+    render_main_pass(&config, &context, &mut renderer, &shadow, render_state)?;
 
     info!("Render completed in {:.2?}", start_time.elapsed());
 

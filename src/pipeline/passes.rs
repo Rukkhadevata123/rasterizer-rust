@@ -2,7 +2,7 @@ use crate::core::color::{aces_tone_mapping, linear_to_srgb};
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::geometry::Vertex;
 use crate::core::math::transform::TransformFactory;
-use crate::core::rasterizer::BlendMode;
+use crate::core::rasterizer::{BlendMode, RenderState};
 use crate::error::AssetError;
 use crate::io::config::Config;
 use crate::pipeline::renderer::{ClearOptions, Renderer};
@@ -64,6 +64,7 @@ pub fn render_shadow_pass(
         depth: f32::INFINITY,
         ..Default::default()
     });
+    let shadow_state = RenderState::default();
 
     for object in &context.scene_objects {
         let shader = ShadowShader::new(object.transform, light_view, light_projection);
@@ -73,7 +74,7 @@ pub fn render_shadow_pass(
             {
                 continue;
             }
-            shadow_renderer.draw_mesh(mesh, &shader, material);
+            shadow_renderer.draw_mesh(mesh, &shader, material, shadow_state);
         }
     }
 
@@ -90,6 +91,7 @@ pub fn render_main_pass(
     context: &RenderContext,
     renderer: &mut Renderer,
     shadow: &ShadowPassOutput,
+    state: RenderState,
 ) -> Result<(), AssetError> {
     let bg_texture = if let Some(path) = &config.render.background_image {
         let background_path = config.resolve_path(path);
@@ -159,8 +161,11 @@ pub fn render_main_pass(
     }
     let mut transparent_triangles: Vec<TransparentTriangle> = Vec::new();
 
-    // Ensure Opaque Mode (Depth Write ON)
-    renderer.rasterizer.blend_mode = BlendMode::Opaque;
+    let opaque_state = RenderState {
+        blend_mode: BlendMode::Opaque,
+        depth_write: true,
+        ..state
+    };
 
     // Pass 1: Opaque Objects & Collect Transparent
     for obj in &context.scene_objects {
@@ -237,7 +242,7 @@ pub fn render_main_pass(
                 }
             } else {
                 // Opaque: Draw immediately
-                renderer.draw_mesh(mesh, &shader, material);
+                renderer.draw_mesh(mesh, &shader, material, opaque_state);
             }
         }
     }
@@ -251,8 +256,11 @@ pub fn render_main_pass(
 
     // Pass 3: Draw Transparent
     if !transparent_triangles.is_empty() {
-        // Enable Alpha Mode (Depth Write OFF, Blend ON)
-        renderer.rasterizer.blend_mode = BlendMode::Alpha;
+        let transparent_state = RenderState {
+            blend_mode: BlendMode::Alpha,
+            depth_write: false,
+            ..state
+        };
 
         // Use Identity matrix for model because vertices are already in World Space
         let shader = create_pbr_shader(Matrix4::identity());
@@ -262,10 +270,7 @@ pub fn render_main_pass(
             .map(|t| (&t.v0, &t.v1, &t.v2, t.material))
             .collect();
 
-        renderer.draw_sorted_triangles(triangles, &shader);
-
-        // Restore Opaque Mode
-        renderer.rasterizer.blend_mode = BlendMode::Opaque;
+        renderer.draw_sorted_triangles(triangles, &shader, transparent_state);
     }
 
     Ok(())

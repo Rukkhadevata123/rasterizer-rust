@@ -3,7 +3,9 @@ use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
 use rasterizer_rust::core::framebuffer::FrameBuffer;
 use rasterizer_rust::core::geometry::Vertex;
 use rasterizer_rust::core::pipeline::{FragmentOutput, Interpolatable, Shader};
-use rasterizer_rust::core::rasterizer::{CullMode, Rasterizer};
+use rasterizer_rust::core::rasterizer::{
+    BlendMode, CullMode, DepthCompare, Rasterizer, RenderState,
+};
 use rasterizer_rust::pipeline::passes::{post_process_to_buffer, render_shadow_pass};
 use rasterizer_rust::pipeline::renderer::Renderer;
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
@@ -96,16 +98,22 @@ fn assert_vec3_approx(actual: Vector3<f32>, expected: Vector3<f32>) {
     );
 }
 
+fn test_render_state() -> RenderState {
+    RenderState {
+        cull_mode: CullMode::None,
+        ..Default::default()
+    }
+}
+
 #[test]
 fn nearer_triangle_wins_depth_test() {
     let shader = ClipSpaceShader;
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
 
     let far = triangle(0.5, Vector4::new(1.0, 0.0, 0.0, 1.0));
     let near = triangle(-0.5, Vector4::new(0.0, 1.0, 0.0, 1.0));
-    renderer.draw_mesh(&far, &shader, None);
-    renderer.draw_mesh(&near, &shader, None);
+    renderer.draw_mesh(&far, &shader, None, test_render_state());
+    renderer.draw_mesh(&near, &shader, None, test_render_state());
 
     assert_vec3_approx(
         renderer.framebuffer.get_pixel(16, 16).unwrap(),
@@ -114,14 +122,67 @@ fn nearer_triangle_wins_depth_test() {
 }
 
 #[test]
+fn depth_state_is_explicit_per_draw() {
+    let shader = ClipSpaceShader;
+    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let red = triangle(-0.5, Vector4::new(1.0, 0.0, 0.0, 1.0));
+    let blue = triangle(0.5, Vector4::new(0.0, 0.0, 1.0, 1.0));
+
+    renderer.draw_mesh(
+        &red,
+        &shader,
+        None,
+        RenderState {
+            depth_write: false,
+            ..test_render_state()
+        },
+    );
+    assert!(
+        renderer
+            .framebuffer
+            .sample(16, 16)
+            .unwrap()
+            .depth
+            .is_infinite()
+    );
+
+    renderer.draw_mesh(
+        &blue,
+        &shader,
+        None,
+        RenderState {
+            depth_compare: DepthCompare::Greater,
+            ..test_render_state()
+        },
+    );
+    assert_vec3_approx(
+        renderer.framebuffer.get_pixel(16, 16).unwrap(),
+        Vector3::new(1.0, 0.0, 0.0),
+    );
+
+    renderer.draw_mesh(
+        &blue,
+        &shader,
+        None,
+        RenderState {
+            depth_test: false,
+            ..test_render_state()
+        },
+    );
+    assert_vec3_approx(
+        renderer.framebuffer.get_pixel(16, 16).unwrap(),
+        Vector3::new(0.0, 0.0, 1.0),
+    );
+}
+
+#[test]
 fn triangle_crossing_near_plane_is_clipped_and_rendered() {
     let shader = ClipSpaceShader;
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
 
     let mut mesh = triangle(0.0, Vector4::new(1.0, 0.0, 1.0, 1.0));
     mesh.vertices[0].position.z = -2.0;
-    renderer.draw_mesh(&mesh, &shader, None);
+    renderer.draw_mesh(&mesh, &shader, None, test_render_state());
 
     let colored_pixels = (0..32)
         .flat_map(|y| (0..32).map(move |x| (x, y)))
@@ -134,14 +195,13 @@ fn triangle_crossing_near_plane_is_clipped_and_rendered() {
 fn alpha_mask_discards_fragments_below_cutoff() {
     let shader = ClipSpaceShader;
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
     let mesh = triangle(0.0, Vector4::new(1.0, 0.0, 0.0, 0.25));
     let material = Material::Pbr(PbrMaterial {
         alpha_mode: AlphaMode::Mask(0.5),
         ..Default::default()
     });
 
-    renderer.draw_mesh(&mesh, &shader, Some(&material));
+    renderer.draw_mesh(&mesh, &shader, Some(&material), test_render_state());
 
     assert_eq!(
         renderer.framebuffer.get_pixel(16, 16).unwrap(),
@@ -177,7 +237,6 @@ fn framebuffer_resolves_supersampled_pixels() {
 #[test]
 fn headless_pbr_triangle_produces_visible_output() {
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
     let shader = PbrShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -191,7 +250,7 @@ fn headless_pbr_triangle_produces_visible_output() {
         ..Default::default()
     });
 
-    renderer.draw_mesh(&mesh, &shader, Some(&material));
+    renderer.draw_mesh(&mesh, &shader, Some(&material), test_render_state());
 
     let mut config = rasterizer_rust::io::config::Config::default();
     config.render.width = 32;
@@ -206,7 +265,6 @@ fn headless_pbr_triangle_produces_visible_output() {
 #[test]
 fn masked_pbr_fragments_respect_material_alpha() {
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
     let shader = PbrShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -220,7 +278,7 @@ fn masked_pbr_fragments_respect_material_alpha() {
         ..Default::default()
     });
 
-    renderer.draw_mesh(&mesh, &shader, Some(&discarded));
+    renderer.draw_mesh(&mesh, &shader, Some(&discarded), test_render_state());
     assert!(
         renderer
             .framebuffer
@@ -235,7 +293,7 @@ fn masked_pbr_fragments_respect_material_alpha() {
         alpha_mode: AlphaMode::Mask(0.5),
         ..Default::default()
     });
-    renderer.draw_mesh(&mesh, &shader, Some(&visible));
+    renderer.draw_mesh(&mesh, &shader, Some(&visible), test_render_state());
     assert!((renderer.framebuffer.sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
 
@@ -247,8 +305,11 @@ fn cull_mode_can_reject_one_winding() {
     let render = |mode| {
         let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
         renderer.rasterizer = Rasterizer::new();
-        renderer.rasterizer.set_cull_mode(mode);
-        renderer.draw_mesh(&mesh, &shader, None);
+        let state = RenderState {
+            cull_mode: mode,
+            ..Default::default()
+        };
+        renderer.draw_mesh(&mesh, &shader, None, state);
         renderer.framebuffer.get_pixel(16, 16).unwrap()
     };
 
@@ -271,9 +332,8 @@ fn triangle_rasterization_crosses_band_boundaries() {
     }
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
     let mut renderer = Renderer::new(48, 70, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
 
-    renderer.draw_mesh(&mesh, &shader, None);
+    renderer.draw_mesh(&mesh, &shader, None, test_render_state());
 
     for y in [0, 15, 16, 31, 32, 47, 48, 63, 64, 69] {
         assert_vec3_approx(renderer.framebuffer.get_pixel(24, y).unwrap(), color.xyz());
@@ -307,8 +367,7 @@ fn overlapping_triangles_produce_deterministic_depth_and_color() {
 
     for _ in 0..16 {
         let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
-        renderer.rasterizer.set_cull_mode(CullMode::None);
-        renderer.draw_mesh(&mesh, &shader, None);
+        renderer.draw_mesh(&mesh, &shader, None, test_render_state());
 
         let sample = renderer.framebuffer.sample(32, 32).unwrap();
         assert_vec3_approx(sample.color, Vector3::new(0.0, 1.0, 0.0));
@@ -326,8 +385,6 @@ fn transparent_triangles_preserve_input_order_within_each_band() {
         ..Default::default()
     });
     let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
-    renderer.rasterizer.blend_mode = rasterizer_rust::core::rasterizer::BlendMode::Alpha;
     renderer.draw_sorted_triangles(
         vec![
             (
@@ -344,6 +401,11 @@ fn transparent_triangles_preserve_input_order_within_each_band() {
             ),
         ],
         &shader,
+        RenderState {
+            blend_mode: BlendMode::Alpha,
+            depth_write: false,
+            ..test_render_state()
+        },
     );
 
     for y in [8, 24, 40, 56] {
@@ -368,7 +430,6 @@ fn shadow_test_camera() -> Camera {
 #[test]
 fn masked_shadow_fragments_respect_material_alpha() {
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
     let shader = ShadowShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -381,7 +442,7 @@ fn masked_shadow_fragments_respect_material_alpha() {
         ..Default::default()
     });
 
-    renderer.draw_mesh(&mesh, &shader, Some(&discarded));
+    renderer.draw_mesh(&mesh, &shader, Some(&discarded), test_render_state());
     assert!(
         renderer
             .framebuffer
@@ -396,7 +457,7 @@ fn masked_shadow_fragments_respect_material_alpha() {
         alpha_mode: AlphaMode::Mask(0.5),
         ..Default::default()
     });
-    renderer.draw_mesh(&mesh, &shader, Some(&visible));
+    renderer.draw_mesh(&mesh, &shader, Some(&visible), test_render_state());
     assert!((renderer.framebuffer.sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
 
@@ -412,14 +473,18 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
         ..Default::default()
     });
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
     let shader = ShadowShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
         Matrix4::identity(),
     );
 
-    renderer.draw_mesh(&triangle(0.0, Vector4::zeros()), &shader, Some(&material));
+    renderer.draw_mesh(
+        &triangle(0.0, Vector4::zeros()),
+        &shader,
+        Some(&material),
+        test_render_state(),
+    );
 
     assert!(
         renderer
@@ -456,7 +521,6 @@ fn blended_materials_do_not_write_shadow_depth() {
     let mut config = rasterizer_rust::io::config::Config::default();
     config.render.shadow_map_size = 32;
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-    renderer.rasterizer.set_cull_mode(CullMode::None);
 
     let shadow = render_shadow_pass(&config, &context, &mut renderer);
 

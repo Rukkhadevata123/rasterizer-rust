@@ -6,14 +6,11 @@ use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
 use crate::core::pipeline::{FragmentOutput, Interpolatable, Shader};
 use nalgebra::{Point2, Vector4};
 use rayon::prelude::*;
+use std::ops::RangeInclusive;
 
 const RASTER_BAND_HEIGHT: usize = 16;
 
-pub struct Rasterizer {
-    pub cull_mode: CullMode,
-    pub wireframe: bool,
-    pub blend_mode: BlendMode,
-}
+pub struct Rasterizer;
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum CullMode {
@@ -26,6 +23,56 @@ pub enum CullMode {
 pub enum BlendMode {
     Opaque,
     Alpha,
+}
+
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub enum DepthCompare {
+    Never,
+    Less,
+    LessEqual,
+    Equal,
+    NotEqual,
+    GreaterEqual,
+    Greater,
+    Always,
+}
+
+impl DepthCompare {
+    fn test(self, incoming: f32, stored: f32) -> bool {
+        match self {
+            Self::Never => false,
+            Self::Less => incoming < stored,
+            Self::LessEqual => incoming <= stored,
+            Self::Equal => incoming == stored,
+            Self::NotEqual => incoming != stored,
+            Self::GreaterEqual => incoming >= stored,
+            Self::Greater => incoming > stored,
+            Self::Always => true,
+        }
+    }
+}
+
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub struct RenderState {
+    pub cull_mode: CullMode,
+    pub depth_test: bool,
+    pub depth_compare: DepthCompare,
+    pub depth_write: bool,
+    pub blend_mode: BlendMode,
+    pub wireframe: bool,
+}
+
+impl Default for RenderState {
+    fn default() -> Self {
+        Self {
+            cull_mode: CullMode::Back,
+            depth_test: true,
+            depth_compare: DepthCompare::Less,
+            depth_write: true,
+            blend_mode: BlendMode::Opaque,
+            wireframe: false,
+        }
+    }
 }
 
 pub(crate) struct PreparedTriangle<V, C> {
@@ -49,15 +96,7 @@ impl Default for Rasterizer {
 
 impl Rasterizer {
     pub fn new() -> Self {
-        Self {
-            cull_mode: CullMode::Back,
-            wireframe: false,
-            blend_mode: BlendMode::Opaque,
-        }
-    }
-
-    pub fn set_cull_mode(&mut self, mode: CullMode) {
-        self.cull_mode = mode;
+        Self
     }
 
     pub(crate) fn prepare_triangle<S, C>(
@@ -66,6 +105,7 @@ impl Rasterizer {
         framebuffer_height: usize,
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[S::Varying; 3],
+        state: RenderState,
         fragment_context: C,
     ) -> Vec<PreparedTriangle<S::Varying, C>>
     where
@@ -112,6 +152,7 @@ impl Rasterizer {
                     framebuffer_height,
                     &[first.0, second.0, third.0],
                     &[first.1, second.1, third.1],
+                    state,
                     fragment_context,
                 )
             })
@@ -123,6 +164,7 @@ impl Rasterizer {
         framebuffer: &mut FrameBuffer,
         shader: &S,
         triangles: &[PreparedTriangle<S::Varying, C>],
+        state: RenderState,
     ) where
         S: Shader<C>,
         S::Varying: Interpolatable + Copy,
@@ -157,10 +199,10 @@ impl Rasterizer {
                     self.rasterize_triangle_band(
                         samples,
                         width,
-                        band_start_y,
-                        band_end_y,
+                        band_start_y..=band_end_y,
                         shader,
                         &triangles[triangle_index],
+                        state,
                     );
                 }
             });
@@ -239,6 +281,7 @@ impl Rasterizer {
         framebuffer_height: usize,
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[V; 3],
+        state: RenderState,
         fragment_context: C,
     ) -> Option<PreparedTriangle<V, C>>
     where
@@ -273,7 +316,7 @@ impl Rasterizer {
             return None;
         }
 
-        match self.cull_mode {
+        match state.cull_mode {
             CullMode::Back if signed_area >= 0.0 => return None,
             CullMode::Front if signed_area <= 0.0 => return None,
             _ => {}
@@ -340,15 +383,17 @@ impl Rasterizer {
         &self,
         samples: &mut [Sample],
         framebuffer_width: usize,
-        band_start_y: usize,
-        band_end_y: usize,
+        band_rows: RangeInclusive<usize>,
         shader: &S,
         triangle: &PreparedTriangle<S::Varying, C>,
+        state: RenderState,
     ) where
         S: Shader<C>,
         S::Varying: Interpolatable + Copy,
         C: Copy + Send + Sync,
     {
+        let band_start_y = *band_rows.start();
+        let band_end_y = *band_rows.end();
         let start_y = triangle.start_y.max(band_start_y);
         let end_y = triangle.end_y.min(band_end_y);
         if start_y > end_y {
@@ -372,7 +417,7 @@ impl Rasterizer {
                     continue;
                 }
 
-                if self.wireframe
+                if state.wireframe
                     && barycentric.x > 0.02
                     && barycentric.y > 0.02
                     && barycentric.z > 0.02
@@ -389,7 +434,7 @@ impl Rasterizer {
                 }
 
                 let sample = &mut samples[row_offset + x];
-                if depth >= sample.depth {
+                if state.depth_test && !state.depth_compare.test(depth, sample.depth) {
                     continue;
                 }
 
@@ -416,12 +461,17 @@ impl Rasterizer {
                     continue;
                 };
 
-                match self.blend_mode {
+                match state.blend_mode {
                     BlendMode::Opaque => {
-                        sample.depth = depth;
+                        if state.depth_write {
+                            sample.depth = depth;
+                        }
                         sample.color = color.xyz();
                     }
                     BlendMode::Alpha if color.w > 0.001 => {
+                        if state.depth_write {
+                            sample.depth = depth;
+                        }
                         sample.color = color.xyz() * color.w + sample.color * (1.0 - color.w);
                     }
                     BlendMode::Alpha => {}

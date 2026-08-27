@@ -216,15 +216,17 @@ Exit condition: `src/core/` no longer imports scene material types.
 
 ### 5B: Explicit RenderState
 
-Introduce per-draw state for:
+Status: completed
 
-- cull mode;
-- depth test and comparison;
-- depth write;
-- blend mode;
-- wireframe/debug mode.
+Introduced per-draw state for:
 
-Remove pass behavior that depends on mutating global rasterizer fields between opaque and transparent draws.
+- [x] cull mode;
+- [x] depth test and comparison;
+- [x] depth write;
+- [x] blend mode;
+- [x] wireframe/debug mode.
+
+- [x] Remove pass behavior that depends on mutating global rasterizer fields between opaque and transparent draws.
 
 ### 5C: RenderCommand and RenderQueue
 
@@ -492,4 +494,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 5B. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 5C. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
