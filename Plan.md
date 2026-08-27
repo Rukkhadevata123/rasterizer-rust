@@ -200,7 +200,7 @@ Exit criteria:
 
 ## Phase 5: Rendering State and Submission Architecture
 
-Status: in progress
+Status: completed
 
 This phase must precede `doubleSided`, complete sampler semantics, and major performance work.
 
@@ -256,8 +256,10 @@ Status: completed
 
 ### 5F: Centralized Object Transforms
 
-- Add one transform-construction function used by initial load and hot reload.
-- Document translation, Euler rotation order, handedness, and scale behavior.
+Status: completed
+
+- [x] Add one transform-construction function used by initial load and hot reload.
+- [x] Document translation, Euler rotation order, handedness, and scale behavior.
 
 Suggested commits:
 
@@ -500,4 +502,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 5F. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 6A. Do not begin MikkTSpace work or the tile renderer in the same change set.

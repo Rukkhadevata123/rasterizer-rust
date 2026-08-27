@@ -1,6 +1,6 @@
 use crate::core::math::transform::TransformFactory;
 use crate::error::AssetError;
-use crate::io::config::{Config, LightKind, ModelNormalization, ProjectionMode};
+use crate::io::config::{Config, LightKind, ModelNormalization, ObjectConfig, ProjectionMode};
 use crate::io::gltf_loader::load_gltf;
 use crate::scene::camera::Camera;
 use crate::scene::context::{RenderContext, ShadowLight};
@@ -57,6 +57,18 @@ pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Option<ShadowLi
     (lights, shadow_light)
 }
 
+/// Builds a right-handed object transform from config degrees.
+///
+/// With column vectors, `T * Rx * Ry * Rz * S` applies non-uniform scale first,
+/// then Z, Y, and X Euler rotations, and translation last.
+fn object_transform(config: &ObjectConfig) -> nalgebra::Matrix4<f32> {
+    TransformFactory::translation(&Vector3::from(config.position))
+        * TransformFactory::rotation_x(config.rotation[0].to_radians())
+        * TransformFactory::rotation_y(config.rotation[1].to_radians())
+        * TransformFactory::rotation_z(config.rotation[2].to_radians())
+        * TransformFactory::scaling_nonuniform(&Vector3::from(config.scale))
+}
+
 /// Applies fields that do not require reloading models or rebuilding geometry.
 pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) {
     for scene_object in scene_objects {
@@ -76,14 +88,7 @@ pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) 
                 let Some(object_config) = config.objects.get(config_index) else {
                     continue;
                 };
-                let translation =
-                    TransformFactory::translation(&Vector3::from(object_config.position));
-                let rotation = TransformFactory::rotation_x(object_config.rotation[0].to_radians())
-                    * TransformFactory::rotation_y(object_config.rotation[1].to_radians())
-                    * TransformFactory::rotation_z(object_config.rotation[2].to_radians());
-                let scale =
-                    TransformFactory::scaling_nonuniform(&Vector3::from(object_config.scale));
-                scene_object.transform = translation * rotation * scale;
+                scene_object.transform = object_transform(object_config);
             }
         }
     }
@@ -165,19 +170,12 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
             model.materials.push(Material::default());
         }
 
-        // Apply Transform
-        let translation = TransformFactory::translation(&Vector3::from(obj_conf.position));
-        let rotation = TransformFactory::rotation_x(obj_conf.rotation[0].to_radians())
-            * TransformFactory::rotation_y(obj_conf.rotation[1].to_radians())
-            * TransformFactory::rotation_z(obj_conf.rotation[2].to_radians());
-        let scale = TransformFactory::scaling_nonuniform(&Vector3::from(obj_conf.scale));
-
         scene_objects.push(SceneObject::new(
             SceneObjectKind::Model {
                 config_index: object_index,
             },
             model,
-            translation * rotation * scale,
+            object_transform(obj_conf),
         ));
     }
 
@@ -206,7 +204,7 @@ fn apply_model_normalization(model: &mut Model, normalization: ModelNormalizatio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::config::{LightConfig, ObjectConfig};
+    use crate::io::config::LightConfig;
 
     fn point_light() -> LightConfig {
         LightConfig {
@@ -277,6 +275,21 @@ mod tests {
 
         assert_eq!(lights.len(), 1);
         assert!(shadow_light.is_none());
+    }
+
+    #[test]
+    fn object_transform_applies_scale_zyx_rotation_then_translation() {
+        let config = ObjectConfig {
+            path: "unused.gltf".to_string(),
+            position: [1.0, 2.0, 3.0],
+            rotation: [90.0, 90.0, 90.0],
+            scale: [2.0, 3.0, 4.0],
+            normalization: ModelNormalization::Preserve,
+        };
+
+        let transformed = object_transform(&config).transform_point(&Point3::new(1.0, 0.0, 0.0));
+
+        assert!((transformed - Point3::new(1.0, 2.0, 5.0)).norm() < 1e-5);
     }
 
     #[test]

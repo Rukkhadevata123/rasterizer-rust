@@ -91,9 +91,11 @@ intensity = 5.0
 [[objects]]
 path = "assets/glbs/old_rusty_car.glb"
 normalization = "normalize" # "preserve", "center", or "normalize" (default)
+# Right-handed transform convention: scale in local axes, then rotate Z, Y, X,
+# then translate in world space. Rotation entries are [x, y, z] degrees.
 position = [0.0, -0.4, 0.0]
-rotation = [0.0, -45.0, 0.0] # Angles in degrees (XYZ)
-scale = [2.0, 2.0, 2.0]
+rotation = [0.0, -45.0, 0.0]
+scale = [2.0, 2.0, 2.0] # Non-uniform local-axis scale
 
 # Example of adding a second object:
 # [[objects]]
