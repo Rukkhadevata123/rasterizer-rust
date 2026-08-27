@@ -39,7 +39,7 @@ Baseline after Phase 2: 35 tests, no `unsafe` in `src/` or `tests/`, and determi
 
 ## Phase 3: Configuration, Validation, and Error Foundations
 
-Status: in progress; 3A and 3B completed
+Status: in progress; 3A, 3B, and 3C completed
 
 This phase precedes the glTF rewrite because import, image, CLI, and GUI errors should share one stable model.
 
@@ -67,10 +67,12 @@ Status: completed
 
 ### 3C: Validation and Checked Dimensions
 
-- Add `Config::validate()` covering dimensions, supersampling, shadow-map size, camera planes, FOV, exposure, PCF radius, transforms, and finite numeric values.
-- Reject zero or overflowing framebuffer dimensions before allocation.
-- Reject zero-length or invalid camera/light vectors before normalization.
-- Introduce checked renderer/framebuffer construction or a validated dimensions type so library callers cannot bypass critical size checks.
+Status: completed
+
+- [x] Add `Config::validate()` covering dimensions, supersampling, shadow-map size, camera planes, FOV, exposure, PCF radius, transforms, and finite numeric values.
+- [x] Reject zero or overflowing framebuffer dimensions before allocation.
+- [x] Reject zero-length or invalid camera/light vectors before normalization.
+- [x] Introduce checked renderer/framebuffer construction or a validated dimensions type so library callers cannot bypass critical size checks.
 
 ### 3D: Structured Errors and Exit Behavior
 
@@ -90,7 +92,7 @@ Suggested commits:
 
 1. `declare rust support and add ci` (completed)
 2. `define typed scene configuration` (completed)
-3. `validate render configuration`
+3. `validate render configuration` (completed)
 4. `propagate application errors`
 5. `resolve assets relative to config`
 
@@ -470,7 +472,7 @@ Repository state when this roadmap was revised:
 - branch: `main`;
 - completed commits include `c32a12f` for band ownership and `2bc0630` for remaining Phase 2 safety;
 - working tree should be clean before starting implementation;
-- 39 tests are present after Phase 3B;
+- 44 tests are present after Phase 3C;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 3C. Do not begin the glTF importer rewrite, RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 3D. Do not begin the glTF importer rewrite, RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

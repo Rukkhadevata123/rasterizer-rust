@@ -1,3 +1,4 @@
+use crate::core::framebuffer::FrameBuffer;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -200,8 +201,185 @@ impl Config {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let content = fs::read_to_string(path)
             .map_err(|error| format!("Failed to read config file: {error}"))?;
-        toml::from_str(&content).map_err(|error| format!("Failed to parse TOML: {error}"))
+        let config: Self =
+            toml::from_str(&content).map_err(|error| format!("Failed to parse TOML: {error}"))?;
+        config.validate()?;
+        Ok(config)
     }
+
+    pub fn validate(&self) -> Result<(), String> {
+        FrameBuffer::validate_dimensions(
+            self.render.width,
+            self.render.height,
+            self.render.supersample_scale,
+        )?;
+        FrameBuffer::validate_dimensions(
+            self.render.shadow_map_size,
+            self.render.shadow_map_size,
+            1,
+        )
+        .map_err(|error| format!("invalid shadow map dimensions: {error}"))?;
+
+        validate_finite("render.exposure", self.render.exposure)?;
+        if self.render.exposure < 0.0 {
+            return Err("render.exposure must be non-negative".to_string());
+        }
+        validate_finite_array("render.ambient_light", self.render.ambient_light)?;
+        validate_optional_finite_array("render.background_color", self.render.background_color)?;
+        validate_optional_finite_array(
+            "render.background_gradient_top",
+            self.render.background_gradient_top,
+        )?;
+        validate_optional_finite_array(
+            "render.background_gradient_bottom",
+            self.render.background_gradient_bottom,
+        )?;
+        validate_positive("render.shadow_ortho_size", self.render.shadow_ortho_size)?;
+        validate_finite("render.shadow_bias", self.render.shadow_bias)?;
+        if self.render.shadow_bias < 0.0 {
+            return Err("render.shadow_bias must be non-negative".to_string());
+        }
+        if self.render.pcf_kernel_size < 0 {
+            return Err("render.pcf_kernel_size must be non-negative".to_string());
+        }
+
+        validate_finite_array("camera.position", self.camera.position)?;
+        validate_finite_array("camera.target", self.camera.target)?;
+        validate_nonzero_vector(
+            "camera viewing direction",
+            vector_between(self.camera.position, self.camera.target),
+        )?;
+        validate_nonzero_vector("camera.up", self.camera.up)?;
+        let viewing_direction = vector_between(self.camera.position, self.camera.target);
+        if squared_length(cross(viewing_direction, self.camera.up)) <= f32::EPSILON {
+            return Err("camera.up must not be parallel to the viewing direction".to_string());
+        }
+        validate_finite("camera.fov", self.camera.fov)?;
+        if !(0.0..180.0).contains(&self.camera.fov) {
+            return Err("camera.fov must be greater than 0 and less than 180 degrees".to_string());
+        }
+        validate_positive("camera.ortho_height", self.camera.ortho_height)?;
+        validate_positive("camera.near", self.camera.near)?;
+        validate_finite("camera.far", self.camera.far)?;
+        if self.camera.far <= self.camera.near {
+            return Err("camera.far must be greater than camera.near".to_string());
+        }
+        validate_non_negative("camera.speed", self.camera.speed)?;
+        validate_non_negative("camera.sensitivity", self.camera.sensitivity)?;
+        validate_non_negative("camera.zoom_speed", self.camera.zoom_speed)?;
+
+        validate_positive("ground.size", self.ground.size)?;
+        validate_optional_finite_array("ground.albedo", self.ground.albedo)?;
+        validate_optional_finite("ground.metallic", self.ground.metallic)?;
+        validate_optional_finite("ground.roughness", self.ground.roughness)?;
+
+        for (index, light) in self.lights.iter().enumerate() {
+            let prefix = format!("lights[{index}]");
+            validate_optional_finite_array(&format!("{prefix}.position"), light.position)?;
+            validate_optional_finite_array(&format!("{prefix}.direction"), light.direction)?;
+            validate_finite_array(&format!("{prefix}.color"), light.color)?;
+            validate_non_negative(&format!("{prefix}.intensity"), light.intensity)?;
+            if let Some(attenuation) = light.attenuation {
+                validate_finite_array(&format!("{prefix}.attenuation"), attenuation)?;
+            }
+
+            match light.kind {
+                LightKind::Directional => {
+                    let direction = light.direction.ok_or_else(|| {
+                        format!("{prefix}.direction is required for a directional light")
+                    })?;
+                    validate_nonzero_vector(&format!("{prefix}.direction"), direction)?;
+                }
+                LightKind::Point => {
+                    let position = light.position.ok_or_else(|| {
+                        format!("{prefix}.position is required for a point light")
+                    })?;
+                    validate_finite_array(&format!("{prefix}.position"), position)?;
+                }
+            }
+        }
+
+        for (index, object) in self.objects.iter().enumerate() {
+            validate_finite_array(&format!("objects[{index}].position"), object.position)?;
+            validate_finite_array(&format!("objects[{index}].rotation"), object.rotation)?;
+            validate_finite_array(&format!("objects[{index}].scale"), object.scale)?;
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_finite(name: &str, value: f32) -> Result<(), String> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(format!("{name} must be finite"))
+    }
+}
+
+fn validate_positive(name: &str, value: f32) -> Result<(), String> {
+    validate_finite(name, value)?;
+    if value > 0.0 {
+        Ok(())
+    } else {
+        Err(format!("{name} must be greater than zero"))
+    }
+}
+
+fn validate_non_negative(name: &str, value: f32) -> Result<(), String> {
+    validate_finite(name, value)?;
+    if value >= 0.0 {
+        Ok(())
+    } else {
+        Err(format!("{name} must be non-negative"))
+    }
+}
+
+fn validate_optional_finite(name: &str, value: Option<f32>) -> Result<(), String> {
+    if let Some(value) = value {
+        validate_finite(name, value)?;
+    }
+    Ok(())
+}
+
+fn validate_finite_array(name: &str, values: [f32; 3]) -> Result<(), String> {
+    if values.into_iter().all(f32::is_finite) {
+        Ok(())
+    } else {
+        Err(format!("{name} must contain only finite values"))
+    }
+}
+
+fn validate_optional_finite_array(name: &str, values: Option<[f32; 3]>) -> Result<(), String> {
+    if let Some(values) = values {
+        validate_finite_array(name, values)?;
+    }
+    Ok(())
+}
+
+fn validate_nonzero_vector(name: &str, value: [f32; 3]) -> Result<(), String> {
+    validate_finite_array(name, value)?;
+    if squared_length(value) > f32::EPSILON {
+        Ok(())
+    } else {
+        Err(format!("{name} must have non-zero length"))
+    }
+}
+
+fn vector_between(from: [f32; 3], to: [f32; 3]) -> [f32; 3] {
+    [to[0] - from[0], to[1] - from[1], to[2] - from[2]]
+}
+
+fn squared_length(value: [f32; 3]) -> f32 {
+    value[0] * value[0] + value[1] * value[1] + value[2] * value[2]
+}
+
+fn cross(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
+    [
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    ]
 }
 
 #[cfg(test)]
@@ -320,6 +498,70 @@ mod tests {
         assert!(toml::from_str::<Config>("[camera]\nunknown = 1").is_err());
         assert!(
             toml::from_str::<Config>("[[objects]]\npath = \"fixture.glb\"\nunknown = 1").is_err()
+        );
+    }
+
+    #[test]
+    fn validates_default_configuration() {
+        Config::default()
+            .validate()
+            .expect("defaults should be valid");
+    }
+
+    #[test]
+    fn rejects_invalid_dimensions_before_allocation() {
+        let mut config = Config::default();
+        config.render.width = 0;
+        assert!(config.validate().unwrap_err().contains("dimensions"));
+
+        config.render.width = usize::MAX;
+        config.render.supersample_scale = 2;
+        assert!(config.validate().unwrap_err().contains("overflows"));
+
+        config.render.width = usize::MAX / 2 + 1;
+        config.render.height = 2;
+        config.render.supersample_scale = 1;
+        assert!(config.validate().unwrap_err().contains("sample count"));
+    }
+
+    #[test]
+    fn rejects_invalid_camera_geometry() {
+        let mut config = Config::default();
+        config.camera.target = config.camera.position;
+        assert!(config.validate().unwrap_err().contains("viewing direction"));
+
+        config.camera.target = [0.0, 0.0, 0.0];
+        config.camera.up = [0.0, 0.0, 0.0];
+        assert!(config.validate().unwrap_err().contains("camera.up"));
+
+        config.camera.up = [0.0, 1.0, 0.0];
+        config.camera.near = 10.0;
+        config.camera.far = 1.0;
+        assert!(config.validate().unwrap_err().contains("camera.far"));
+    }
+
+    #[test]
+    fn rejects_non_finite_transforms_and_invalid_light_vectors() {
+        let mut config = Config::default();
+        config.objects[0].scale[1] = f32::NAN;
+        assert!(config.validate().unwrap_err().contains("objects[0].scale"));
+
+        config.objects[0].scale = [1.0, 1.0, 1.0];
+        config.lights[0].direction = Some([0.0, 0.0, 0.0]);
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .contains("lights[0].direction")
+        );
+
+        config.lights[0].direction = Some([0.0, -1.0, 0.0]);
+        config.lights[0].position = Some([f32::INFINITY, 0.0, 0.0]);
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .contains("lights[0].position")
         );
     }
 }

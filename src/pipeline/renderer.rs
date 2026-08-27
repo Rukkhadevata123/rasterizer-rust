@@ -33,11 +33,11 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
-        Self {
+    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Result<Self, String> {
+        Ok(Self {
             rasterizer: Rasterizer::new(),
-            framebuffer: FrameBuffer::new(width, height, supersample_scale),
-        }
+            framebuffer: FrameBuffer::new(width, height, supersample_scale)?,
+        })
     }
 
     pub fn clear_with_options(&mut self, options: ClearOptions) {

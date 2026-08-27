@@ -23,19 +23,54 @@ pub struct FrameBuffer {
 }
 
 impl FrameBuffer {
-    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
-        let buffer_width = width * supersample_scale;
-        let buffer_height = height * supersample_scale;
-        let size = buffer_width * buffer_height;
+    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Result<Self, String> {
+        let (buffer_width, buffer_height, size) =
+            Self::checked_dimensions(width, height, supersample_scale)?;
 
-        Self {
+        Ok(Self {
             width,
             height,
             supersample_scale,
             buffer_width,
             buffer_height,
             samples: vec![Sample::cleared(Vector3::zeros(), f32::INFINITY); size],
+        })
+    }
+
+    pub fn validate_dimensions(
+        width: usize,
+        height: usize,
+        supersample_scale: usize,
+    ) -> Result<(), String> {
+        Self::checked_dimensions(width, height, supersample_scale).map(|_| ())
+    }
+
+    fn checked_dimensions(
+        width: usize,
+        height: usize,
+        supersample_scale: usize,
+    ) -> Result<(usize, usize, usize), String> {
+        if width == 0 || height == 0 {
+            return Err("render dimensions must be greater than zero".to_string());
         }
+        if supersample_scale == 0 {
+            return Err("supersample_scale must be greater than zero".to_string());
+        }
+
+        let buffer_width = width
+            .checked_mul(supersample_scale)
+            .ok_or_else(|| "supersampled framebuffer width overflows usize".to_string())?;
+        let buffer_height = height
+            .checked_mul(supersample_scale)
+            .ok_or_else(|| "supersampled framebuffer height overflows usize".to_string())?;
+        let sample_count = buffer_width
+            .checked_mul(buffer_height)
+            .ok_or_else(|| "framebuffer sample count overflows usize".to_string())?;
+        sample_count
+            .checked_mul(std::mem::size_of::<Sample>())
+            .ok_or_else(|| "framebuffer allocation size overflows usize".to_string())?;
+
+        Ok((buffer_width, buffer_height, sample_count))
     }
 
     #[inline(always)]
@@ -97,5 +132,19 @@ impl FrameBuffer {
 
         let sample_total = (self.supersample_scale * self.supersample_scale) as f32;
         Some(sum_color / sample_total)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constructor_rejects_invalid_dimensions() {
+        assert!(FrameBuffer::new(0, 1, 1).is_err());
+        assert!(FrameBuffer::new(1, 1, 0).is_err());
+        assert!(FrameBuffer::new(usize::MAX, 1, 2).is_err());
+        assert!(FrameBuffer::new(usize::MAX / 2 + 1, 2, 1).is_err());
+        assert!(FrameBuffer::new(usize::MAX / std::mem::size_of::<Sample>() + 1, 1, 1).is_err());
     }
 }

@@ -1,3 +1,4 @@
+use crate::core::framebuffer::FrameBuffer;
 use crate::core::rasterizer::CullMode;
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
@@ -38,33 +39,26 @@ fn apply_hot_reload_render_settings(
     renderer: &mut Renderer,
     shadow_renderer: &mut Renderer,
 ) -> HotReloadRenderSettings {
-    let supersample_scale_rejected = render.supersample_scale == 0
-        || window_width
-            .checked_mul(render.supersample_scale)
-            .and_then(|width| {
-                window_height
-                    .checked_mul(render.supersample_scale)
-                    .map(|height| (width, height))
-            })
-            .and_then(|(width, height)| width.checked_mul(height))
-            .is_none();
+    let supersample_scale_rejected =
+        FrameBuffer::validate_dimensions(window_width, window_height, render.supersample_scale)
+            .is_err();
     if supersample_scale_rejected {
         render.supersample_scale = renderer.framebuffer.supersample_scale;
     } else if renderer.framebuffer.supersample_scale != render.supersample_scale {
-        *renderer = Renderer::new(window_width, window_height, render.supersample_scale);
+        *renderer = Renderer::new(window_width, window_height, render.supersample_scale)
+            .expect("hot-reloaded framebuffer dimensions were checked");
     }
 
-    let shadow_map_size_rejected = render.shadow_map_size == 0
-        || render
-            .shadow_map_size
-            .checked_mul(render.shadow_map_size)
-            .is_none();
+    let shadow_map_size_rejected =
+        FrameBuffer::validate_dimensions(render.shadow_map_size, render.shadow_map_size, 1)
+            .is_err();
     if shadow_map_size_rejected {
         render.shadow_map_size = shadow_renderer.framebuffer.width;
     } else if shadow_renderer.framebuffer.width != render.shadow_map_size
         || shadow_renderer.framebuffer.height != render.shadow_map_size
     {
-        *shadow_renderer = Renderer::new(render.shadow_map_size, render.shadow_map_size, 1);
+        *shadow_renderer = Renderer::new(render.shadow_map_size, render.shadow_map_size, 1)
+            .expect("hot-reloaded shadow-map dimensions were checked");
     }
 
     let resize_requested = render.width != window_width || render.height != window_height;
@@ -80,6 +74,9 @@ fn apply_hot_reload_render_settings(
 }
 /// Runs the application in GUI mode with real-time rendering and interactivity.
 pub fn run_gui(mut config: Config, config_path: &str) {
+    config
+        .validate()
+        .expect("configuration must be valid before running the GUI");
     let width = config.render.width;
     let height = config.render.height;
 
@@ -109,12 +106,14 @@ pub fn run_gui(mut config: Config, config_path: &str) {
     let mut context = init_scene_resources(&config);
 
     // Renderers
-    let mut renderer = Renderer::new(width, height, config.render.supersample_scale);
+    let mut renderer = Renderer::new(width, height, config.render.supersample_scale)
+        .expect("configuration must be validated before running the GUI");
     let mut shadow_renderer = Renderer::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
         1,
-    );
+    )
+    .expect("configuration must be validated before running the GUI");
 
     // Camera Controller
     let mut cam_controller = CameraController::new(
@@ -236,6 +235,9 @@ pub fn run_gui(mut config: Config, config_path: &str) {
 
 /// Runs the application in CLI mode (headless) for a single high-quality render.
 pub fn run_cli(config: Config) {
+    config
+        .validate()
+        .expect("configuration must be valid before running the CLI");
     info!("Starting CLI mode...");
     let context = init_scene_resources(&config);
     let start_time = Instant::now();
@@ -244,12 +246,14 @@ pub fn run_cli(config: Config) {
         config.render.width,
         config.render.height,
         config.render.supersample_scale,
-    );
+    )
+    .expect("configuration must be validated before running the CLI");
     let mut shadow_renderer = Renderer::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
         1,
-    );
+    )
+    .expect("configuration must be validated before running the CLI");
 
     let cull_mode = cull_mode_from_index(cull_mode_index(config.render.cull_mode));
     renderer.rasterizer.set_cull_mode(cull_mode);
@@ -282,8 +286,9 @@ mod tests {
 
     #[test]
     fn hot_reload_rebuilds_sample_and_shadow_buffers() {
-        let mut renderer = Renderer::new(80, 45, 1);
-        let mut shadow_renderer = Renderer::new(64, 64, 1);
+        let mut renderer = Renderer::new(80, 45, 1).expect("test dimensions should be valid");
+        let mut shadow_renderer =
+            Renderer::new(64, 64, 1).expect("test dimensions should be valid");
         let render = RenderConfig {
             width: 160,
             height: 90,
@@ -308,8 +313,9 @@ mod tests {
 
     #[test]
     fn hot_reload_keeps_window_size_when_no_resize_is_requested() {
-        let mut renderer = Renderer::new(80, 45, 1);
-        let mut shadow_renderer = Renderer::new(64, 64, 1);
+        let mut renderer = Renderer::new(80, 45, 1).expect("test dimensions should be valid");
+        let mut shadow_renderer =
+            Renderer::new(64, 64, 1).expect("test dimensions should be valid");
         let render = RenderConfig {
             width: 80,
             height: 45,
@@ -330,8 +336,9 @@ mod tests {
     }
     #[test]
     fn hot_reload_rejects_zero_sized_render_resources() {
-        let mut renderer = Renderer::new(80, 45, 2);
-        let mut shadow_renderer = Renderer::new(64, 64, 1);
+        let mut renderer = Renderer::new(80, 45, 2).expect("test dimensions should be valid");
+        let mut shadow_renderer =
+            Renderer::new(64, 64, 1).expect("test dimensions should be valid");
         let render = RenderConfig {
             width: 80,
             height: 45,
