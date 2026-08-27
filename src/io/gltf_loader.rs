@@ -575,6 +575,7 @@ fn convert_material(
         ao: 1.0, // Base factor, usually 1.0 in GLTF if texture exists
         emissive,
         alpha_mode,
+        double_sided: mat.double_sided(),
         albedo_texture,
         metallic_roughness_texture,
         normal_texture,

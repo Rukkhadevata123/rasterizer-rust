@@ -239,9 +239,11 @@ Status: completed
 
 ### 5D: Per-Material Culling and Double-Sided Foundations
 
-- Import and store `doubleSided`.
-- Disable culling per command for double-sided materials.
-- Expose front-facing state to fragment shading so back-face normal/tangent handling can follow glTF semantics.
+Status: completed
+
+- [x] Import and store `doubleSided`.
+- [x] Disable culling per command for double-sided materials.
+- [x] Expose front-facing state to fragment shading so back-face normal/tangent handling can follow glTF semantics.
 
 ### 5E: Stable Scene Identity and Hot Reload
 
@@ -496,4 +498,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 5D. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 5E. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

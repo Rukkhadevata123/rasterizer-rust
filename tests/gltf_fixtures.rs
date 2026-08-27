@@ -80,6 +80,8 @@ fn phase_4c_nested_nodes_with_plane_and_shadow_names_are_loaded() {
 
     assert_eq!(model.meshes.len(), 1);
     assert_eq!(model.meshes[0].vertices[0].position.x, 1.5);
+    let rasterizer_rust::scene::material::Material::Pbr(material) = &model.materials[0];
+    assert!(material.double_sided);
 }
 
 #[test]

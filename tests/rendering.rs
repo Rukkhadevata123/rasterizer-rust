@@ -2,11 +2,13 @@ use image::{DynamicImage, Rgba, RgbaImage};
 use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
 use rasterizer_rust::core::framebuffer::FrameBuffer;
 use rasterizer_rust::core::geometry::Vertex;
-use rasterizer_rust::core::pipeline::{FragmentOutput, Interpolatable, Shader};
+use rasterizer_rust::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use rasterizer_rust::core::rasterizer::{
     BlendMode, CullMode, DepthCompare, Rasterizer, RenderState,
 };
-use rasterizer_rust::pipeline::passes::{post_process_to_buffer, render_shadow_pass};
+use rasterizer_rust::pipeline::passes::{
+    ShadowPassOutput, post_process_to_buffer, render_main_pass, render_shadow_pass,
+};
 use rasterizer_rust::pipeline::renderer::{RenderGeometry, RenderQueue, Renderer};
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
 use rasterizer_rust::pipeline::shaders::shadow::ShadowShader;
@@ -64,10 +66,10 @@ impl<'a> Shader<Option<&'a Material>> for ClipSpaceShader {
 
     fn fragment(
         &self,
-        varying: Self::Varying,
+        input: FragmentInput<Self::Varying>,
         material: Option<&'a Material>,
-        _uv_density: f32,
     ) -> FragmentOutput {
+        let varying = input.varying;
         let alpha_mode = material.map(|material| match material {
             Material::Pbr(material) => material.alpha_mode,
         });
@@ -76,6 +78,34 @@ impl<'a> Shader<Option<&'a Material>> for ClipSpaceShader {
         } else {
             FragmentOutput::Color(varying.color)
         }
+    }
+}
+
+struct FacingShader;
+
+impl<'a> Shader<Option<&'a Material>> for FacingShader {
+    type Varying = ColorVarying;
+
+    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+        (
+            Vector4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0),
+            ColorVarying {
+                color: vertex.tangent,
+            },
+        )
+    }
+
+    fn fragment(
+        &self,
+        input: FragmentInput<Self::Varying>,
+        _material: Option<&'a Material>,
+    ) -> FragmentOutput {
+        let color = if input.front_facing {
+            Vector4::new(0.0, 1.0, 0.0, 1.0)
+        } else {
+            Vector4::new(1.0, 0.0, 0.0, 1.0)
+        };
+        FragmentOutput::Color(color)
     }
 }
 
@@ -358,6 +388,65 @@ fn cull_mode_can_reject_one_winding() {
     let front = render(CullMode::Front);
     assert_ne!(back.norm_squared() > 0.0, front.norm_squared() > 0.0);
 }
+
+#[test]
+fn fragment_input_reports_triangle_facing() {
+    let shader = FacingShader;
+    let front_mesh = triangle(0.0, Vector4::zeros());
+    let mut back_mesh = triangle(0.0, Vector4::zeros());
+    back_mesh.indices = vec![0, 2, 1];
+    let render = |mesh: &Mesh| {
+        let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+        draw_mesh(&mut renderer, mesh, &shader, None, test_render_state());
+        renderer.framebuffer.get_pixel(16, 16).unwrap()
+    };
+
+    assert_vec3_approx(render(&front_mesh), Vector3::new(0.0, 1.0, 0.0));
+    assert_vec3_approx(render(&back_mesh), Vector3::new(1.0, 0.0, 0.0));
+}
+
+#[test]
+fn double_sided_material_disables_culling_per_command() {
+    let render = |double_sided| {
+        let mut mesh = triangle(0.0, Vector4::zeros());
+        mesh.indices = vec![0, 2, 1];
+        let material = Material::Pbr(PbrMaterial {
+            emissive: Vector3::new(1.0, 0.0, 0.0),
+            double_sided,
+            ..Default::default()
+        });
+        let context = RenderContext {
+            camera: shadow_test_camera(),
+            lights: Vec::new(),
+            scene_objects: vec![SceneObject::new(
+                Model::new(vec![mesh], vec![material]),
+                Matrix4::identity(),
+            )],
+            shadow_light: None,
+        };
+        let config = rasterizer_rust::io::config::Config::default();
+        let shadow = ShadowPassOutput {
+            depth: None,
+            size: 0,
+            light_space_matrix: Matrix4::identity(),
+            light_index: None,
+        };
+        let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+
+        render_main_pass(
+            &config,
+            &context,
+            &mut renderer,
+            &shadow,
+            RenderState::default(),
+        )
+        .expect("test scene should render");
+        renderer.framebuffer.sample(16, 16).unwrap().depth
+    };
+
+    assert!(render(false).is_infinite());
+    assert!(render(true).is_finite());
+}
 #[test]
 fn triangle_rasterization_crosses_band_boundaries() {
     let shader = ClipSpaceShader;
@@ -614,6 +703,44 @@ fn blended_materials_do_not_write_shadow_depth() {
 }
 
 #[test]
+fn double_sided_material_disables_shadow_culling_per_command() {
+    let render = |double_sided| {
+        let mut mesh = triangle(0.0, Vector4::zeros());
+        mesh.indices = vec![0, 2, 1];
+        let material = Material::Pbr(PbrMaterial {
+            double_sided,
+            ..Default::default()
+        });
+        let context = RenderContext {
+            camera: shadow_test_camera(),
+            lights: vec![Light::new_directional(
+                Vector3::new(0.0, 0.0, -1.0),
+                Vector3::new(1.0, 1.0, 1.0),
+                1.0,
+            )],
+            scene_objects: vec![SceneObject::new(
+                Model::new(vec![mesh], vec![material]),
+                Matrix4::identity(),
+            )],
+            shadow_light: Some(ShadowLight {
+                light_index: 0,
+                position: Point3::new(0.0, 0.0, 2.0),
+            }),
+        };
+        let mut config = rasterizer_rust::io::config::Config::default();
+        config.render.shadow_map_size = 32;
+        let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+
+        render_shadow_pass(&config, &context, &mut renderer)
+            .depth
+            .unwrap()
+    };
+
+    assert!(render(false).iter().all(|depth| depth.is_infinite()));
+    assert!(render(true).iter().any(|depth| depth.is_finite()));
+}
+
+#[test]
 fn point_only_scene_disables_shadow_pass() {
     let context = RenderContext {
         camera: shadow_test_camera(),
@@ -673,7 +800,14 @@ fn pbr_shadow_uses_recorded_light_index() {
         shader.light_space_matrix = Matrix4::identity();
         shader.shadow_bias = 0.0;
         shader.use_pcf = false;
-        match shader.fragment(varying, Some(&material), 0.0) {
+        match shader.fragment(
+            FragmentInput {
+                varying,
+                front_facing: true,
+                uv_density: 0.0,
+            },
+            Some(&material),
+        ) {
             FragmentOutput::Color(color) => color.xyz(),
             FragmentOutput::Discard => panic!("opaque PBR fragment should produce color"),
         }
@@ -686,6 +820,48 @@ fn pbr_shadow_uses_recorded_light_index() {
     let first_light_shadowed = render(0);
     assert_eq!(first_light_shadowed.x, 0.0);
     assert!(first_light_shadowed.y > 0.0);
+}
+
+#[test]
+fn pbr_back_faces_flip_the_geometric_normal() {
+    let varying = PbrVarying {
+        world_pos: Point3::origin(),
+        normal: Vector3::z(),
+        uv: Vector2::zeros(),
+        tangent: Vector4::new(1.0, 0.0, 0.0, 1.0),
+    };
+    let material = Material::Pbr(PbrMaterial {
+        albedo: Vector3::new(1.0, 1.0, 1.0),
+        roughness: 0.5,
+        double_sided: true,
+        ..Default::default()
+    });
+    let mut shader = PbrShader::new(
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Point3::new(0.0, 0.0, -2.0),
+    );
+    shader.lights = vec![Light::new_directional(
+        Vector3::z(),
+        Vector3::new(1.0, 1.0, 1.0),
+        1.0,
+    )];
+    shader.ambient_light = Vector3::zeros();
+    let shade = |front_facing| match shader.fragment(
+        FragmentInput {
+            varying,
+            front_facing,
+            uv_density: 0.0,
+        },
+        Some(&material),
+    ) {
+        FragmentOutput::Color(color) => color.xyz(),
+        FragmentOutput::Discard => panic!("opaque PBR fragment should produce color"),
+    };
+
+    assert_eq!(shade(true), Vector3::zeros());
+    assert!(shade(false).norm_squared() > 0.0);
 }
 
 #[test]

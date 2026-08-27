@@ -32,6 +32,13 @@ pub enum FragmentOutput {
     Color(Vector4<f32>),
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct FragmentInput<V> {
+    pub varying: V,
+    pub front_facing: bool,
+    pub uv_density: f32,
+}
+
 pub trait Shader<C>: Send + Sync
 where
     C: Copy + Send + Sync,
@@ -62,11 +69,10 @@ where
     /// Shaders may use this value to choose appropriate LOD when sampling textures.
     ///
     /// # Arguments
-    /// - `varying`: interpolated per-fragment data.
+    /// - `input`: interpolated varying and non-interpolated fragment metadata.
     /// - `context`: caller-defined state associated with the prepared triangle.
-    /// - `uv_density`: triangle-level UV density estimator (>= 0.0). 0.0 means "no special LOD".
     ///
     /// # Returns
     /// - `FragmentOutput`: explicit discard or final RGBA color (linear space).
-    fn fragment(&self, varying: Self::Varying, context: C, uv_density: f32) -> FragmentOutput;
+    fn fragment(&self, input: FragmentInput<Self::Varying>, context: C) -> FragmentOutput;
 }

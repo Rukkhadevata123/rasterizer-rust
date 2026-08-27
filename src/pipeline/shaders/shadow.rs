@@ -1,5 +1,5 @@
 use crate::core::geometry::Vertex;
-use crate::core::pipeline::{FragmentOutput, Interpolatable, Shader};
+use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use crate::scene::material::{AlphaMode, Material};
 use nalgebra::{Matrix4, Vector2, Vector4};
 use std::ops::{Add, Mul};
@@ -61,10 +61,10 @@ impl<'a> Shader<Option<&'a Material>> for ShadowShader {
 
     fn fragment(
         &self,
-        varying: Self::Varying,
+        input: FragmentInput<Self::Varying>,
         material: Option<&'a Material>,
-        uv_density: f32,
     ) -> FragmentOutput {
+        let varying = input.varying;
         let pbr_material = material.map(|material| match material {
             Material::Pbr(material) => material,
         });
@@ -73,7 +73,7 @@ impl<'a> Shader<Option<&'a Material>> for ShadowShader {
             .and_then(|material| material.albedo_texture.as_ref())
             .map(|texture| {
                 texture
-                    .sample_color_with_density(varying.uv.x, varying.uv.y, uv_density)
+                    .sample_color_with_density(varying.uv.x, varying.uv.y, input.uv_density)
                     .w
             })
             .unwrap_or(1.0);

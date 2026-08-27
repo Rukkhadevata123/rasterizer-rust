@@ -3,7 +3,7 @@ use crate::core::math::interpolation::{
     barycentric_coordinates, is_inside_triangle, perspective_correct_barycentric,
 };
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
-use crate::core::pipeline::{FragmentOutput, Interpolatable, Shader};
+use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use nalgebra::{Point2, Vector4};
 use rayon::prelude::*;
 use std::ops::RangeInclusive;
@@ -83,6 +83,7 @@ pub(crate) struct PreparedTriangle<'a, V, S, C> {
     shader: &'a S,
     state: RenderState,
     fragment_context: C,
+    front_facing: bool,
     uv_density: f32,
     start_x: usize,
     end_x: usize,
@@ -372,6 +373,7 @@ impl Rasterizer {
             shader,
             state,
             fragment_context,
+            front_facing: signed_area < 0.0,
             uv_density,
             start_x: min_x.max(0) as usize,
             end_x: max_x.min(framebuffer_width as i32 - 1) as usize,
@@ -456,11 +458,14 @@ impl Rasterizer {
                         + triangle.varyings[2] * barycentric.z
                 });
 
-                let FragmentOutput::Color(color) = triangle.shader.fragment(
+                let input = FragmentInput {
                     varying,
-                    triangle.fragment_context,
-                    triangle.uv_density,
-                ) else {
+                    front_facing: triangle.front_facing,
+                    uv_density: triangle.uv_density,
+                };
+                let FragmentOutput::Color(color) =
+                    triangle.shader.fragment(input, triangle.fragment_context)
+                else {
                     continue;
                 };
 

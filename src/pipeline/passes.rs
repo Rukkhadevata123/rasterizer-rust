@@ -2,7 +2,7 @@ use crate::core::color::{aces_tone_mapping, linear_to_srgb};
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::geometry::Vertex;
 use crate::core::math::transform::TransformFactory;
-use crate::core::rasterizer::{BlendMode, RenderState};
+use crate::core::rasterizer::{BlendMode, CullMode, RenderState};
 use crate::error::AssetError;
 use crate::io::config::Config;
 use crate::pipeline::renderer::{ClearOptions, RenderGeometry, RenderQueue, Renderer};
@@ -75,15 +75,25 @@ pub fn render_shadow_pass(
     for (shader_index, object) in context.scene_objects.iter().enumerate() {
         for mesh in &object.model.meshes {
             let material = object.model.materials.get(mesh.material_id);
-            if matches!(material, Some(Material::Pbr(material)) if material.alpha_mode == AlphaMode::Blend)
-            {
+            let pbr_material = material.map(|material| match material {
+                Material::Pbr(material) => material,
+            });
+            if matches!(pbr_material, Some(material) if material.alpha_mode == AlphaMode::Blend) {
                 continue;
             }
+            let command_state = RenderState {
+                cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
+                    CullMode::None
+                } else {
+                    shadow_state.cull_mode
+                },
+                ..shadow_state
+            };
             shadow_queue.push(
                 shader_index,
                 RenderGeometry::Mesh(mesh),
                 material,
-                shadow_state,
+                command_state,
                 0.0,
             );
         }
@@ -192,11 +202,18 @@ pub fn render_main_pass(
                 None
             };
 
-            let alpha_mode = material
-                .map(|m| match m {
-                    Material::Pbr(p) => p.alpha_mode,
-                })
-                .unwrap_or(AlphaMode::Opaque);
+            let pbr_material = material.map(|material| match material {
+                Material::Pbr(material) => material,
+            });
+            let alpha_mode = pbr_material.map_or(AlphaMode::Opaque, |material| material.alpha_mode);
+            let command_state = |state: RenderState| RenderState {
+                cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
+                    CullMode::None
+                } else {
+                    state.cull_mode
+                },
+                ..state
+            };
 
             if alpha_mode == AlphaMode::Blend {
                 let model_matrix = obj.transform;
@@ -248,7 +265,7 @@ pub fn render_main_pass(
                             transparent_shader_index,
                             RenderGeometry::Triangle([v0_world, v1_world, v2_world]),
                             Some(mat),
-                            transparent_state,
+                            command_state(transparent_state),
                             centroid_view.z,
                         );
                     }
@@ -258,7 +275,7 @@ pub fn render_main_pass(
                     shader_index,
                     RenderGeometry::Mesh(mesh),
                     material,
-                    opaque_state,
+                    command_state(opaque_state),
                     0.0,
                 );
             } else {
@@ -266,7 +283,7 @@ pub fn render_main_pass(
                     shader_index,
                     RenderGeometry::Mesh(mesh),
                     material,
-                    opaque_state,
+                    command_state(opaque_state),
                     0.0,
                 );
             }

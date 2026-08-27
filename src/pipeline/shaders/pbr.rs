@@ -1,5 +1,5 @@
 use crate::core::geometry::Vertex;
-use crate::core::pipeline::{FragmentOutput, Interpolatable, Shader};
+use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use crate::scene::light::Light;
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use nalgebra::{Matrix3, Matrix4, Point3, Vector2, Vector3, Vector4};
@@ -258,10 +258,10 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
 
     fn fragment(
         &self,
-        varying: Self::Varying,
+        input: FragmentInput<Self::Varying>,
         material: Option<&'a Material>,
-        uv_density: f32,
     ) -> FragmentOutput {
+        let varying = input.varying;
         // 1. Retrieve Material Properties
         let mat = if let Some(Material::Pbr(m)) = material {
             m
@@ -270,7 +270,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         };
 
         let (albedo, alpha) = if let Some(tex) = &mat.albedo_texture {
-            let s = tex.sample_color_with_density(varying.uv.x, varying.uv.y, uv_density);
+            let s = tex.sample_color_with_density(varying.uv.x, varying.uv.y, input.uv_density);
             (s.xyz(), s.w * mat.alpha)
         } else {
             (mat.albedo, mat.alpha)
@@ -283,7 +283,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         // Metallic/Roughness uses sample_data (no Gamma correction)
         // Standard glTF packing: Green = Roughness, Blue = Metallic
         let (roughness, metallic) = if let Some(tex) = &mat.metallic_roughness_texture {
-            let sample = tex.sample_data_with_density(varying.uv.x, varying.uv.y, uv_density);
+            let sample = tex.sample_data_with_density(varying.uv.x, varying.uv.y, input.uv_density);
             (sample.y * mat.roughness, sample.z * mat.metallic)
         } else {
             (mat.roughness, mat.metallic)
@@ -292,7 +292,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         // Sample AO
         // GLTF Occlusion: Usually R channel.
         let ao = if let Some(tex) = &mat.ao_texture {
-            tex.sample_data_with_density(varying.uv.x, varying.uv.y, uv_density)
+            tex.sample_data_with_density(varying.uv.x, varying.uv.y, input.uv_density)
                 .x
                 * mat.ao
         } else {
@@ -302,7 +302,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         // Sample Emissive
         // Emissive Map should be sRGB -> Linear
         let emissive_color = if let Some(tex) = &mat.emissive_texture {
-            tex.sample_color_with_density(varying.uv.x, varying.uv.y, uv_density)
+            tex.sample_color_with_density(varying.uv.x, varying.uv.y, input.uv_density)
                 .xyz()
                 .component_mul(&mat.emissive)
         } else {
@@ -310,7 +310,11 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         };
 
         // 2. Calculate Normal (Normal Mapping)
-        let geom_normal = varying.normal.normalize();
+        let geom_normal = if input.front_facing {
+            varying.normal.normalize()
+        } else {
+            -varying.normal.normalize()
+        };
 
         // Use normal map if available, otherwise fallback to geometry normal
         let n = if let Some(normal_map) = &mat.normal_texture {

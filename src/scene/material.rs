@@ -43,6 +43,8 @@ pub struct PbrMaterial {
     pub emissive: Vector3<f32>,
     /// Alpha Mode
     pub alpha_mode: AlphaMode,
+    /// Render both sides of each primitive.
+    pub double_sided: bool,
 
     // Textures (Optional)
     pub albedo_texture: Option<Arc<Texture>>,
@@ -64,6 +66,7 @@ impl Default for PbrMaterial {
             ao: 1.0,
             emissive: Vector3::zeros(),
             alpha_mode: AlphaMode::Opaque,
+            double_sided: false,
             albedo_texture: None,
             metallic_roughness_texture: None,
             normal_texture: None,
