@@ -63,6 +63,17 @@ fn nested_named_nodes_fixture_preserves_hierarchy_and_names() {
 }
 
 #[test]
+fn phase_4c_nested_nodes_with_plane_and_shadow_names_are_loaded() {
+    let model = match load_gltf(fixture_path("nested-named-nodes.gltf"), false) {
+        Ok(model) => model,
+        Err(error) => panic!("legitimately named nested nodes should load: {error}"),
+    };
+
+    assert_eq!(model.meshes.len(), 1);
+    assert_eq!(model.meshes[0].vertices[0].position.x, 1.5);
+}
+
+#[test]
 fn triangle_modes_fixture_covers_indexed_and_non_indexed_topologies() {
     let gltf = gltf::Gltf::open(fixture_path("triangle-modes.gltf"))
         .expect("triangle modes fixture should be valid glTF");
@@ -80,6 +91,20 @@ fn triangle_modes_fixture_covers_indexed_and_non_indexed_topologies() {
     assert!(primitives[1].indices().is_some());
     assert_eq!(primitives[2].mode(), gltf::mesh::Mode::TriangleStrip);
     assert_eq!(primitives[3].mode(), gltf::mesh::Mode::TriangleFan);
+}
+
+#[test]
+fn phase_4c_supported_triangle_modes_are_converted_to_triangle_lists() {
+    let model = match load_gltf(fixture_path("triangle-modes.gltf"), false) {
+        Ok(model) => model,
+        Err(error) => panic!("supported triangle modes should load: {error}"),
+    };
+
+    assert_eq!(model.meshes.len(), 4);
+    assert_eq!(model.meshes[0].indices, [0, 1, 2]);
+    assert_eq!(model.meshes[1].indices, [0, 1, 2]);
+    assert_eq!(model.meshes[2].indices, [0, 1, 2, 2, 1, 3]);
+    assert_eq!(model.meshes[3].indices, [0, 1, 2, 0, 2, 3]);
 }
 
 #[test]
@@ -129,6 +154,33 @@ fn unsupported_feature_fixtures_reach_importer_validation() {
     let image_error = gltf::import(fixture_path("unsupported-image-format.gltf"))
         .expect_err("unsupported image fixture should fail during image import");
     assert!(image_error.to_string().contains("image"));
+}
+
+#[test]
+fn phase_4c_unsupported_primitive_mode_returns_primitive_context() {
+    for (name, mode) in [
+        ("unsupported-points.gltf", "Points"),
+        ("unsupported-lines.gltf", "Lines"),
+    ] {
+        let path = fixture_path(name);
+        let error = match load_gltf(&path, false) {
+            Ok(_) => panic!("{mode} primitives should be rejected"),
+            Err(error) => error,
+        };
+
+        match error {
+            GltfError::Primitive { context } => {
+                assert_eq!(context.path, path);
+                assert_eq!(context.scene_index, 0);
+                assert_eq!(context.node_index, 0);
+                assert_eq!(context.mesh_index, 0);
+                assert_eq!(context.primitive_index, 0);
+                assert!(context.reason.contains(mode));
+                assert!(context.reason.contains("unsupported"));
+            }
+            error => panic!("expected contextual primitive error, got {error}"),
+        }
+    }
 }
 
 #[test]

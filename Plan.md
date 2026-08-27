@@ -140,11 +140,13 @@ Status: completed
 
 ### 4C: Scene Traversal and Primitive Topology
 
-- Remove implicit filtering of node names containing `plane` or `shadow`.
-- Always recurse into child nodes, even if a current mesh is intentionally excluded by future explicit configuration.
-- Support `Triangles` directly.
-- Convert `TriangleStrip` and `TriangleFan` to triangle lists with correct winding.
-- Reject point and line modes with an explicit unsupported-feature error.
+Status: completed
+
+- [x] Remove implicit filtering of node names containing `plane` or `shadow`.
+- [x] Always recurse into child nodes, even if a current mesh is intentionally excluded by future explicit configuration.
+- [x] Support `Triangles` directly.
+- [x] Convert `TriangleStrip` and `TriangleFan` to triangle lists with correct winding.
+- [x] Reject point and line modes with an explicit unsupported-feature error.
 
 ### 4D: Image and Texture Index Mapping
 
@@ -483,4 +485,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 4C. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 4D. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

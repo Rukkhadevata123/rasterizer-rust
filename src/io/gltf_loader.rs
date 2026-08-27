@@ -137,16 +137,6 @@ impl SceneImporter<'_> {
 
         // 2. Process Mesh
         if let Some(mesh) = node.mesh() {
-            // --- Skip Shadow/Cheat Planes ---
-            // If the node name indicates it's a shadow plane, we simply skip processing its mesh.
-            if let Some(name) = node.name() {
-                let name_lower = name.to_lowercase();
-                if name_lower.contains("plane") || name_lower.contains("shadow") {
-                    info!("Skipping shadow plane node: {}", name);
-                    return Ok(()); // Do not process this mesh
-                }
-            }
-
             for primitive in mesh.primitives() {
                 let primitive_index = primitive.index();
                 let _mat = primitive.material();
@@ -209,6 +199,18 @@ impl SceneImporter<'_> {
                         ));
                     }
                 }
+
+                let indices =
+                    triangle_list_indices(primitive.mode(), &indices).map_err(|reason| {
+                        primitive_error(
+                            self.path,
+                            self.scene_index,
+                            node,
+                            mesh.index(),
+                            primitive_index,
+                            reason,
+                        )
+                    })?;
 
                 // --- Bake Vertices ---
                 let mut vertices = Vec::with_capacity(positions.len());
@@ -308,6 +310,41 @@ fn primitive_error(
             primitive_index,
             reason: reason.into(),
         }),
+    }
+}
+
+fn triangle_list_indices(mode: gltf::mesh::Mode, indices: &[u32]) -> Result<Vec<u32>, String> {
+    match mode {
+        gltf::mesh::Mode::Triangles => {
+            if indices.len() % 3 != 0 {
+                return Err(format!(
+                    "Triangles primitive has {} indices, expected a multiple of 3",
+                    indices.len()
+                ));
+            }
+            Ok(indices.to_vec())
+        }
+        gltf::mesh::Mode::TriangleStrip => {
+            let mut triangles = Vec::with_capacity(indices.len().saturating_sub(2) * 3);
+            for (triangle_index, window) in indices.windows(3).enumerate() {
+                if triangle_index % 2 == 0 {
+                    triangles.extend_from_slice(&[window[0], window[1], window[2]]);
+                } else {
+                    triangles.extend_from_slice(&[window[1], window[0], window[2]]);
+                }
+            }
+            Ok(triangles)
+        }
+        gltf::mesh::Mode::TriangleFan => {
+            let mut triangles = Vec::with_capacity(indices.len().saturating_sub(2) * 3);
+            if let Some(&center) = indices.first() {
+                for edge in indices[1..].windows(2) {
+                    triangles.extend_from_slice(&[center, edge[0], edge[1]]);
+                }
+            }
+            Ok(triangles)
+        }
+        unsupported => Err(format!("unsupported primitive mode {unsupported:?}")),
     }
 }
 
