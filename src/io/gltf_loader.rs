@@ -46,10 +46,10 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
 
     // 2. Load Textures into memory
     // gltf::import gives us raw image structs. We convert them to our engine's Texture type.
-    let mut loaded_textures = Vec::new();
+    let mut image_textures = Vec::new();
     for (image_index, image_data) in images.into_iter().enumerate() {
         let tex = process_gltf_image(path, image_index, image_data, use_mipmap)?;
-        loaded_textures.push(Arc::new(tex));
+        image_textures.push(Arc::new(tex));
     }
 
     // 3. Prepare Accumulators
@@ -73,7 +73,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
         path,
         scene_index: scene.index(),
         buffers: &buffers,
-        textures: &loaded_textures,
+        image_textures: &image_textures,
         meshes: &mut final_meshes,
         materials: &mut final_materials,
         material_cache: &mut material_cache,
@@ -105,7 +105,7 @@ struct SceneImporter<'a> {
     path: &'a Path,
     scene_index: usize,
     buffers: &'a [gltf::buffer::Data],
-    textures: &'a [Arc<Texture>],
+    image_textures: &'a [Arc<Texture>],
     meshes: &'a mut Vec<Mesh>,
     materials: &'a mut Vec<Material>,
     material_cache: &'a mut HashMap<usize, usize>,
@@ -263,7 +263,7 @@ impl SceneImporter<'_> {
                         local_idx
                     } else {
                         // Create new material
-                        let new_mat = convert_material(self.path, &prim_mat, self.textures)?;
+                        let new_mat = convert_material(self.path, &prim_mat, self.image_textures)?;
                         let local_idx = self.materials.len();
                         self.materials.push(new_mat);
                         self.material_cache.insert(gltf_idx, local_idx);
@@ -272,7 +272,7 @@ impl SceneImporter<'_> {
                 } else {
                     // Default material handling
                     // We don't cache "None" materials essentially, or make a default "Geometry" material
-                    let new_mat = convert_material(self.path, &prim_mat, self.textures)?;
+                    let new_mat = convert_material(self.path, &prim_mat, self.image_textures)?;
                     let local_idx = self.materials.len();
                     self.materials.push(new_mat);
                     local_idx
@@ -352,7 +352,7 @@ fn triangle_list_indices(mode: gltf::mesh::Mode, indices: &[u32]) -> Result<Vec<
 fn convert_material(
     path: &Path,
     mat: &gltf::Material,
-    textures: &[Arc<Texture>],
+    image_textures: &[Arc<Texture>],
 ) -> Result<Material, GltfError> {
     let pbr = mat.pbr_metallic_roughness();
 
@@ -367,21 +367,21 @@ fn convert_material(
 
     // Texture Helper
     let get_tex = |info: Option<gltf::texture::Info>| -> Result<Option<Arc<Texture>>, GltfError> {
-        info.map(|info| resolve_texture(path, mat.index(), info.texture(), textures))
+        info.map(|info| resolve_texture(path, mat.index(), info.texture(), image_textures))
             .transpose()
     };
 
     // Valid for normal texture specific struct
     let get_normal_tex =
         |info: Option<gltf::material::NormalTexture>| -> Result<Option<Arc<Texture>>, GltfError> {
-            info.map(|info| resolve_texture(path, mat.index(), info.texture(), textures))
+            info.map(|info| resolve_texture(path, mat.index(), info.texture(), image_textures))
                 .transpose()
         };
 
     // Valid for occlusion
     let get_occlusion_tex =
         |info: Option<gltf::material::OcclusionTexture>| -> Result<Option<Arc<Texture>>, GltfError> {
-            info.map(|info| resolve_texture(path, mat.index(), info.texture(), textures))
+            info.map(|info| resolve_texture(path, mat.index(), info.texture(), image_textures))
                 .transpose()
         };
 
@@ -420,11 +420,11 @@ fn resolve_texture(
     path: &Path,
     material_index: Option<usize>,
     texture: gltf::Texture,
-    textures: &[Arc<Texture>],
+    image_textures: &[Arc<Texture>],
 ) -> Result<Arc<Texture>, GltfError> {
     let texture_index = texture.index();
     let source_image_index = texture.source().index();
-    textures
+    image_textures
         .get(source_image_index)
         .cloned()
         .ok_or_else(|| GltfError::Texture {

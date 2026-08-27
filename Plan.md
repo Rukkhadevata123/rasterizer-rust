@@ -150,9 +150,11 @@ Status: completed
 
 ### 4D: Image and Texture Index Mapping
 
-- Resolve texture references through `texture.source().index()` rather than indexing the image array with `texture.index()`.
-- Preserve sharing when several texture objects reference one source image.
-- Do not hide the mapping bug by duplicating image data.
+Status: completed
+
+- [x] Resolve texture references through `texture.source().index()` rather than indexing the image array with `texture.index()`.
+- [x] Preserve sharing when several texture objects reference one source image.
+- [x] Do not hide the mapping bug by duplicating image data.
 
 ### 4E: Attribute and Index Validation
 
@@ -485,4 +487,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 4D. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 4E. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

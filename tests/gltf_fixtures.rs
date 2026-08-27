@@ -31,7 +31,7 @@ fn shared_image_fixture_keeps_texture_and_source_indices_distinct() {
 }
 
 #[test]
-fn shared_image_fixture_loads_texture_by_source_image_index() {
+fn phase_4d_texture_bindings_share_source_image_resource() {
     let model = match load_gltf(fixture_path("shared-image-textures.gltf"), false) {
         Ok(model) => model,
         Err(error) => panic!("shared image fixture should load: {error}"),
@@ -42,7 +42,16 @@ fn shared_image_fixture_loads_texture_by_source_image_index() {
         .expect("fixture should produce a material");
     let rasterizer_rust::scene::material::Material::Pbr(material) = material;
 
-    assert!(material.albedo_texture.is_some());
+    let albedo = material
+        .albedo_texture
+        .as_ref()
+        .expect("texture 1 should resolve its source image");
+    let emissive = material
+        .emissive_texture
+        .as_ref()
+        .expect("texture 0 should resolve its source image");
+
+    assert!(std::sync::Arc::ptr_eq(albedo, emissive));
 }
 
 #[test]

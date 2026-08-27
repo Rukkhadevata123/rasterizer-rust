@@ -10,6 +10,7 @@
     }]
   }],
   "materials": [{
+    "emissiveTexture": { "index": 0 },
     "pbrMetallicRoughness": {
       "baseColorTexture": { "index": 1 }
     }
