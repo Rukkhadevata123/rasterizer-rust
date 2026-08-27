@@ -5,7 +5,7 @@ use crate::core::math::transform::TransformFactory;
 use crate::core::rasterizer::{BlendMode, RenderState};
 use crate::error::AssetError;
 use crate::io::config::Config;
-use crate::pipeline::renderer::{ClearOptions, Renderer};
+use crate::pipeline::renderer::{ClearOptions, RenderGeometry, RenderQueue, Renderer};
 use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
 use crate::scene::context::RenderContext;
@@ -65,18 +65,30 @@ pub fn render_shadow_pass(
         ..Default::default()
     });
     let shadow_state = RenderState::default();
+    let shaders: Vec<ShadowShader> = context
+        .scene_objects
+        .iter()
+        .map(|object| ShadowShader::new(object.transform, light_view, light_projection))
+        .collect();
+    let mut shadow_queue = RenderQueue::default();
 
-    for object in &context.scene_objects {
-        let shader = ShadowShader::new(object.transform, light_view, light_projection);
+    for (shader_index, object) in context.scene_objects.iter().enumerate() {
         for mesh in &object.model.meshes {
             let material = object.model.materials.get(mesh.material_id);
             if matches!(material, Some(Material::Pbr(material)) if material.alpha_mode == AlphaMode::Blend)
             {
                 continue;
             }
-            shadow_renderer.draw_mesh(mesh, &shader, material, shadow_state);
+            shadow_queue.push(
+                shader_index,
+                RenderGeometry::Mesh(mesh),
+                material,
+                shadow_state,
+                0.0,
+            );
         }
     }
+    shadow_renderer.draw_queue(&shadow_queue, &shaders);
 
     ShadowPassOutput {
         depth: Some(Arc::new(shadow_renderer.framebuffer.depth_values())),
@@ -151,26 +163,28 @@ pub fn render_main_pass(
         shader
     };
 
-    // Structure for transparent sorting
-    struct TransparentTriangle<'a> {
-        v0: Vertex,
-        v1: Vertex,
-        v2: Vertex,
-        material: &'a Material,
-        z_view: f32,
-    }
-    let mut transparent_triangles: Vec<TransparentTriangle> = Vec::new();
-
     let opaque_state = RenderState {
         blend_mode: BlendMode::Opaque,
         depth_write: true,
         ..state
     };
+    let transparent_state = RenderState {
+        blend_mode: BlendMode::Alpha,
+        depth_write: false,
+        ..state
+    };
+    let mut shaders: Vec<PbrShader> = context
+        .scene_objects
+        .iter()
+        .map(|object| create_pbr_shader(object.transform))
+        .collect();
+    let transparent_shader_index = shaders.len();
+    shaders.push(create_pbr_shader(Matrix4::identity()));
+    let mut opaque_queue = RenderQueue::default();
+    let mut masked_queue = RenderQueue::default();
+    let mut transparent_queue = RenderQueue::default();
 
-    // Pass 1: Opaque Objects & Collect Transparent
-    for obj in &context.scene_objects {
-        let shader = create_pbr_shader(obj.transform);
-
+    for (shader_index, obj) in context.scene_objects.iter().enumerate() {
         for mesh in &obj.model.meshes {
             let material = if mesh.material_id < obj.model.materials.len() {
                 Some(&obj.model.materials[mesh.material_id])
@@ -185,7 +199,6 @@ pub fn render_main_pass(
                 .unwrap_or(AlphaMode::Opaque);
 
             if alpha_mode == AlphaMode::Blend {
-                // Collect for sorting
                 let model_matrix = obj.transform;
                 let view_matrix = context.camera.view_matrix();
 
@@ -231,47 +244,38 @@ pub fn render_main_pass(
                         let centroid_view =
                             view_matrix * Point3::from(centroid_world).to_homogeneous();
 
-                        transparent_triangles.push(TransparentTriangle {
-                            v0: v0_world,
-                            v1: v1_world,
-                            v2: v2_world,
-                            material: mat,
-                            z_view: centroid_view.z,
-                        });
+                        transparent_queue.push(
+                            transparent_shader_index,
+                            RenderGeometry::Triangle([v0_world, v1_world, v2_world]),
+                            Some(mat),
+                            transparent_state,
+                            centroid_view.z,
+                        );
                     }
                 }
+            } else if matches!(alpha_mode, AlphaMode::Mask(_)) {
+                masked_queue.push(
+                    shader_index,
+                    RenderGeometry::Mesh(mesh),
+                    material,
+                    opaque_state,
+                    0.0,
+                );
             } else {
-                // Opaque: Draw immediately
-                renderer.draw_mesh(mesh, &shader, material, opaque_state);
+                opaque_queue.push(
+                    shader_index,
+                    RenderGeometry::Mesh(mesh),
+                    material,
+                    opaque_state,
+                    0.0,
+                );
             }
         }
     }
 
-    // Pass 2: Sort Transparent Triangles (Back to Front)
-    transparent_triangles.par_sort_unstable_by(|a, b| {
-        a.z_view
-            .partial_cmp(&b.z_view)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // Pass 3: Draw Transparent
-    if !transparent_triangles.is_empty() {
-        let transparent_state = RenderState {
-            blend_mode: BlendMode::Alpha,
-            depth_write: false,
-            ..state
-        };
-
-        // Use Identity matrix for model because vertices are already in World Space
-        let shader = create_pbr_shader(Matrix4::identity());
-
-        let triangles: Vec<(&Vertex, &Vertex, &Vertex, &Material)> = transparent_triangles
-            .iter()
-            .map(|t| (&t.v0, &t.v1, &t.v2, t.material))
-            .collect();
-
-        renderer.draw_sorted_triangles(triangles, &shader, transparent_state);
-    }
+    renderer.draw_queues(&[&opaque_queue, &masked_queue], &shaders);
+    transparent_queue.sort_transparent();
+    renderer.draw_queue(&transparent_queue, &shaders);
 
     Ok(())
 }

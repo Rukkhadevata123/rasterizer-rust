@@ -4,10 +4,63 @@ use crate::core::pipeline::Shader;
 use crate::core::rasterizer::{PreparedTriangle, Rasterizer, RenderState};
 use crate::scene::material::Material;
 use crate::scene::mesh::Mesh;
-use crate::scene::model::Model;
 use crate::scene::texture::Texture;
 use nalgebra::Vector3;
 use rayon::prelude::*;
+
+pub enum RenderGeometry<'a> {
+    Mesh(&'a Mesh),
+    Triangle([Vertex; 3]),
+}
+
+pub struct RenderCommand<'a> {
+    pub insertion_id: u64,
+    pub shader_index: usize,
+    pub geometry: RenderGeometry<'a>,
+    pub material: Option<&'a Material>,
+    pub state: RenderState,
+    pub sort_depth: f32,
+}
+
+#[derive(Default)]
+pub struct RenderQueue<'a> {
+    commands: Vec<RenderCommand<'a>>,
+    next_insertion_id: u64,
+}
+
+impl<'a> RenderQueue<'a> {
+    pub fn push(
+        &mut self,
+        shader_index: usize,
+        geometry: RenderGeometry<'a>,
+        material: Option<&'a Material>,
+        state: RenderState,
+        sort_depth: f32,
+    ) {
+        let insertion_id = self.next_insertion_id;
+        self.next_insertion_id += 1;
+        self.commands.push(RenderCommand {
+            insertion_id,
+            shader_index,
+            geometry,
+            material,
+            state,
+            sort_depth,
+        });
+    }
+
+    pub fn sort_transparent(&mut self) {
+        self.commands.sort_by(|a, b| {
+            a.sort_depth
+                .total_cmp(&b.sort_depth)
+                .then_with(|| a.insertion_id.cmp(&b.insertion_id))
+        });
+    }
+
+    pub fn commands(&self) -> &[RenderCommand<'a>] {
+        &self.commands
+    }
+}
 
 pub struct ClearOptions<'a> {
     pub color: Vector3<f32>,
@@ -57,87 +110,85 @@ impl Renderer {
         });
     }
 
-    pub fn draw_model<'a, S>(&mut self, model: &'a Model, shader: &S, state: RenderState)
+    pub fn draw_queue<'a, S>(&mut self, queue: &RenderQueue<'a>, shaders: &'a [S])
     where
         S: Shader<Option<&'a Material>>,
     {
-        for mesh in &model.meshes {
-            let material = model.materials.get(mesh.material_id);
-            self.draw_mesh(mesh, shader, material, state);
-        }
+        self.draw_queues(&[queue], shaders);
     }
 
-    pub fn draw_sorted_triangles<'a, S>(
-        &mut self,
-        triangles: Vec<(&Vertex, &Vertex, &Vertex, &'a Material)>,
-        shader: &S,
-        state: RenderState,
-    ) where
+    pub fn draw_queues<'a, S>(&mut self, queues: &[&RenderQueue<'a>], shaders: &'a [S])
+    where
         S: Shader<Option<&'a Material>>,
     {
         let width = self.framebuffer.buffer_width;
         let height = self.framebuffer.buffer_height;
-        let prepared: Vec<PreparedTriangle<S::Varying, Option<&Material>>> = triangles
-            .into_iter()
-            .flat_map(|(v0, v1, v2, material)| {
-                let (pos0, var0) = shader.vertex(v0);
-                let (pos1, var1) = shader.vertex(v1);
-                let (pos2, var2) = shader.vertex(v2);
-                self.rasterizer.prepare_triangle::<S, _>(
-                    width,
-                    height,
-                    &[pos0, pos1, pos2],
-                    &[var0, var1, var2],
-                    state,
-                    Some(material),
-                )
-            })
-            .collect();
-
-        self.rasterizer
-            .rasterize_prepared(&mut self.framebuffer, shader, &prepared, state);
-    }
-
-    pub fn draw_mesh<'a, S>(
-        &mut self,
-        mesh: &Mesh,
-        shader: &S,
-        material: Option<&'a Material>,
-        state: RenderState,
-    ) where
-        S: Shader<Option<&'a Material>>,
-    {
-        let width = self.framebuffer.buffer_width;
-        let height = self.framebuffer.buffer_height;
-        let prepared: Vec<PreparedTriangle<S::Varying, Option<&Material>>> = mesh
-            .indices
-            .par_chunks(3)
-            .flat_map_iter(|indices| {
-                if indices.len() < 3 {
-                    return Vec::new().into_iter();
-                }
-
-                let v0 = &mesh.vertices[indices[0] as usize];
-                let v1 = &mesh.vertices[indices[1] as usize];
-                let v2 = &mesh.vertices[indices[2] as usize];
-                let (pos0, var0) = shader.vertex(v0);
-                let (pos1, var1) = shader.vertex(v1);
-                let (pos2, var2) = shader.vertex(v2);
-
-                self.rasterizer
-                    .prepare_triangle::<S, _>(
+        let prepared: Vec<PreparedTriangle<'_, S::Varying, S, Option<&Material>>> = queues
+            .iter()
+            .flat_map(|queue| queue.commands())
+            .flat_map(|command| {
+                let shader = &shaders[command.shader_index];
+                match &command.geometry {
+                    RenderGeometry::Mesh(mesh) => mesh
+                        .indices
+                        .par_chunks(3)
+                        .flat_map_iter(|indices| {
+                            if indices.len() < 3 {
+                                return Vec::new().into_iter();
+                            }
+                            self.prepare_vertices(
+                                width,
+                                height,
+                                [
+                                    &mesh.vertices[indices[0] as usize],
+                                    &mesh.vertices[indices[1] as usize],
+                                    &mesh.vertices[indices[2] as usize],
+                                ],
+                                shader,
+                                command.material,
+                                command.state,
+                            )
+                            .into_iter()
+                        })
+                        .collect(),
+                    RenderGeometry::Triangle(vertices) => self.prepare_vertices(
                         width,
                         height,
-                        &[pos0, pos1, pos2],
-                        &[var0, var1, var2],
-                        state,
-                        material,
-                    )
-                    .into_iter()
+                        [&vertices[0], &vertices[1], &vertices[2]],
+                        shader,
+                        command.material,
+                        command.state,
+                    ),
+                }
             })
             .collect();
 
         self.rasterizer
-            .rasterize_prepared(&mut self.framebuffer, shader, &prepared, state);
+            .rasterize_prepared(&mut self.framebuffer, &prepared);
+    }
+
+    fn prepare_vertices<'a, S>(
+        &self,
+        width: usize,
+        height: usize,
+        vertices: [&Vertex; 3],
+        shader: &'a S,
+        material: Option<&'a Material>,
+        state: RenderState,
+    ) -> Vec<PreparedTriangle<'a, S::Varying, S, Option<&'a Material>>>
+    where
+        S: Shader<Option<&'a Material>>,
+    {
+        let (pos0, var0) = shader.vertex(vertices[0]);
+        let (pos1, var1) = shader.vertex(vertices[1]);
+        let (pos2, var2) = shader.vertex(vertices[2]);
+        self.rasterizer.prepare_triangle::<S, _>(
+            (width, height),
+            &[pos0, pos1, pos2],
+            &[var0, var1, var2],
+            shader,
+            state,
+            material,
+        )
     }
 }

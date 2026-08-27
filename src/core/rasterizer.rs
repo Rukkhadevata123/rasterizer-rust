@@ -75,11 +75,13 @@ impl Default for RenderState {
     }
 }
 
-pub(crate) struct PreparedTriangle<V, C> {
+pub(crate) struct PreparedTriangle<'a, V, S, C> {
     screen_coords: [Point2<f32>; 3],
     clip_z: [f32; 3],
     w_values: [f32; 3],
     varyings: [V; 3],
+    shader: &'a S,
+    state: RenderState,
     fragment_context: C,
     uv_density: f32,
     start_x: usize,
@@ -99,15 +101,15 @@ impl Rasterizer {
         Self
     }
 
-    pub(crate) fn prepare_triangle<S, C>(
+    pub(crate) fn prepare_triangle<'a, S, C>(
         &self,
-        framebuffer_width: usize,
-        framebuffer_height: usize,
+        framebuffer_size: (usize, usize),
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[S::Varying; 3],
+        shader: &'a S,
         state: RenderState,
         fragment_context: C,
-    ) -> Vec<PreparedTriangle<S::Varying, C>>
+    ) -> Vec<PreparedTriangle<'a, S::Varying, S, C>>
     where
         S: Shader<C>,
         S::Varying: Interpolatable + Copy,
@@ -148,10 +150,10 @@ impl Rasterizer {
                 let second = current_poly[index];
                 let third = current_poly[index + 1];
                 self.prepare_screen_triangle(
-                    framebuffer_width,
-                    framebuffer_height,
+                    framebuffer_size,
                     &[first.0, second.0, third.0],
                     &[first.1, second.1, third.1],
+                    shader,
                     state,
                     fragment_context,
                 )
@@ -162,9 +164,7 @@ impl Rasterizer {
     pub(crate) fn rasterize_prepared<S, C>(
         &self,
         framebuffer: &mut FrameBuffer,
-        shader: &S,
-        triangles: &[PreparedTriangle<S::Varying, C>],
-        state: RenderState,
+        triangles: &[PreparedTriangle<'_, S::Varying, S, C>],
     ) where
         S: Shader<C>,
         S::Varying: Interpolatable + Copy,
@@ -200,9 +200,7 @@ impl Rasterizer {
                         samples,
                         width,
                         band_start_y..=band_end_y,
-                        shader,
                         &triangles[triangle_index],
-                        state,
                     );
                 }
             });
@@ -275,19 +273,20 @@ impl Rasterizer {
         Some((a.0 + (b.0 - a.0) * t, a.1 * (1.0 - t) + b.1 * t))
     }
 
-    fn prepare_screen_triangle<V, C>(
+    fn prepare_screen_triangle<'a, V, S, C>(
         &self,
-        framebuffer_width: usize,
-        framebuffer_height: usize,
+        framebuffer_size: (usize, usize),
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[V; 3],
+        shader: &'a S,
         state: RenderState,
         fragment_context: C,
-    ) -> Option<PreparedTriangle<V, C>>
+    ) -> Option<PreparedTriangle<'a, V, S, C>>
     where
         V: Interpolatable + Copy,
         C: Copy,
     {
+        let (framebuffer_width, framebuffer_height) = framebuffer_size;
         let width = framebuffer_width as f32;
         let height = framebuffer_height as f32;
         let mut screen_coords = [Point2::origin(); 3];
@@ -370,6 +369,8 @@ impl Rasterizer {
             clip_z,
             w_values,
             varyings: *varyings,
+            shader,
+            state,
             fragment_context,
             uv_density,
             start_x: min_x.max(0) as usize,
@@ -384,9 +385,7 @@ impl Rasterizer {
         samples: &mut [Sample],
         framebuffer_width: usize,
         band_rows: RangeInclusive<usize>,
-        shader: &S,
-        triangle: &PreparedTriangle<S::Varying, C>,
-        state: RenderState,
+        triangle: &PreparedTriangle<'_, S::Varying, S, C>,
     ) where
         S: Shader<C>,
         S::Varying: Interpolatable + Copy,
@@ -417,7 +416,7 @@ impl Rasterizer {
                     continue;
                 }
 
-                if state.wireframe
+                if triangle.state.wireframe
                     && barycentric.x > 0.02
                     && barycentric.y > 0.02
                     && barycentric.z > 0.02
@@ -434,7 +433,9 @@ impl Rasterizer {
                 }
 
                 let sample = &mut samples[row_offset + x];
-                if state.depth_test && !state.depth_compare.test(depth, sample.depth) {
+                if triangle.state.depth_test
+                    && !triangle.state.depth_compare.test(depth, sample.depth)
+                {
                     continue;
                 }
 
@@ -455,21 +456,23 @@ impl Rasterizer {
                         + triangle.varyings[2] * barycentric.z
                 });
 
-                let FragmentOutput::Color(color) =
-                    shader.fragment(varying, triangle.fragment_context, triangle.uv_density)
-                else {
+                let FragmentOutput::Color(color) = triangle.shader.fragment(
+                    varying,
+                    triangle.fragment_context,
+                    triangle.uv_density,
+                ) else {
                     continue;
                 };
 
-                match state.blend_mode {
+                match triangle.state.blend_mode {
                     BlendMode::Opaque => {
-                        if state.depth_write {
+                        if triangle.state.depth_write {
                             sample.depth = depth;
                         }
                         sample.color = color.xyz();
                     }
                     BlendMode::Alpha if color.w > 0.001 => {
-                        if state.depth_write {
+                        if triangle.state.depth_write {
                             sample.depth = depth;
                         }
                         sample.color = color.xyz() * color.w + sample.color * (1.0 - color.w);

@@ -7,7 +7,7 @@ use rasterizer_rust::core::rasterizer::{
     BlendMode, CullMode, DepthCompare, Rasterizer, RenderState,
 };
 use rasterizer_rust::pipeline::passes::{post_process_to_buffer, render_shadow_pass};
-use rasterizer_rust::pipeline::renderer::Renderer;
+use rasterizer_rust::pipeline::renderer::{RenderGeometry, RenderQueue, Renderer};
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
 use rasterizer_rust::pipeline::shaders::shadow::ShadowShader;
 use rasterizer_rust::scene::camera::Camera;
@@ -105,6 +105,20 @@ fn test_render_state() -> RenderState {
     }
 }
 
+fn draw_mesh<'a, S>(
+    renderer: &mut Renderer,
+    mesh: &'a Mesh,
+    shader: &'a S,
+    material: Option<&'a Material>,
+    state: RenderState,
+) where
+    S: Shader<Option<&'a Material>>,
+{
+    let mut queue = RenderQueue::default();
+    queue.push(0, RenderGeometry::Mesh(mesh), material, state, 0.0);
+    renderer.draw_queue(&queue, std::slice::from_ref(shader));
+}
+
 #[test]
 fn nearer_triangle_wins_depth_test() {
     let shader = ClipSpaceShader;
@@ -112,8 +126,8 @@ fn nearer_triangle_wins_depth_test() {
 
     let far = triangle(0.5, Vector4::new(1.0, 0.0, 0.0, 1.0));
     let near = triangle(-0.5, Vector4::new(0.0, 1.0, 0.0, 1.0));
-    renderer.draw_mesh(&far, &shader, None, test_render_state());
-    renderer.draw_mesh(&near, &shader, None, test_render_state());
+    draw_mesh(&mut renderer, &far, &shader, None, test_render_state());
+    draw_mesh(&mut renderer, &near, &shader, None, test_render_state());
 
     assert_vec3_approx(
         renderer.framebuffer.get_pixel(16, 16).unwrap(),
@@ -128,7 +142,8 @@ fn depth_state_is_explicit_per_draw() {
     let red = triangle(-0.5, Vector4::new(1.0, 0.0, 0.0, 1.0));
     let blue = triangle(0.5, Vector4::new(0.0, 0.0, 1.0, 1.0));
 
-    renderer.draw_mesh(
+    draw_mesh(
+        &mut renderer,
         &red,
         &shader,
         None,
@@ -146,7 +161,8 @@ fn depth_state_is_explicit_per_draw() {
             .is_infinite()
     );
 
-    renderer.draw_mesh(
+    draw_mesh(
+        &mut renderer,
         &blue,
         &shader,
         None,
@@ -160,7 +176,8 @@ fn depth_state_is_explicit_per_draw() {
         Vector3::new(1.0, 0.0, 0.0),
     );
 
-    renderer.draw_mesh(
+    draw_mesh(
+        &mut renderer,
         &blue,
         &shader,
         None,
@@ -182,7 +199,7 @@ fn triangle_crossing_near_plane_is_clipped_and_rendered() {
 
     let mut mesh = triangle(0.0, Vector4::new(1.0, 0.0, 1.0, 1.0));
     mesh.vertices[0].position.z = -2.0;
-    renderer.draw_mesh(&mesh, &shader, None, test_render_state());
+    draw_mesh(&mut renderer, &mesh, &shader, None, test_render_state());
 
     let colored_pixels = (0..32)
         .flat_map(|y| (0..32).map(move |x| (x, y)))
@@ -201,7 +218,13 @@ fn alpha_mask_discards_fragments_below_cutoff() {
         ..Default::default()
     });
 
-    renderer.draw_mesh(&mesh, &shader, Some(&material), test_render_state());
+    draw_mesh(
+        &mut renderer,
+        &mesh,
+        &shader,
+        Some(&material),
+        test_render_state(),
+    );
 
     assert_eq!(
         renderer.framebuffer.get_pixel(16, 16).unwrap(),
@@ -250,7 +273,13 @@ fn headless_pbr_triangle_produces_visible_output() {
         ..Default::default()
     });
 
-    renderer.draw_mesh(&mesh, &shader, Some(&material), test_render_state());
+    draw_mesh(
+        &mut renderer,
+        &mesh,
+        &shader,
+        Some(&material),
+        test_render_state(),
+    );
 
     let mut config = rasterizer_rust::io::config::Config::default();
     config.render.width = 32;
@@ -278,7 +307,13 @@ fn masked_pbr_fragments_respect_material_alpha() {
         ..Default::default()
     });
 
-    renderer.draw_mesh(&mesh, &shader, Some(&discarded), test_render_state());
+    draw_mesh(
+        &mut renderer,
+        &mesh,
+        &shader,
+        Some(&discarded),
+        test_render_state(),
+    );
     assert!(
         renderer
             .framebuffer
@@ -293,7 +328,13 @@ fn masked_pbr_fragments_respect_material_alpha() {
         alpha_mode: AlphaMode::Mask(0.5),
         ..Default::default()
     });
-    renderer.draw_mesh(&mesh, &shader, Some(&visible), test_render_state());
+    draw_mesh(
+        &mut renderer,
+        &mesh,
+        &shader,
+        Some(&visible),
+        test_render_state(),
+    );
     assert!((renderer.framebuffer.sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
 
@@ -309,7 +350,7 @@ fn cull_mode_can_reject_one_winding() {
             cull_mode: mode,
             ..Default::default()
         };
-        renderer.draw_mesh(&mesh, &shader, None, state);
+        draw_mesh(&mut renderer, &mesh, &shader, None, state);
         renderer.framebuffer.get_pixel(16, 16).unwrap()
     };
 
@@ -333,7 +374,7 @@ fn triangle_rasterization_crosses_band_boundaries() {
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
     let mut renderer = Renderer::new(48, 70, 1).expect("test dimensions should be valid");
 
-    renderer.draw_mesh(&mesh, &shader, None, test_render_state());
+    draw_mesh(&mut renderer, &mesh, &shader, None, test_render_state());
 
     for y in [0, 15, 16, 31, 32, 47, 48, 63, 64, 69] {
         assert_vec3_approx(renderer.framebuffer.get_pixel(24, y).unwrap(), color.xyz());
@@ -367,7 +408,7 @@ fn overlapping_triangles_produce_deterministic_depth_and_color() {
 
     for _ in 0..16 {
         let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
-        renderer.draw_mesh(&mesh, &shader, None, test_render_state());
+        draw_mesh(&mut renderer, &mesh, &shader, None, test_render_state());
 
         let sample = renderer.framebuffer.sample(32, 32).unwrap();
         assert_vec3_approx(sample.color, Vector3::new(0.0, 1.0, 0.0));
@@ -376,7 +417,7 @@ fn overlapping_triangles_produce_deterministic_depth_and_color() {
 }
 
 #[test]
-fn transparent_triangles_preserve_input_order_within_each_band() {
+fn transparent_queue_sorts_back_to_front_and_preserves_band_order() {
     let shader = ClipSpaceShader;
     let far = triangle(0.5, Vector4::new(1.0, 0.0, 0.0, 0.5));
     let near = triangle(-0.5, Vector4::new(0.0, 0.0, 1.0, 0.5));
@@ -385,28 +426,16 @@ fn transparent_triangles_preserve_input_order_within_each_band() {
         ..Default::default()
     });
     let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
-    renderer.draw_sorted_triangles(
-        vec![
-            (
-                &far.vertices[0],
-                &far.vertices[1],
-                &far.vertices[2],
-                &material,
-            ),
-            (
-                &near.vertices[0],
-                &near.vertices[1],
-                &near.vertices[2],
-                &material,
-            ),
-        ],
-        &shader,
-        RenderState {
-            blend_mode: BlendMode::Alpha,
-            depth_write: false,
-            ..test_render_state()
-        },
-    );
+    let state = RenderState {
+        blend_mode: BlendMode::Alpha,
+        depth_write: false,
+        ..test_render_state()
+    };
+    let mut queue = RenderQueue::default();
+    queue.push(0, RenderGeometry::Mesh(&near), Some(&material), state, 0.5);
+    queue.push(0, RenderGeometry::Mesh(&far), Some(&material), state, -0.5);
+    queue.sort_transparent();
+    renderer.draw_queue(&queue, std::slice::from_ref(&shader));
 
     for y in [8, 24, 40, 56] {
         assert_vec3_approx(
@@ -414,6 +443,44 @@ fn transparent_triangles_preserve_input_order_within_each_band() {
             Vector3::new(0.25, 0.0, 0.5),
         );
     }
+}
+
+#[test]
+fn transparent_queue_uses_insertion_id_to_break_depth_ties() {
+    let first = triangle(0.0, Vector4::zeros());
+    let second = triangle(0.0, Vector4::zeros());
+    let third = triangle(0.0, Vector4::zeros());
+    let mut queue = RenderQueue::default();
+    queue.push(
+        0,
+        RenderGeometry::Mesh(&first),
+        None,
+        test_render_state(),
+        1.0,
+    );
+    queue.push(
+        0,
+        RenderGeometry::Mesh(&second),
+        None,
+        test_render_state(),
+        -1.0,
+    );
+    queue.push(
+        0,
+        RenderGeometry::Mesh(&third),
+        None,
+        test_render_state(),
+        1.0,
+    );
+
+    queue.sort_transparent();
+
+    let ordering: Vec<(f32, u64)> = queue
+        .commands()
+        .iter()
+        .map(|command| (command.sort_depth, command.insertion_id))
+        .collect();
+    assert_eq!(ordering, vec![(-1.0, 1), (1.0, 0), (1.0, 2)]);
 }
 fn shadow_test_camera() -> Camera {
     Camera::new_orthographic(
@@ -442,7 +509,13 @@ fn masked_shadow_fragments_respect_material_alpha() {
         ..Default::default()
     });
 
-    renderer.draw_mesh(&mesh, &shader, Some(&discarded), test_render_state());
+    draw_mesh(
+        &mut renderer,
+        &mesh,
+        &shader,
+        Some(&discarded),
+        test_render_state(),
+    );
     assert!(
         renderer
             .framebuffer
@@ -457,7 +530,13 @@ fn masked_shadow_fragments_respect_material_alpha() {
         alpha_mode: AlphaMode::Mask(0.5),
         ..Default::default()
     });
-    renderer.draw_mesh(&mesh, &shader, Some(&visible), test_render_state());
+    draw_mesh(
+        &mut renderer,
+        &mesh,
+        &shader,
+        Some(&visible),
+        test_render_state(),
+    );
     assert!((renderer.framebuffer.sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
 
@@ -479,7 +558,8 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
         Matrix4::identity(),
     );
 
-    renderer.draw_mesh(
+    draw_mesh(
+        &mut renderer,
         &triangle(0.0, Vector4::zeros()),
         &shader,
         Some(&material),

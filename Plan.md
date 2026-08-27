@@ -230,10 +230,12 @@ Introduced per-draw state for:
 
 ### 5C: RenderCommand and RenderQueue
 
-- Build explicit shadow, opaque, masked, and transparent command lists.
-- Prepare and bin a complete pass rather than rebuilding bins separately for each mesh.
-- Give commands stable insertion IDs.
-- Sort transparent commands with `f32::total_cmp` plus a deterministic tie-breaker.
+Status: completed
+
+- [x] Build explicit shadow, opaque, masked, and transparent command lists.
+- [x] Prepare and bin a complete pass rather than rebuilding bins separately for each mesh.
+- [x] Give commands stable insertion IDs.
+- [x] Sort transparent commands with `f32::total_cmp` plus a deterministic tie-breaker.
 
 ### 5D: Per-Material Culling and Double-Sided Foundations
 
@@ -494,4 +496,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 5C. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 5D. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
