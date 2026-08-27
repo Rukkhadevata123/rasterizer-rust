@@ -132,9 +132,11 @@ Keep fixtures in the kilobyte range and independent of demonstration assets.
 
 ### 4B: Contextual Import Errors
 
-- Make recursive node and primitive processing return structured `Result` values.
-- Include file path, scene, node, mesh, primitive, attribute, and texture context where available.
-- Remove importer `unwrap()` calls and silent magenta-image fallbacks.
+Status: completed
+
+- [x] Make recursive node and primitive processing return structured `Result` values.
+- [x] Include file path, scene, node, mesh, primitive, attribute, and texture context where available.
+- [x] Remove importer `unwrap()` calls and silent magenta-image fallbacks.
 
 ### 4C: Scene Traversal and Primitive Topology
 
@@ -481,4 +483,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 4B. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 4C. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

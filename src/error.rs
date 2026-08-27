@@ -72,6 +72,44 @@ pub enum GltfError {
     NoScene { path: PathBuf },
     #[error("glTF '{}' contains no meshes", path.display())]
     NoMeshes { path: PathBuf },
+    #[error(
+        "failed to process glTF '{}' scene {}, node {} ({}), mesh {}, primitive {}: {}",
+        context.path.display(),
+        context.scene_index,
+        context.node_index,
+        context.node_name,
+        context.mesh_index,
+        context.primitive_index,
+        context.reason
+    )]
+    Primitive { context: Box<PrimitiveContext> },
+    #[error("failed to process image {image_index} in glTF '{}': {reason}", path.display())]
+    Image {
+        path: PathBuf,
+        image_index: usize,
+        reason: String,
+    },
+    #[error(
+        "failed to resolve texture {texture_index} for material {material_index:?} in glTF '{}': source image {source_image_index} is unavailable",
+        path.display()
+    )]
+    Texture {
+        path: PathBuf,
+        material_index: Option<usize>,
+        texture_index: usize,
+        source_image_index: usize,
+    },
+}
+
+#[derive(Debug)]
+pub struct PrimitiveContext {
+    pub path: PathBuf,
+    pub scene_index: usize,
+    pub node_index: usize,
+    pub node_name: String,
+    pub mesh_index: usize,
+    pub primitive_index: usize,
+    pub reason: String,
 }
 
 #[derive(Debug, Error)]
