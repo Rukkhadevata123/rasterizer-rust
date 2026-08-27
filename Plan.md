@@ -110,7 +110,7 @@ Exit criteria:
 
 ## Phase 4: glTF Structural Correctness
 
-Status: planned
+Status: completed
 
 This phase fixes importer topology, indexing, validation, and diagnostics without yet redesigning the full material/texture model.
 
@@ -169,9 +169,10 @@ Status: completed
 
 ### 4F: Model Normalization Policy
 
-- Replace unconditional center-and-normalize behavior with an explicit policy such as `preserve`, `center`, or
-ormalize`.
-- Document the default and test object scale/placement across multiple assets.
+Status: completed
+
+- [x] Replace unconditional center-and-normalize behavior with explicit `preserve`, `center`, and `normalize` policies.
+- [x] Keep `normalize` as the documented default to preserve existing scene behavior, and test object scale/placement across multiple assets.
 
 Non-goals for this phase:
 
@@ -489,4 +490,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 4E. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 5A. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

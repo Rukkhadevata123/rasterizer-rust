@@ -35,6 +35,7 @@ impl Default for Config {
                 position: [0.0, 0.0, 0.0],
                 rotation: [0.0, -45.0, 0.0],
                 scale: [2.0, 2.0, 2.0],
+                normalization: ModelNormalization::Normalize,
             }],
             base_dir: PathBuf::new(),
         }
@@ -195,6 +196,17 @@ pub struct ObjectConfig {
     pub rotation: [f32; 3],
     #[serde(default = "default_scale")]
     pub scale: [f32; 3],
+    #[serde(default)]
+    pub normalization: ModelNormalization,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelNormalization {
+    Preserve,
+    Center,
+    #[default]
+    Normalize,
 }
 
 fn default_scale() -> [f32; 3] {
@@ -437,6 +449,10 @@ mod tests {
         assert_eq!(config.lights[0].kind, LightKind::Directional);
         assert_eq!(config.objects.len(), 1);
         assert_eq!(config.objects[0].path, "assets/glbs/old_rusty_car.glb");
+        assert_eq!(
+            config.objects[0].normalization,
+            ModelNormalization::Normalize
+        );
     }
 
     #[test]
@@ -510,6 +526,31 @@ mod tests {
         assert_eq!(config.lights.len(), 1);
         assert_eq!(config.lights[0].kind, LightKind::Point);
         assert_eq!(config.objects[0].scale, [1.0, 1.0, 1.0]);
+        assert_eq!(
+            config.objects[0].normalization,
+            ModelNormalization::Normalize
+        );
+    }
+
+    #[test]
+    fn parses_explicit_model_normalization_policies() {
+        for (value, expected) in [
+            ("preserve", ModelNormalization::Preserve),
+            ("center", ModelNormalization::Center),
+            ("normalize", ModelNormalization::Normalize),
+        ] {
+            let source =
+                format!("[[objects]]\npath = \"fixture.glb\"\nnormalization = \"{value}\"");
+            let config: Config = toml::from_str(&source).expect("normalization should parse");
+            assert_eq!(config.objects[0].normalization, expected);
+        }
+
+        assert!(
+            toml::from_str::<Config>(
+                "[[objects]]\npath = \"fixture.glb\"\nnormalization = \"stretch\""
+            )
+            .is_err()
+        );
     }
 
     #[test]

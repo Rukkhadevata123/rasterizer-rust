@@ -1,6 +1,6 @@
 use crate::core::math::transform::TransformFactory;
 use crate::error::AssetError;
-use crate::io::config::{Config, LightKind, ProjectionMode};
+use crate::io::config::{Config, LightKind, ModelNormalization, ProjectionMode};
 use crate::io::gltf_loader::load_gltf;
 use crate::scene::camera::Camera;
 use crate::scene::context::{RenderContext, ShadowLight};
@@ -9,7 +9,7 @@ use crate::scene::material::{Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
 use crate::scene::scene_object::SceneObject;
-use crate::scene::utils::normalize_and_center_model;
+use crate::scene::utils::{center_model, normalize_and_center_model};
 use log::info;
 use nalgebra::{Point3, Vector3};
 
@@ -170,7 +170,7 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
                 source,
             }
         })?;
-        normalize_and_center_model(&mut model);
+        apply_model_normalization(&mut model, obj_conf.normalization);
 
         // Ensure material fallback
         if model.materials.is_empty() {
@@ -196,6 +196,19 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
         shadow_light,
     })
 }
+
+fn apply_model_normalization(model: &mut Model, normalization: ModelNormalization) {
+    match normalization {
+        ModelNormalization::Preserve => {}
+        ModelNormalization::Center => {
+            center_model(model);
+        }
+        ModelNormalization::Normalize => {
+            normalize_and_center_model(model);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +234,27 @@ mod tests {
             intensity: 3.0,
             attenuation: None,
         }
+    }
+
+    #[test]
+    fn preserve_normalization_keeps_imported_vertex_positions() {
+        let mut model = Model::new(vec![Mesh::create_test_triangle(0)], vec![]);
+        let positions: Vec<_> = model.meshes[0]
+            .vertices
+            .iter()
+            .map(|vertex| vertex.position)
+            .collect();
+
+        apply_model_normalization(&mut model, ModelNormalization::Preserve);
+
+        assert_eq!(
+            model.meshes[0]
+                .vertices
+                .iter()
+                .map(|vertex| vertex.position)
+                .collect::<Vec<_>>(),
+            positions
+        );
     }
 
     #[test]
