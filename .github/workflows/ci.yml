@@ -33,14 +33,24 @@ jobs:
       - name: Run headless smoke render
         shell: pwsh
         run: |
-          $config = Get-Content scene.toml -Raw
-          $config = $config.Replace('width = 1280', 'width = 160')
-          $config = $config.Replace('height = 720', 'height = 90')
-          $config = $config.Replace('supersample_scale = 2', 'supersample_scale = 1')
-          $config = $config.Replace('shadow_map_size = 1024', 'shadow_map_size = 128')
-          $config = $config.Replace('output = "outputs/output_gltf.png"', 'output = "target/ci-smoke.png"')
-          Set-Content target/ci-scene.toml $config
-          cargo run --release -- --config target/ci-scene.toml
-          if (-not (Test-Path target/ci-smoke.png)) {
-            throw 'Smoke render did not create target/ci-smoke.png'
+          $configPath = 'ci-scene.toml'
+          $outputPath = 'target/ci-smoke.png'
+          Remove-Item $outputPath -ErrorAction SilentlyContinue
+          try {
+            $config = Get-Content scene.toml -Raw
+            $config = $config.Replace('width = 1280', 'width = 160')
+            $config = $config.Replace('height = 720', 'height = 90')
+            $config = $config.Replace('supersample_scale = 2', 'supersample_scale = 1')
+            $config = $config.Replace('shadow_map_size = 1024', 'shadow_map_size = 128')
+            $config = $config.Replace('output = "outputs/output_gltf.png"', 'output = "target/ci-smoke.png"')
+            Set-Content $configPath $config
+            cargo run --release -- --config $configPath
+            if ($LASTEXITCODE -ne 0) {
+              throw "Smoke render failed with exit code $LASTEXITCODE"
+            }
+            if (-not (Test-Path $outputPath)) {
+              throw "Smoke render did not create $outputPath"
+            }
+          } finally {
+            Remove-Item $configPath -ErrorAction SilentlyContinue
           }
