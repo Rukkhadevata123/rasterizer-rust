@@ -1,5 +1,6 @@
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::rasterizer::CullMode;
+use crate::error::{ApplicationError, WindowError};
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
 use crate::pipeline::passes::{post_process_to_buffer, render_main_pass, render_shadow_pass};
@@ -45,8 +46,13 @@ fn apply_hot_reload_render_settings(
     if supersample_scale_rejected {
         render.supersample_scale = renderer.framebuffer.supersample_scale;
     } else if renderer.framebuffer.supersample_scale != render.supersample_scale {
-        *renderer = Renderer::new(window_width, window_height, render.supersample_scale)
-            .expect("hot-reloaded framebuffer dimensions were checked");
+        if let Ok(new_renderer) =
+            Renderer::new(window_width, window_height, render.supersample_scale)
+        {
+            *renderer = new_renderer;
+        } else {
+            render.supersample_scale = renderer.framebuffer.supersample_scale;
+        }
     }
 
     let shadow_map_size_rejected =
@@ -57,8 +63,11 @@ fn apply_hot_reload_render_settings(
     } else if shadow_renderer.framebuffer.width != render.shadow_map_size
         || shadow_renderer.framebuffer.height != render.shadow_map_size
     {
-        *shadow_renderer = Renderer::new(render.shadow_map_size, render.shadow_map_size, 1)
-            .expect("hot-reloaded shadow-map dimensions were checked");
+        if let Ok(new_renderer) = Renderer::new(render.shadow_map_size, render.shadow_map_size, 1) {
+            *shadow_renderer = new_renderer;
+        } else {
+            render.shadow_map_size = shadow_renderer.framebuffer.width;
+        }
     }
 
     let resize_requested = render.width != window_width || render.height != window_height;
@@ -73,10 +82,10 @@ fn apply_hot_reload_render_settings(
     }
 }
 /// Runs the application in GUI mode with real-time rendering and interactivity.
-pub fn run_gui(mut config: Config, config_path: &str) {
+pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationError> {
     config
         .validate()
-        .expect("configuration must be valid before running the GUI");
+        .map_err(|reason| ApplicationError::InvalidConfiguration { reason })?;
     let width = config.render.width;
     let height = config.render.height;
 
@@ -98,22 +107,30 @@ pub fn run_gui(mut config: Config, config_path: &str) {
             ..WindowOptions::default()
         },
     )
-    .unwrap_or_else(|e| panic!("{}", e));
+    .map_err(|source| WindowError::Create { source })?;
 
     // window.set_target_fps(60);
 
     // 2. Initialize Resources
-    let mut context = init_scene_resources(&config);
+    let mut context = init_scene_resources(&config)?;
 
     // Renderers
-    let mut renderer = Renderer::new(width, height, config.render.supersample_scale)
-        .expect("configuration must be validated before running the GUI");
+    let mut renderer =
+        Renderer::new(width, height, config.render.supersample_scale).map_err(|reason| {
+            ApplicationError::RenderInitialization {
+                target: "main framebuffer",
+                reason,
+            }
+        })?;
     let mut shadow_renderer = Renderer::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
         1,
     )
-    .expect("configuration must be validated before running the GUI");
+    .map_err(|reason| ApplicationError::RenderInitialization {
+        target: "shadow framebuffer",
+        reason,
+    })?;
 
     // Camera Controller
     let mut cam_controller = CameraController::new(
@@ -145,46 +162,44 @@ pub fn run_gui(mut config: Config, config_path: &str) {
         // --- Hot Reloading ---
         if window.is_key_pressed(Key::R, minifb::KeyRepeat::No) {
             info!("Reloading configuration...");
-            match Config::load(config_path) {
-                Ok(new_config) => {
-                    let (new_lights, new_shadow_light) = build_lights_from_config(&new_config);
-                    context.lights = new_lights;
-                    context.shadow_light = new_shadow_light;
-                    update_scene_objects(&mut context.scene_objects, &new_config);
+            {
+                let new_config = Config::load(config_path)?;
+                let (new_lights, new_shadow_light) = build_lights_from_config(&new_config);
+                context.lights = new_lights;
+                context.shadow_light = new_shadow_light;
+                update_scene_objects(&mut context.scene_objects, &new_config);
 
-                    cam_controller.speed = new_config.camera.speed;
-                    cam_controller.sensitivity = new_config.camera.sensitivity;
-                    cam_controller.zoom_speed = new_config.camera.zoom_speed;
+                cam_controller.speed = new_config.camera.speed;
+                cam_controller.sensitivity = new_config.camera.sensitivity;
+                cam_controller.zoom_speed = new_config.camera.zoom_speed;
 
-                    let render_settings = apply_hot_reload_render_settings(
-                        new_config.render,
-                        width,
-                        height,
-                        &mut renderer,
-                        &mut shadow_renderer,
+                let render_settings = apply_hot_reload_render_settings(
+                    new_config.render,
+                    width,
+                    height,
+                    &mut renderer,
+                    &mut shadow_renderer,
+                );
+                if render_settings.resize_requested {
+                    warn!(
+                        "Ignoring hot-reloaded render size; restart the GUI to resize the window."
                     );
-                    if render_settings.resize_requested {
-                        warn!(
-                            "Ignoring hot-reloaded render size; restart the GUI to resize the window."
-                        );
-                    }
-                    if render_settings.supersample_scale_rejected {
-                        warn!("Ignoring invalid hot-reloaded supersampling scale.");
-                    }
-                    if render_settings.shadow_map_size_rejected {
-                        warn!("Ignoring invalid hot-reloaded shadow-map size.");
-                    }
-                    config.render = render_settings.render;
-
-                    renderer.rasterizer.wireframe = config.render.wireframe;
-                    cull_mode_idx = cull_mode_index(config.render.cull_mode);
-                    renderer
-                        .rasterizer
-                        .set_cull_mode(cull_mode_from_index(cull_mode_idx));
-
-                    info!("Hot reload successful!");
                 }
-                Err(e) => warn!("Failed to reload config: {}", e),
+                if render_settings.supersample_scale_rejected {
+                    warn!("Ignoring invalid hot-reloaded supersampling scale.");
+                }
+                if render_settings.shadow_map_size_rejected {
+                    warn!("Ignoring invalid hot-reloaded shadow-map size.");
+                }
+                config.render = render_settings.render;
+
+                renderer.rasterizer.wireframe = config.render.wireframe;
+                cull_mode_idx = cull_mode_index(config.render.cull_mode);
+                renderer
+                    .rasterizer
+                    .set_cull_mode(cull_mode_from_index(cull_mode_idx));
+
+                info!("Hot reload successful!");
             }
         }
 
@@ -209,11 +224,13 @@ pub fn run_gui(mut config: Config, config_path: &str) {
 
         // --- Render ---
         let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
-        render_main_pass(&config, &context, &mut renderer, &shadow);
+        render_main_pass(&config, &context, &mut renderer, &shadow)?;
 
         // --- Display ---
         post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
-        window.update_with_buffer(&buffer, width, height).unwrap();
+        window
+            .update_with_buffer(&buffer, width, height)
+            .map_err(|source| WindowError::Present { source })?;
 
         window.set_title(&format!(
             "Rust PBR - {:.1} FPS - FOV: {:.1}",
@@ -231,15 +248,17 @@ pub fn run_gui(mut config: Config, config_path: &str) {
             last_fps_update = Instant::now();
         }
     }
+
+    Ok(())
 }
 
 /// Runs the application in CLI mode (headless) for a single high-quality render.
-pub fn run_cli(config: Config) {
+pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     config
         .validate()
-        .expect("configuration must be valid before running the CLI");
+        .map_err(|reason| ApplicationError::InvalidConfiguration { reason })?;
     info!("Starting CLI mode...");
-    let context = init_scene_resources(&config);
+    let context = init_scene_resources(&config)?;
     let start_time = Instant::now();
 
     let mut renderer = Renderer::new(
@@ -247,13 +266,19 @@ pub fn run_cli(config: Config) {
         config.render.height,
         config.render.supersample_scale,
     )
-    .expect("configuration must be validated before running the CLI");
+    .map_err(|reason| ApplicationError::RenderInitialization {
+        target: "main framebuffer",
+        reason,
+    })?;
     let mut shadow_renderer = Renderer::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
         1,
     )
-    .expect("configuration must be validated before running the CLI");
+    .map_err(|reason| ApplicationError::RenderInitialization {
+        target: "shadow framebuffer",
+        reason,
+    })?;
 
     let cull_mode = cull_mode_from_index(cull_mode_index(config.render.cull_mode));
     renderer.rasterizer.set_cull_mode(cull_mode);
@@ -264,7 +289,7 @@ pub fn run_cli(config: Config) {
     if shadow.depth.is_some() {
         debug!("Shadow pass completed.");
     }
-    render_main_pass(&config, &context, &mut renderer, &shadow);
+    render_main_pass(&config, &context, &mut renderer, &shadow)?;
 
     info!("Render completed in {:.2?}", start_time.elapsed());
 
@@ -277,8 +302,9 @@ pub fn run_cli(config: Config) {
         config.render.width,
         config.render.height,
         &config.render.output,
-    );
+    )?;
     info!("Done.");
+    Ok(())
 }
 #[cfg(test)]
 mod tests {

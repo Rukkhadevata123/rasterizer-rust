@@ -1,4 +1,5 @@
 use crate::core::geometry::Vertex;
+use crate::error::GltfError;
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
@@ -12,12 +13,15 @@ use std::sync::Arc;
 
 /// Loads a GLTF/GLB file, baking node transforms into mesh vertices.
 /// Returns a single Model where all meshes share the same root coordinate system.
-pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, String> {
+pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, GltfError> {
     let path = path.as_ref();
     info!("Loading GLTF/GLB: {:?}", path);
 
     // 1. Import (This auto-detects .gltf or .glb)
-    let (document, buffers, images) = gltf::import(path).map_err(|e| e.to_string())?;
+    let (document, buffers, images) = gltf::import(path).map_err(|source| GltfError::Import {
+        path: path.to_path_buf(),
+        source: Box::new(source),
+    })?;
 
     // 2. Load Textures into memory
     // gltf::import gives us raw image structs. We convert them to our engine's Texture type.
@@ -40,7 +44,9 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Str
     let scene = document
         .default_scene()
         .or_else(|| document.scenes().next())
-        .ok_or("GLTF contains no scenes")?;
+        .ok_or_else(|| GltfError::NoScene {
+            path: path.to_path_buf(),
+        })?;
 
     for node in scene.nodes() {
         process_node(
@@ -55,7 +61,9 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Str
     }
 
     if final_meshes.is_empty() {
-        return Err("No meshes found in GLTF".to_string());
+        return Err(GltfError::NoMeshes {
+            path: path.to_path_buf(),
+        });
     }
 
     info!(

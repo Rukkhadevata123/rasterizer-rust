@@ -13,9 +13,9 @@ pub struct Texture {
 
 impl Texture {
     /// Load from file path, now only used in background texture.
-    pub fn load<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Self, String> {
+    pub fn load<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Self, image::ImageError> {
         let path_ref = path.as_ref();
-        let img = image::open(path_ref).map_err(|e| format!("Failed to load texture: {}", e))?;
+        let img = image::open(path_ref)?;
         info!(
             "Loaded texture: {:?} ({}x{})",
             path_ref,

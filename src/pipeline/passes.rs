@@ -3,6 +3,7 @@ use crate::core::framebuffer::FrameBuffer;
 use crate::core::geometry::Vertex;
 use crate::core::math::transform::TransformFactory;
 use crate::core::rasterizer::BlendMode;
+use crate::error::AssetError;
 use crate::io::config::Config;
 use crate::pipeline::renderer::{ClearOptions, Renderer};
 use crate::pipeline::shaders::pbr::PbrShader;
@@ -89,9 +90,16 @@ pub fn render_main_pass(
     context: &RenderContext,
     renderer: &mut Renderer,
     shadow: &ShadowPassOutput,
-) {
+) -> Result<(), AssetError> {
     let bg_texture = if let Some(path) = &config.render.background_image {
-        Texture::load(path, config.render.use_mipmap).ok()
+        Some(
+            Texture::load(path, config.render.use_mipmap).map_err(|source| {
+                AssetError::BackgroundImage {
+                    path: path.clone().into(),
+                    source,
+                }
+            })?,
+        )
     } else {
         None
     };
@@ -258,6 +266,8 @@ pub fn render_main_pass(
         // Restore Opaque Mode
         renderer.rasterizer.blend_mode = BlendMode::Opaque;
     }
+
+    Ok(())
 }
 
 /// Post-processing: Tone Mapping -> Gamma Correction -> u32 Buffer.

@@ -1,7 +1,9 @@
 use clap::Parser;
-use log::{info, warn};
+use log::info;
 use rasterizer_rust::app;
+use rasterizer_rust::error::ApplicationError;
 use rasterizer_rust::io::config::Config;
+use std::process::ExitCode;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -14,25 +16,28 @@ struct Args {
     gui: bool,
 }
 
-fn main() {
-    env_logger::init();
+fn run() -> Result<(), ApplicationError> {
     let args = Args::parse();
 
     info!("Loading configuration from: {}", args.config);
-    let config = match Config::load(&args.config) {
-        Ok(c) => c,
-        Err(e) => {
-            warn!(
-                "Failed to load config '{}': {}. Using defaults.",
-                args.config, e
-            );
-            Config::default()
-        }
-    };
+    let config = Config::load(&args.config)?;
 
     if args.gui {
-        app::run_gui(config, &args.config);
+        app::run_gui(config, &args.config)?;
     } else {
-        app::run_cli(config);
+        app::run_cli(config)?;
+    }
+
+    Ok(())
+}
+
+fn main() -> ExitCode {
+    env_logger::init();
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
     }
 }

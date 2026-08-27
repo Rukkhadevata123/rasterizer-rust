@@ -1,4 +1,5 @@
 use crate::core::math::transform::TransformFactory;
+use crate::error::AssetError;
 use crate::io::config::{Config, LightKind, ProjectionMode};
 use crate::io::gltf_loader::load_gltf;
 use crate::scene::camera::Camera;
@@ -9,7 +10,7 @@ use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
 use crate::scene::scene_object::SceneObject;
 use crate::scene::utils::normalize_and_center_model;
-use log::{error, info};
+use log::info;
 use nalgebra::{Point3, Vector3};
 
 /// Helper to rebuild light list from config (used in Init and Hot Reload)
@@ -102,7 +103,7 @@ pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) 
 }
 
 /// Initial resource loading (Heavy I/O). Returns a RenderContext.
-pub fn init_scene_resources(config: &Config) -> RenderContext {
+pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError> {
     // 1. Camera
     let cam_pos = Point3::from(config.camera.position);
     let cam_target = Point3::from(config.camera.target);
@@ -159,26 +160,16 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
     }
 
     // 3.2 Loaded Objects
-    for obj_conf in &config.objects {
+    for (object_index, obj_conf) in config.objects.iter().enumerate() {
         // Direct GLTF Loading
-        let mut model = match load_gltf(&obj_conf.path, config.render.use_mipmap) {
-            Ok(mut m) => {
-                normalize_and_center_model(&mut m);
-                m
+        let mut model = load_gltf(&obj_conf.path, config.render.use_mipmap).map_err(|source| {
+            AssetError::Model {
+                object_index,
+                path: obj_conf.path.clone().into(),
+                source,
             }
-            Err(e) => {
-                error!(
-                    "Error loading GLTF '{}': {}. Using fallback mesh.",
-                    obj_conf.path, e
-                );
-                let mesh = Mesh::create_test_triangle(0);
-                let mat = PbrMaterial {
-                    albedo: Vector3::new(1.0, 0.0, 1.0),
-                    ..Default::default()
-                };
-                Model::new(vec![mesh], vec![Material::Pbr(mat)])
-            }
-        };
+        })?;
+        normalize_and_center_model(&mut model);
 
         // Ensure material fallback
         if model.materials.is_empty() {
@@ -197,12 +188,12 @@ pub fn init_scene_resources(config: &Config) -> RenderContext {
 
     info!("Scene initialized with {} objects.", scene_objects.len());
 
-    RenderContext {
+    Ok(RenderContext {
         camera,
         lights,
         scene_objects,
         shadow_light,
-    }
+    })
 }
 #[cfg(test)]
 mod tests {

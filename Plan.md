@@ -39,7 +39,7 @@ Baseline after Phase 2: 35 tests, no `unsafe` in `src/` or `tests/`, and determi
 
 ## Phase 3: Configuration, Validation, and Error Foundations
 
-Status: in progress; 3A, 3B, and 3C completed
+Status: in progress; 3A, 3B, 3C, and 3D completed
 
 This phase precedes the glTF rewrite because import, image, CLI, and GUI errors should share one stable model.
 
@@ -76,11 +76,13 @@ Status: completed
 
 ### 3D: Structured Errors and Exit Behavior
 
-- Introduce structured application, config, asset, glTF, image-output, and window errors.
-- Return errors from CLI/GUI orchestration instead of panicking or logging-and-continuing.
-- Stop silently replacing an unreadable or invalid requested config with the default car scene.
-- Return a nonzero process status when configuration, rendering, or image saving fails.
-- Create output parent directories where appropriate.
+Status: completed
+
+- [x] Introduce structured application, config, asset, glTF, image-output, and window errors.
+- [x] Return errors from CLI/GUI orchestration instead of panicking or logging-and-continuing.
+- [x] Stop silently replacing an unreadable or invalid requested config with the default car scene.
+- [x] Return a nonzero process status when configuration, rendering, or image saving fails.
+- [x] Create output parent directories where appropriate.
 
 ### 3E: Configuration-Relative Paths
 
@@ -93,7 +95,7 @@ Suggested commits:
 1. `declare rust support and add ci` (completed)
 2. `define typed scene configuration` (completed)
 3. `validate render configuration` (completed)
-4. `propagate application errors`
+4. `propagate application errors` (completed)
 5. `resolve assets relative to config`
 
 Exit criteria:
@@ -472,7 +474,7 @@ Repository state when this roadmap was revised:
 - branch: `main`;
 - completed commits include `c32a12f` for band ownership and `2bc0630` for remaining Phase 2 safety;
 - working tree should be clean before starting implementation;
-- 44 tests are present after Phase 3C;
+- 52 tests are present after Phase 3D;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 3D. Do not begin the glTF importer rewrite, RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 3E. Do not begin the glTF importer rewrite, RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

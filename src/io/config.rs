@@ -1,4 +1,5 @@
 use crate::core::framebuffer::FrameBuffer;
+use crate::error::ConfigError;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -198,12 +199,20 @@ fn default_scale() -> [f32; 3] {
 }
 
 impl Config {
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let content = fs::read_to_string(path)
-            .map_err(|error| format!("Failed to read config file: {error}"))?;
-        let config: Self =
-            toml::from_str(&content).map_err(|error| format!("Failed to parse TOML: {error}"))?;
-        config.validate()?;
+    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, ConfigError> {
+        let path = path.as_ref();
+        let content = fs::read_to_string(path).map_err(|source| ConfigError::Read {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let config: Self = toml::from_str(&content).map_err(|source| ConfigError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        config.validate().map_err(|reason| ConfigError::Invalid {
+            path: path.to_path_buf(),
+            reason,
+        })?;
         Ok(config)
     }
 
