@@ -247,10 +247,12 @@ Status: completed
 
 ### 5E: Stable Scene Identity and Hot Reload
 
-- Add stable scene-object IDs or an explicit `SceneObjectKind`.
-- Stop inferring the ground object from vector length or position zero.
-- Classify reload changes as live-update, renderer rebuild, resource reload, or window restart.
-- Rebuild scene assets when object paths, object count, or mip policy changes.
+Status: completed
+
+- [x] Add stable scene-object IDs or an explicit `SceneObjectKind`.
+- [x] Stop inferring the ground object from vector length or position zero.
+- [x] Classify reload changes as live-update, renderer rebuild, resource reload, or window restart.
+- [x] Rebuild scene assets when object paths, object count, or mip policy changes.
 
 ### 5F: Centralized Object Transforms
 
@@ -498,4 +500,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 5E. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 5F. Do not begin the texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

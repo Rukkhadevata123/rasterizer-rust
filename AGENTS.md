@@ -24,7 +24,7 @@ cargo clippy --all-targets --all-features
 cargo test
 ```
 
-Always render with `--release`; debug rasterization is impractically slow. The first command renders one PNG, while the second opens the `minifb` viewer. In GUI mode, `R` reloads configuration but not models or textures. Supersampling scale and shadow-map size changes rebuild their buffers; window-size changes require a restart.
+Always render with `--release`; debug rasterization is impractically slow. The first command renders one PNG, while the second opens the `minifb` viewer. In GUI mode, `R` reloads configuration, including model and texture resources. Supersampling scale and shadow-map size changes rebuild their buffers; window-size changes require a restart.
 
 ## Coding Style & Naming Conventions
 

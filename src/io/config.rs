@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub render: RenderConfig,
@@ -51,7 +51,7 @@ pub enum CullModeConfig {
     None,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RenderConfig {
     pub width: usize,
@@ -111,7 +111,7 @@ pub enum ProjectionMode {
     Orthographic,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CameraConfig {
     pub position: [f32; 3],
@@ -145,7 +145,7 @@ impl Default for CameraConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GroundConfig {
     pub enabled: bool,
@@ -174,7 +174,7 @@ pub enum LightKind {
     Point,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LightConfig {
     #[serde(rename = "type")]
@@ -186,7 +186,7 @@ pub struct LightConfig {
     pub attenuation: Option<[f32; 3]>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectConfig {
     pub path: String,

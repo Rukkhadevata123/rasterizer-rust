@@ -26,6 +26,47 @@ fn cull_mode_from_index(index: usize) -> CullMode {
         _ => CullMode::Back,
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HotReloadPlan {
+    renderer_rebuild: bool,
+    resource_reload: bool,
+    window_restart: bool,
+}
+
+impl HotReloadPlan {
+    fn is_live_update(self) -> bool {
+        !self.renderer_rebuild && !self.resource_reload && !self.window_restart
+    }
+}
+
+fn classify_hot_reload(current: &Config, next: &Config) -> HotReloadPlan {
+    let window_restart =
+        current.render.width != next.render.width || current.render.height != next.render.height;
+    let renderer_rebuild = current.render.supersample_scale != next.render.supersample_scale
+        || current.render.shadow_map_size != next.render.shadow_map_size;
+    let objects_changed = current.objects.len() != next.objects.len()
+        || current
+            .objects
+            .iter()
+            .zip(&next.objects)
+            .any(|(current_object, next_object)| {
+                current.resolve_path(&current_object.path) != next.resolve_path(&next_object.path)
+                    || current_object.normalization != next_object.normalization
+            });
+    let ground_geometry_changed =
+        current.ground.enabled != next.ground.enabled || current.ground.size != next.ground.size;
+    let resource_reload = objects_changed
+        || ground_geometry_changed
+        || current.render.use_mipmap != next.render.use_mipmap;
+
+    HotReloadPlan {
+        renderer_rebuild,
+        resource_reload,
+        window_restart,
+    }
+}
+
 struct HotReloadRenderSettings {
     render: RenderConfig,
     resize_requested: bool,
@@ -163,18 +204,11 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         if window.is_key_pressed(Key::R, minifb::KeyRepeat::No) {
             info!("Reloading configuration...");
             {
-                let new_config = Config::load(config_path)?;
-                let (new_lights, new_shadow_light) = build_lights_from_config(&new_config);
-                context.lights = new_lights;
-                context.shadow_light = new_shadow_light;
-                update_scene_objects(&mut context.scene_objects, &new_config);
-
-                cam_controller.speed = new_config.camera.speed;
-                cam_controller.sensitivity = new_config.camera.sensitivity;
-                cam_controller.zoom_speed = new_config.camera.zoom_speed;
+                let mut new_config = Config::load(config_path)?;
+                let reload_plan = classify_hot_reload(&config, &new_config);
 
                 let render_settings = apply_hot_reload_render_settings(
-                    new_config.render,
+                    new_config.render.clone(),
                     width,
                     height,
                     &mut renderer,
@@ -191,13 +225,34 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
                 if render_settings.shadow_map_size_rejected {
                     warn!("Ignoring invalid hot-reloaded shadow-map size.");
                 }
-                config.render = render_settings.render;
+                new_config.render = render_settings.render;
 
-                render_state.wireframe = config.render.wireframe;
-                cull_mode_idx = cull_mode_index(config.render.cull_mode);
+                if reload_plan.resource_reload {
+                    let camera = context.camera.clone();
+                    context = init_scene_resources(&new_config)?;
+                    context.camera = camera;
+                    info!("Reloaded scene model and texture resources.");
+                } else {
+                    let (new_lights, new_shadow_light) = build_lights_from_config(&new_config);
+                    context.lights = new_lights;
+                    context.shadow_light = new_shadow_light;
+                    update_scene_objects(&mut context.scene_objects, &new_config);
+                }
+
+                cam_controller.speed = new_config.camera.speed;
+                cam_controller.sensitivity = new_config.camera.sensitivity;
+                cam_controller.zoom_speed = new_config.camera.zoom_speed;
+
+                render_state.wireframe = new_config.render.wireframe;
+                cull_mode_idx = cull_mode_index(new_config.render.cull_mode);
                 render_state.cull_mode = cull_mode_from_index(cull_mode_idx);
+                config = new_config;
 
-                info!("Hot reload successful!");
+                if reload_plan.is_live_update() {
+                    info!("Applied live configuration update.");
+                } else {
+                    info!("Hot reload successful!");
+                }
             }
         }
 
@@ -310,6 +365,74 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hot_reload_classifies_live_renderer_and_window_changes() {
+        let current = Config::default();
+        let mut live = current.clone();
+        live.render.exposure = 2.0;
+        assert!(classify_hot_reload(&current, &live).is_live_update());
+
+        let mut renderer = current.clone();
+        renderer.render.supersample_scale += 1;
+        assert_eq!(
+            classify_hot_reload(&current, &renderer),
+            HotReloadPlan {
+                renderer_rebuild: true,
+                resource_reload: false,
+                window_restart: false,
+            }
+        );
+
+        let mut window = current.clone();
+        window.render.width += 1;
+        assert_eq!(
+            classify_hot_reload(&current, &window),
+            HotReloadPlan {
+                renderer_rebuild: false,
+                resource_reload: false,
+                window_restart: true,
+            }
+        );
+    }
+
+    #[test]
+    fn hot_reload_classifies_all_scene_resource_changes() {
+        let current = Config::default();
+        let assert_resource_reload = |next: &Config| {
+            let plan = classify_hot_reload(&current, next);
+            assert!(plan.resource_reload);
+            assert!(!plan.is_live_update());
+        };
+
+        let mut path = current.clone();
+        path.objects[0].path = "replacement.glb".to_string();
+        assert_resource_reload(&path);
+
+        let mut base_dir = current.clone();
+        base_dir.base_dir = std::path::PathBuf::from("replacement-scene");
+        assert_resource_reload(&base_dir);
+
+        let mut count = current.clone();
+        count.objects.push(count.objects[0].clone());
+        assert_resource_reload(&count);
+
+        let mut normalization = current.clone();
+        normalization.objects[0].normalization = crate::io::config::ModelNormalization::Preserve;
+        assert_resource_reload(&normalization);
+
+        let mut mip_policy = current.clone();
+        mip_policy.render.use_mipmap = !mip_policy.render.use_mipmap;
+        assert_resource_reload(&mip_policy);
+
+        let mut ground_enabled = current.clone();
+        ground_enabled.ground.enabled = !ground_enabled.ground.enabled;
+        assert_resource_reload(&ground_enabled);
+
+        let mut ground_size = current.clone();
+        ground_size.ground.size += 1.0;
+        assert_resource_reload(&ground_size);
+    }
 
     #[test]
     fn hot_reload_rebuilds_sample_and_shadow_buffers() {

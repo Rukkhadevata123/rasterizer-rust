@@ -40,7 +40,7 @@ A high-performance, multi-threaded software rasterizer built from scratch in Rus
 
 - **Windowing:** Lightweight, zero-bloat window management via `minifb`.
 - **Camera:** FPS-style free-roam camera with WASD movement and mouse look.
-- **Hot Reloading:** Press `R` to reload lights, transforms, render settings, supersampling buffers, and shadow-map buffers. Window dimensions and model/texture assets require a restart.
+- **Hot Reloading:** Press `R` to reload lights, transforms, render settings, model/texture assets, supersampling buffers, and shadow-map buffers. Window dimensions require a restart.
 - **Runtime Tools:** Toggle wireframe modes (`Middle Click`) and cull modes (`Right Click`) on the fly.
 
 ## Project Structure

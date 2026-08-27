@@ -8,7 +8,7 @@ use crate::scene::light::Light;
 use crate::scene::material::{Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
-use crate::scene::scene_object::SceneObject;
+use crate::scene::scene_object::{SceneObject, SceneObjectKind};
 use crate::scene::utils::{center_model, normalize_and_center_model};
 use log::info;
 use nalgebra::{Point3, Vector3};
@@ -57,47 +57,34 @@ pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Option<ShadowLi
     (lights, shadow_light)
 }
 
-/// Helper to update existing SceneObjects with new parameters from config.
-/// Only updates Transform now.
+/// Applies fields that do not require reloading models or rebuilding geometry.
 pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) {
-    let num_loaded_objects = config.objects.len();
-    let total_scene_objects = scene_objects.len();
-
-    // Check if ground exists in memory (index 0)
-    let has_ground_in_memory = total_scene_objects > num_loaded_objects;
-    let obj_start_index = if has_ground_in_memory { 1 } else { 0 };
-
-    // 1. Update Ground
-    if has_ground_in_memory && let Some(ground_obj) = scene_objects.get_mut(0) {
-        if config.ground.enabled {
-            ground_obj.transform = TransformFactory::translation(&Vector3::new(0.0, -1.0, 0.0));
-            if let Some(Material::Pbr(mat)) = ground_obj.model.materials.get_mut(0) {
-                if let Some(c) = config.ground.albedo {
-                    mat.albedo = Vector3::from(c);
-                }
-                if let Some(m) = config.ground.metallic {
-                    mat.metallic = m;
-                }
-                if let Some(r) = config.ground.roughness {
-                    mat.roughness = r;
+    for scene_object in scene_objects {
+        match scene_object.kind {
+            SceneObjectKind::Ground => {
+                if let Some(Material::Pbr(material)) = scene_object.model.materials.get_mut(0) {
+                    material.albedo = config
+                        .ground
+                        .albedo
+                        .map(Vector3::from)
+                        .unwrap_or(Vector3::new(0.6, 0.6, 0.6));
+                    material.metallic = config.ground.metallic.unwrap_or(0.0);
+                    material.roughness = config.ground.roughness.unwrap_or(0.8);
                 }
             }
-        } else {
-            ground_obj.transform = TransformFactory::scaling_nonuniform(&Vector3::zeros());
-        }
-    }
-
-    // 2. Update Loaded Objects (Transforms Only)
-    for (i, obj_conf) in config.objects.iter().enumerate() {
-        let scene_idx = obj_start_index + i;
-        if let Some(scene_obj) = scene_objects.get_mut(scene_idx) {
-            let translation = TransformFactory::translation(&Vector3::from(obj_conf.position));
-            let rotation = TransformFactory::rotation_x(obj_conf.rotation[0].to_radians())
-                * TransformFactory::rotation_y(obj_conf.rotation[1].to_radians())
-                * TransformFactory::rotation_z(obj_conf.rotation[2].to_radians());
-            let scale = TransformFactory::scaling_nonuniform(&Vector3::from(obj_conf.scale));
-
-            scene_obj.transform = translation * rotation * scale;
+            SceneObjectKind::Model { config_index } => {
+                let Some(object_config) = config.objects.get(config_index) else {
+                    continue;
+                };
+                let translation =
+                    TransformFactory::translation(&Vector3::from(object_config.position));
+                let rotation = TransformFactory::rotation_x(object_config.rotation[0].to_radians())
+                    * TransformFactory::rotation_y(object_config.rotation[1].to_radians())
+                    * TransformFactory::rotation_z(object_config.rotation[2].to_radians());
+                let scale =
+                    TransformFactory::scaling_nonuniform(&Vector3::from(object_config.scale));
+                scene_object.transform = translation * rotation * scale;
+            }
         }
     }
 }
@@ -154,6 +141,7 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
             ..Default::default()
         });
         scene_objects.push(SceneObject::new(
+            SceneObjectKind::Ground,
             Model::new(vec![ground_mesh], vec![ground_mat]),
             TransformFactory::translation(&Vector3::new(0.0, -1.0, 0.0)),
         ));
@@ -184,7 +172,13 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
             * TransformFactory::rotation_z(obj_conf.rotation[2].to_radians());
         let scale = TransformFactory::scaling_nonuniform(&Vector3::from(obj_conf.scale));
 
-        scene_objects.push(SceneObject::new(model, translation * rotation * scale));
+        scene_objects.push(SceneObject::new(
+            SceneObjectKind::Model {
+                config_index: object_index,
+            },
+            model,
+            translation * rotation * scale,
+        ));
     }
 
     info!("Scene initialized with {} objects.", scene_objects.len());
@@ -212,7 +206,7 @@ fn apply_model_normalization(model: &mut Model, normalization: ModelNormalizatio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::io::config::LightConfig;
+    use crate::io::config::{LightConfig, ObjectConfig};
 
     fn point_light() -> LightConfig {
         LightConfig {
@@ -283,5 +277,114 @@ mod tests {
 
         assert_eq!(lights.len(), 1);
         assert!(shadow_light.is_none());
+    }
+
+    #[test]
+    fn scene_updates_use_stable_object_kinds_instead_of_positions() {
+        let ground = SceneObject::new(
+            SceneObjectKind::Ground,
+            Model::new(vec![Mesh::create_plane(1.0, 0)], vec![Material::default()]),
+            nalgebra::Matrix4::identity(),
+        );
+        let model = SceneObject::new(
+            SceneObjectKind::Model { config_index: 0 },
+            Model::new(
+                vec![Mesh::create_test_triangle(0)],
+                vec![Material::default()],
+            ),
+            nalgebra::Matrix4::identity(),
+        );
+        let mut scene_objects = vec![model, ground];
+        let config = Config {
+            ground: crate::io::config::GroundConfig {
+                albedo: Some([0.25, 0.5, 0.75]),
+                ..Default::default()
+            },
+            objects: vec![ObjectConfig {
+                path: "unused.gltf".to_string(),
+                position: [3.0, 4.0, 5.0],
+                rotation: [0.0; 3],
+                scale: [1.0; 3],
+                normalization: ModelNormalization::Preserve,
+            }],
+            ..Default::default()
+        };
+
+        update_scene_objects(&mut scene_objects, &config);
+
+        assert_eq!(
+            scene_objects[0].kind,
+            SceneObjectKind::Model { config_index: 0 }
+        );
+        assert_eq!(
+            scene_objects[0]
+                .transform
+                .transform_point(&Point3::origin()),
+            Point3::new(3.0, 4.0, 5.0)
+        );
+        let Material::Pbr(ground_material) = &scene_objects[1].model.materials[0];
+        assert_eq!(ground_material.albedo, Vector3::new(0.25, 0.5, 0.75));
+
+        let reset_config = Config {
+            ground: crate::io::config::GroundConfig {
+                albedo: None,
+                metallic: None,
+                roughness: None,
+                ..Default::default()
+            },
+            ..config
+        };
+        update_scene_objects(&mut scene_objects, &reset_config);
+        let Material::Pbr(ground_material) = &scene_objects[1].model.materials[0];
+        assert_eq!(ground_material.albedo, Vector3::new(0.6, 0.6, 0.6));
+        assert_eq!(ground_material.metallic, 0.0);
+        assert_eq!(ground_material.roughness, 0.8);
+    }
+
+    #[test]
+    fn scene_resource_rebuild_assigns_kinds_from_the_new_config() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/gltf/nested-named-nodes.gltf")
+            .to_string_lossy()
+            .into_owned();
+        let object = ObjectConfig {
+            path: fixture,
+            position: [0.0; 3],
+            rotation: [0.0; 3],
+            scale: [1.0; 3],
+            normalization: ModelNormalization::Preserve,
+        };
+        let initial_config = Config {
+            objects: vec![object.clone(), object.clone()],
+            ..Default::default()
+        };
+
+        let initial = init_scene_resources(&initial_config).expect("fixture scene should load");
+        assert_eq!(initial.scene_objects.len(), 3);
+        assert_eq!(initial.scene_objects[0].kind, SceneObjectKind::Ground);
+        assert_eq!(
+            initial.scene_objects[1].kind,
+            SceneObjectKind::Model { config_index: 0 }
+        );
+        assert_eq!(
+            initial.scene_objects[2].kind,
+            SceneObjectKind::Model { config_index: 1 }
+        );
+
+        let rebuilt_config = Config {
+            ground: crate::io::config::GroundConfig {
+                enabled: false,
+                ..Default::default()
+            },
+            objects: vec![object],
+            ..initial_config
+        };
+        let rebuilt = init_scene_resources(&rebuilt_config).expect("fixture scene should rebuild");
+
+        assert_eq!(rebuilt.scene_objects.len(), 1);
+        assert_eq!(
+            rebuilt.scene_objects[0].kind,
+            SceneObjectKind::Model { config_index: 0 }
+        );
     }
 }

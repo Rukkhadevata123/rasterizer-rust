@@ -18,7 +18,7 @@ use rasterizer_rust::scene::light::Light;
 use rasterizer_rust::scene::material::{AlphaMode, Material, PbrMaterial};
 use rasterizer_rust::scene::mesh::Mesh;
 use rasterizer_rust::scene::model::Model;
-use rasterizer_rust::scene::scene_object::SceneObject;
+use rasterizer_rust::scene::scene_object::{SceneObject, SceneObjectKind};
 use rasterizer_rust::scene::texture::Texture;
 use std::ops::{Add, Mul};
 use std::sync::Arc;
@@ -419,6 +419,7 @@ fn double_sided_material_disables_culling_per_command() {
             camera: shadow_test_camera(),
             lights: Vec::new(),
             scene_objects: vec![SceneObject::new(
+                SceneObjectKind::Model { config_index: 0 },
                 Model::new(vec![mesh], vec![material]),
                 Matrix4::identity(),
             )],
@@ -679,6 +680,7 @@ fn blended_materials_do_not_write_shadow_depth() {
             1.0,
         )],
         scene_objects: vec![SceneObject::new(
+            SceneObjectKind::Model { config_index: 0 },
             Model::new(vec![triangle(0.0, Vector4::zeros())], vec![material]),
             Matrix4::identity(),
         )],
@@ -719,6 +721,7 @@ fn double_sided_material_disables_shadow_culling_per_command() {
                 1.0,
             )],
             scene_objects: vec![SceneObject::new(
+                SceneObjectKind::Model { config_index: 0 },
                 Model::new(vec![mesh], vec![material]),
                 Matrix4::identity(),
             )],
