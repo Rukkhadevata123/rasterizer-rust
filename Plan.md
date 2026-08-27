@@ -116,15 +116,17 @@ This phase fixes importer topology, indexing, validation, and diagnostics withou
 
 ### 4A: Minimal Fixtures
 
-Create small fixtures under `tests/fixtures/gltf/` for:
+Status: completed
 
-- one image referenced by multiple glTF textures;
-- texture indices that differ from source-image indices;
-- nested nodes, including legitimate names containing `plane` or `shadow`;
-- indexed and non-indexed triangles;
-- triangle strips and fans;
-- invalid indices and mismatched attribute counts;
-- unsupported primitive modes and image formats.
+Created small fixtures under `tests/fixtures/gltf/` for:
+
+- [x] one image referenced by multiple glTF textures;
+- [x] texture indices that differ from source-image indices;
+- [x] nested nodes, including legitimate names containing `plane` or `shadow`;
+- [x] indexed and non-indexed triangles;
+- [x] triangle strips and fans;
+- [x] invalid indices and mismatched attribute counts;
+- [x] unsupported primitive modes and image formats.
 
 Keep fixtures in the kilobyte range and independent of demonstration assets.
 
@@ -479,4 +481,4 @@ Repository state when this roadmap was revised:
 - 54 tests are present after Phase 3E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 4A. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.
+Immediate target: Phase 4B. Do not begin the RenderState redesign, texture resource redesign, MikkTSpace work, or tile renderer in the same change set.

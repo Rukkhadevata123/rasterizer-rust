@@ -1,0 +1,25 @@
+{
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [{ "nodes": [0] }],
+  "nodes": [
+    { "name": "display_plane", "children": [1] },
+    { "name": "shadow_archive", "mesh": 0, "translation": [2.0, 0.0, 0.0] }
+  ],
+  "meshes": [{
+    "primitives": [{ "attributes": { "POSITION": 0 } }]
+  }],
+  "buffers": [{
+    "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAAAAAAAPwAAAL8AAAAAAAAAAAAAAD8AAAAA",
+    "byteLength": 36
+  }],
+  "bufferViews": [{ "buffer": 0, "byteLength": 36, "target": 34962 }],
+  "accessors": [{
+    "bufferView": 0,
+    "componentType": 5126,
+    "count": 3,
+    "type": "VEC3",
+    "min": [-0.5, -0.5, 0.0],
+    "max": [0.5, 0.5, 0.0]
+  }]
+}
