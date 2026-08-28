@@ -369,10 +369,12 @@ Status: completed
 
 ### 7C: Rasterization Rules
 
-- Implement a standard top-left fill rule.
-- Test two triangles sharing an edge for both cracks and double coverage.
-- Use pixel-space edge distance for stable wireframe width.
-- Reject non-finite clip, screen, and depth values consistently.
+Status: completed
+
+- [x] Implement a standard top-left fill rule.
+- [x] Test two triangles sharing an edge for both cracks and double coverage.
+- [x] Use pixel-space edge distance for stable wireframe width.
+- [x] Reject non-finite clip, screen, and depth values consistently.
 
 ### 7D: Shadow Quality
 
@@ -505,12 +507,12 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 7B:
+Repository state after Phase 7C:
 
 - branch: `main`;
-- completed commits through `bd1b232` cover Phases 1 through 7A;
-- Phase 7B generates usage-aware linear color, raw data, and renormalized normal mip chains;
-- 115 tests are present after Phase 7B;
+- completed commits through `caa4a88` cover Phases 1 through 7B;
+- Phase 7C applies top-left coverage, pixel-space wireframe width, and finite raster input checks;
+- 118 tests are present after Phase 7C;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 7C rasterization rules. Do not begin the tile renderer in the same change set.
+Immediate target: Phase 7D shadow quality. Do not begin the tile renderer in the same change set.

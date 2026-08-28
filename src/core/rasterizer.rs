@@ -1,8 +1,6 @@
 use crate::core::framebuffer::{FrameBuffer, Sample};
 use crate::core::geometry::SUPPORTED_TEXCOORD_SETS;
-use crate::core::math::interpolation::{
-    barycentric_coordinates, is_inside_triangle, perspective_correct_barycentric,
-};
+use crate::core::math::interpolation::{barycentric_coordinates, perspective_correct_barycentric};
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
 use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use nalgebra::{Point2, Vector4};
@@ -10,6 +8,7 @@ use rayon::prelude::*;
 use std::ops::RangeInclusive;
 
 const RASTER_BAND_HEIGHT: usize = 16;
+const WIREFRAME_HALF_WIDTH: f32 = 1.0;
 
 pub struct Rasterizer;
 
@@ -88,6 +87,9 @@ pub(crate) struct PreparedTriangle<'a, V, S, C> {
     fragment_context: C,
     front_facing: bool,
     uv_densities: [f32; SUPPORTED_TEXCOORD_SETS],
+    edge_is_top_left: [bool; 3],
+    edge_inverse_lengths: [f32; 3],
+    orientation: f32,
     start_x: usize,
     end_x: usize,
     start_y: usize,
@@ -119,6 +121,13 @@ impl Rasterizer {
         S::Varying: Interpolatable + Copy,
         C: Copy + Send + Sync,
     {
+        if clip_coords
+            .iter()
+            .any(|position| !position.iter().all(|component| component.is_finite()))
+        {
+            return Vec::new();
+        }
+
         let mut current_poly = Vec::with_capacity(16);
         let mut clip_buffer = Vec::with_capacity(16);
 
@@ -274,7 +283,12 @@ impl Rasterizer {
             return None;
         }
 
-        Some((a.0 + (b.0 - a.0) * t, a.1 * (1.0 - t) + b.1 * t))
+        let position = a.0 + (b.0 - a.0) * t;
+        if !position.iter().all(|component| component.is_finite()) {
+            return None;
+        }
+
+        Some((position, a.1 * (1.0 - t) + b.1 * t))
     }
 
     fn prepare_screen_triangle<'a, V, S, C>(
@@ -298,7 +312,11 @@ impl Rasterizer {
         let mut clip_z = [0.0; 3];
 
         for index in 0..3 {
-            if clip_coords[index].w.abs() < 1e-6 {
+            if !clip_coords[index]
+                .iter()
+                .all(|component| component.is_finite())
+                || clip_coords[index].w.abs() < 1e-6
+            {
                 return None;
             }
 
@@ -310,12 +328,41 @@ impl Rasterizer {
             w_values[index] = clip_coords[index].w;
             clip_z[index] = clip_coords[index].z;
             screen_coords[index] = ndc_to_screen(ndc.x, ndc.y, width, height);
+            if !screen_coords[index]
+                .coords
+                .iter()
+                .all(|component| component.is_finite())
+            {
+                return None;
+            }
         }
 
         let edge1 = screen_coords[1] - screen_coords[0];
         let edge2 = screen_coords[2] - screen_coords[1];
         let signed_area = edge1.x * edge2.y - edge1.y * edge2.x;
-        if signed_area.abs() < 1e-6 {
+        if !signed_area.is_finite() || signed_area.abs() < 1e-6 {
+            return None;
+        }
+
+        let orientation = signed_area.signum();
+        let edges = [
+            (screen_coords[1], screen_coords[2]),
+            (screen_coords[2], screen_coords[0]),
+            (screen_coords[0], screen_coords[1]),
+        ];
+        let edge_is_top_left = edges.map(|(start, end)| {
+            let (start, end) = if orientation > 0.0 {
+                (start, end)
+            } else {
+                (end, start)
+            };
+            Self::is_top_left_edge(start, end)
+        });
+        let edge_inverse_lengths = edges.map(|(start, end)| 1.0 / (end - start).norm());
+        if edge_inverse_lengths
+            .iter()
+            .any(|inverse_length| !inverse_length.is_finite())
+        {
             return None;
         }
 
@@ -383,11 +430,27 @@ impl Rasterizer {
             fragment_context,
             front_facing,
             uv_densities,
+            edge_is_top_left,
+            edge_inverse_lengths,
+            orientation,
             start_x: min_x.max(0) as usize,
             end_x: max_x.min(framebuffer_width as i32 - 1) as usize,
             start_y: min_y.max(0) as usize,
             end_y: max_y.min(framebuffer_height as i32 - 1) as usize,
         })
+    }
+
+    #[inline(always)]
+    fn edge_function(start: Point2<f32>, end: Point2<f32>, point: Point2<f32>) -> f32 {
+        let edge = end - start;
+        let offset = point - start;
+        edge.x * offset.y - edge.y * offset.x
+    }
+
+    #[inline(always)]
+    fn is_top_left_edge(start: Point2<f32>, end: Point2<f32>) -> bool {
+        let edge = end - start;
+        edge.y < 0.0 || (edge.y == 0.0 && edge.x > 0.0)
     }
 
     fn rasterize_triangle_band<S, C>(
@@ -413,6 +476,32 @@ impl Rasterizer {
             let row_offset = (y - band_start_y) * framebuffer_width;
             for x in triangle.start_x..=triangle.end_x {
                 let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
+                let edge_values = [
+                    Self::edge_function(
+                        triangle.screen_coords[1],
+                        triangle.screen_coords[2],
+                        pixel_center,
+                    ),
+                    Self::edge_function(
+                        triangle.screen_coords[2],
+                        triangle.screen_coords[0],
+                        pixel_center,
+                    ),
+                    Self::edge_function(
+                        triangle.screen_coords[0],
+                        triangle.screen_coords[1],
+                        pixel_center,
+                    ),
+                ];
+                let covered = edge_values.iter().enumerate().all(|(index, value)| {
+                    let oriented_value = value * triangle.orientation;
+                    oriented_value > 0.0
+                        || (oriented_value == 0.0 && triangle.edge_is_top_left[index])
+                });
+                if !covered {
+                    continue;
+                }
+
                 let Some(barycentric) = barycentric_coordinates(
                     pixel_center,
                     triangle.screen_coords[0],
@@ -422,14 +511,10 @@ impl Rasterizer {
                     continue;
                 };
 
-                if !is_inside_triangle(barycentric) {
-                    continue;
-                }
-
                 if triangle.state.wireframe
-                    && barycentric.x > 0.02
-                    && barycentric.y > 0.02
-                    && barycentric.z > 0.02
+                    && edge_values.iter().zip(triangle.edge_inverse_lengths).all(
+                        |(edge, inverse_length)| edge.abs() * inverse_length > WIREFRAME_HALF_WIDTH,
+                    )
                 {
                     continue;
                 }

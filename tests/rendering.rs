@@ -171,6 +171,54 @@ impl<'a> Shader<Option<&'a Material>> for FacingShader {
     }
 }
 
+struct AdditiveCoverageShader;
+
+impl<'a> Shader<Option<&'a Material>> for AdditiveCoverageShader {
+    type Varying = ColorVarying;
+
+    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+        (
+            Vector4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0),
+            ColorVarying {
+                color: vertex.tangent,
+            },
+        )
+    }
+
+    fn fragment(
+        &self,
+        input: FragmentInput<Self::Varying>,
+        _material: Option<&'a Material>,
+    ) -> FragmentOutput {
+        FragmentOutput::Color(input.varying.color)
+    }
+}
+
+struct NonFiniteClipShader {
+    clip: Vector4<f32>,
+}
+
+impl<'a> Shader<Option<&'a Material>> for NonFiniteClipShader {
+    type Varying = ColorVarying;
+
+    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+        (
+            self.clip,
+            ColorVarying {
+                color: vertex.tangent,
+            },
+        )
+    }
+
+    fn fragment(
+        &self,
+        input: FragmentInput<Self::Varying>,
+        _material: Option<&'a Material>,
+    ) -> FragmentOutput {
+        FragmentOutput::Color(input.varying.color)
+    }
+}
+
 fn triangle(z: f32, color: Vector4<f32>) -> Mesh {
     let mut vertices = vec![
         Vertex::new(Point3::new(-0.8, -0.8, z), Vector3::z(), Vector2::zeros()),
@@ -550,6 +598,98 @@ fn triangle_rasterization_crosses_band_boundaries() {
 
     for y in [0, 15, 16, 31, 32, 47, 48, 63, 64, 69] {
         assert_vec3_approx(renderer.framebuffer.get_pixel(24, y).unwrap(), color.xyz());
+    }
+}
+
+#[test]
+fn top_left_rule_covers_shared_edge_once_without_cracks() {
+    let shader = AdditiveCoverageShader;
+    let color = Vector4::new(1.0, 0.0, 0.0, 0.5);
+    let mut vertices = vec![
+        Vertex::new(Point3::new(-1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(-1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
+    ];
+    for vertex in &mut vertices {
+        vertex.tangent = color;
+    }
+    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
+    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    draw_mesh(
+        &mut renderer,
+        &mesh,
+        &shader,
+        None,
+        RenderState {
+            blend_mode: BlendMode::Alpha,
+            depth_test: false,
+            depth_write: false,
+            ..test_render_state()
+        },
+    );
+
+    for coordinate in 0..32 {
+        assert_vec3_approx(
+            renderer
+                .framebuffer
+                .get_pixel(coordinate, coordinate)
+                .unwrap(),
+            Vector3::new(0.5, 0.0, 0.0),
+        );
+    }
+}
+
+#[test]
+fn wireframe_width_is_stable_in_pixel_space() {
+    let shader = ClipSpaceShader;
+    let color = Vector4::new(1.0, 1.0, 1.0, 1.0);
+    let render = |width| {
+        let mut renderer = Renderer::new(width, width, 1).expect("test dimensions should be valid");
+        draw_mesh(
+            &mut renderer,
+            &triangle(0.0, color),
+            &shader,
+            None,
+            RenderState {
+                wireframe: true,
+                ..test_render_state()
+            },
+        );
+        (0..width)
+            .flat_map(|y| (0..width).map(move |x| (x, y)))
+            .filter(|&(x, y)| renderer.framebuffer.get_pixel(x, y).unwrap().norm_squared() > 0.0)
+            .count()
+    };
+
+    let small = render(32) as f32;
+    let large = render(64) as f32;
+    assert!(
+        large / small < 3.0,
+        "wireframe area scaled as {small} -> {large}"
+    );
+    assert!(
+        large / small > 1.5,
+        "wireframe area scaled as {small} -> {large}"
+    );
+}
+
+#[test]
+fn non_finite_clip_coordinates_are_rejected() {
+    let mesh = triangle(0.0, Vector4::new(1.0, 0.0, 0.0, 1.0));
+    for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let shader = NonFiniteClipShader {
+            clip: Vector4::new(invalid, 0.0, 0.0, 1.0),
+        };
+        let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+        draw_mesh(&mut renderer, &mesh, &shader, None, test_render_state());
+        for y in 0..32 {
+            for x in 0..32 {
+                let sample = renderer.framebuffer.sample(x, y).unwrap();
+                assert!(sample.depth.is_infinite());
+                assert_eq!(sample.color, Vector3::zeros());
+            }
+        }
     }
 }
 
