@@ -82,6 +82,7 @@ pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) 
                         .unwrap_or(Vector3::new(0.6, 0.6, 0.6));
                     material.metallic = config.ground.metallic.unwrap_or(0.0);
                     material.roughness = config.ground.roughness.unwrap_or(0.8);
+                    material.sanitize_factors();
                 }
             }
             SceneObjectKind::Model { config_index } => {
@@ -133,7 +134,7 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
     // 3.1 Ground
     if config.ground.enabled {
         let ground_mesh = Mesh::create_plane(config.ground.size, 0);
-        let ground_mat = Material::Pbr(PbrMaterial {
+        let mut ground_material = PbrMaterial {
             albedo: config
                 .ground
                 .albedo
@@ -141,10 +142,12 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
                 .unwrap_or(Vector3::new(0.6, 0.6, 0.6)),
             metallic: config.ground.metallic.unwrap_or(0.0),
             roughness: config.ground.roughness.unwrap_or(0.8),
-            ao: 1.0,
+            occlusion_strength: 1.0,
             emissive: Vector3::zeros(),
             ..Default::default()
-        });
+        };
+        ground_material.sanitize_factors();
+        let ground_mat = Material::Pbr(ground_material);
         scene_objects.push(SceneObject::new(
             SceneObjectKind::Ground,
             Model::new(vec![ground_mesh], vec![ground_mat]),

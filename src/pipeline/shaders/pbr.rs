@@ -8,6 +8,45 @@ use std::f32::consts::PI;
 use std::ops::{Add, Mul};
 use std::sync::Arc;
 
+fn base_color(material: &PbrMaterial, texel: Option<Vector4<f32>>) -> (Vector3<f32>, f32) {
+    let texel = texel.unwrap_or_else(|| Vector4::repeat(1.0));
+    (
+        texel.xyz().component_mul(&material.albedo),
+        texel.w * material.alpha,
+    )
+}
+
+fn metallic_roughness(material: &PbrMaterial, texel: Option<Vector4<f32>>) -> (f32, f32) {
+    let (roughness_sample, metallic_sample) = texel.map_or((1.0, 1.0), |texel| {
+        // glTF stores roughness in G and metallic in B.
+        (texel.y, texel.z)
+    });
+    (
+        roughness_sample * material.roughness,
+        metallic_sample * material.metallic,
+    )
+}
+
+fn occlusion(material: &PbrMaterial, texel: Option<Vector4<f32>>) -> f32 {
+    texel.map_or(1.0, |texel| {
+        1.0 + material.occlusion_strength * (texel.x - 1.0)
+    })
+}
+
+fn emissive(material: &PbrMaterial, texel: Option<Vector4<f32>>) -> Vector3<f32> {
+    texel.map_or(material.emissive, |texel| {
+        texel.xyz().component_mul(&material.emissive)
+    })
+}
+
+fn tangent_space_normal(texel: Vector4<f32>, scale: f32) -> Vector3<f32> {
+    Vector3::new(
+        (texel.x * 2.0 - 1.0) * scale,
+        (texel.y * 2.0 - 1.0) * scale,
+        texel.z * 2.0 - 1.0,
+    )
+}
+
 /// Data passed from Vertex Shader to Fragment Shader.
 #[derive(Clone, Copy, Debug)]
 pub struct PbrVarying {
@@ -275,40 +314,20 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
             binding.sample_with_density(uv.x, uv.y, input.uv_density(set))
         };
 
-        let (albedo, alpha) = if let Some(tex) = &mat.albedo_texture {
-            let s = sample_texture(tex);
-            (s.xyz(), s.w * mat.alpha)
-        } else {
-            (mat.albedo, mat.alpha)
-        };
+        let (albedo, alpha) = base_color(mat, mat.albedo_texture.as_ref().map(sample_texture));
 
         if matches!(mat.alpha_mode, AlphaMode::Mask(cutoff) if alpha < cutoff) {
             return FragmentOutput::Discard;
         }
 
-        // Standard glTF packing: Green = Roughness, Blue = Metallic
-        let (roughness, metallic) = if let Some(tex) = &mat.metallic_roughness_texture {
-            let sample = sample_texture(tex);
-            (sample.y * mat.roughness, sample.z * mat.metallic)
-        } else {
-            (mat.roughness, mat.metallic)
-        };
+        let (roughness, metallic) = metallic_roughness(
+            mat,
+            mat.metallic_roughness_texture.as_ref().map(sample_texture),
+        );
 
-        // Sample AO
-        // GLTF Occlusion: Usually R channel.
-        let ao = if let Some(tex) = &mat.ao_texture {
-            sample_texture(tex).x * mat.ao
-        } else {
-            mat.ao
-        };
+        let ao = occlusion(mat, mat.ao_texture.as_ref().map(sample_texture));
 
-        // Sample Emissive
-        // Emissive Map should be sRGB -> Linear
-        let emissive_color = if let Some(tex) = &mat.emissive_texture {
-            sample_texture(tex).xyz().component_mul(&mat.emissive)
-        } else {
-            mat.emissive
-        };
+        let emissive_color = emissive(mat, mat.emissive_texture.as_ref().map(sample_texture));
 
         // 2. Calculate Normal (Normal Mapping)
         let geom_normal = if input.front_facing {
@@ -333,14 +352,8 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
 
                 let tbn = Matrix3::from_columns(&[t, b, geom_normal]);
 
-                let packed_normal = sample_texture(normal_map).xyz();
-
-                // glTF tangent-space normals store +Y in the green channel.
-                let local_normal = Vector3::new(
-                    packed_normal.x * 2.0 - 1.0,
-                    packed_normal.y * 2.0 - 1.0,
-                    packed_normal.z * 2.0 - 1.0,
-                );
+                let local_normal =
+                    tangent_space_normal(sample_texture(normal_map), mat.normal_scale);
 
                 (tbn * local_normal).normalize()
             } else {
@@ -413,5 +426,63 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
             final_color.z,
             alpha,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_vec3_approx(actual: Vector3<f32>, expected: Vector3<f32>) {
+        assert!(
+            (actual - expected).abs().max() < 1.0e-6,
+            "expected {expected:?}, got {actual:?}"
+        );
+    }
+
+    #[test]
+    fn texture_channels_are_multiplied_by_material_factors() {
+        let material = PbrMaterial {
+            albedo: Vector3::new(0.5, 0.25, 0.75),
+            alpha: 0.4,
+            metallic: 0.8,
+            roughness: 0.6,
+            emissive: Vector3::new(0.2, 0.4, 0.6),
+            ..Default::default()
+        };
+
+        let (albedo, alpha) = base_color(&material, Some(Vector4::new(0.8, 0.4, 0.2, 0.5)));
+        let (roughness, metallic) =
+            metallic_roughness(&material, Some(Vector4::new(0.0, 0.5, 0.25, 1.0)));
+        let emissive = emissive(&material, Some(Vector4::new(0.5, 0.25, 1.0, 1.0)));
+
+        assert_vec3_approx(albedo, Vector3::new(0.4, 0.1, 0.15));
+        assert!((alpha - 0.2).abs() < 1.0e-6);
+        assert!((roughness - 0.3).abs() < 1.0e-6);
+        assert!((metallic - 0.2).abs() < 1.0e-6);
+        assert_vec3_approx(emissive, Vector3::new(0.1, 0.1, 0.6));
+    }
+
+    #[test]
+    fn occlusion_strength_blends_between_unoccluded_and_sampled_values() {
+        let material = PbrMaterial {
+            occlusion_strength: 0.25,
+            ..Default::default()
+        };
+
+        assert!(
+            (occlusion(&material, Some(Vector4::new(0.2, 0.0, 0.0, 1.0))) - 0.8).abs() < 1.0e-6
+        );
+        assert_eq!(occlusion(&material, None), 1.0);
+    }
+
+    #[test]
+    fn normal_scale_affects_only_tangent_space_xy() {
+        let texel = Vector4::new(0.75, 0.25, 1.0, 1.0);
+
+        assert_vec3_approx(
+            tangent_space_normal(texel, 0.5),
+            Vector3::new(0.25, -0.25, 1.0),
+        );
     }
 }

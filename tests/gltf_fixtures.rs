@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use nalgebra::Vector2;
+use nalgebra::{Vector2, Vector3};
 use rasterizer_rust::error::GltfError;
 use rasterizer_rust::io::gltf_loader::load_gltf;
+use rasterizer_rust::scene::material::AlphaMode;
 use rasterizer_rust::scene::texture::{MagFilter, MinFilter, TexCoordSet, TextureUsage, WrapMode};
 
 fn fixture_path(name: &str) -> PathBuf {
@@ -157,6 +158,45 @@ fn phase_6c_rejects_texture_transform_extension() {
         } => {
             assert_eq!(error_path, path);
             assert!(reason.contains("KHR_texture_transform"));
+        }
+        error => panic!("expected unsupported-feature error, got {error}"),
+    }
+}
+
+#[test]
+fn phase_6d_imports_core_material_factors() {
+    let model = load_gltf(fixture_path("shared-image-textures.gltf"), false)
+        .expect("material-factor fixture should load");
+    let rasterizer_rust::scene::material::Material::Pbr(material) = &model.materials[0];
+
+    assert_eq!(material.albedo, Vector3::new(0.5, 0.25, 0.75));
+    assert_eq!(material.alpha, 0.4);
+    assert_eq!(material.metallic, 0.8);
+    assert_eq!(material.roughness, 0.6);
+    assert_eq!(material.normal_scale, 0.5);
+    assert_eq!(material.occlusion_strength, 0.25);
+    assert_eq!(material.emissive, Vector3::new(0.2, 0.4, 0.6));
+    assert_eq!(material.alpha_mode, AlphaMode::Mask(0.35));
+    assert!(material.double_sided);
+    assert!(material.normal_texture.is_some());
+    assert!(material.ao_texture.is_some());
+}
+
+#[test]
+fn phase_6d_rejects_unsupported_emissive_strength_extension() {
+    let path = fixture_path("emissive-strength.gltf");
+    let error = match load_gltf(&path, false) {
+        Ok(_) => panic!("emissive-strength extension should not be silently ignored"),
+        Err(error) => error,
+    };
+
+    match error {
+        GltfError::Unsupported {
+            path: error_path,
+            reason,
+        } => {
+            assert_eq!(error_path, path);
+            assert!(reason.contains("KHR_materials_emissive_strength"));
         }
         error => panic!("expected unsupported-feature error, got {error}"),
     }

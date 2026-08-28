@@ -25,14 +25,15 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
         path: path.to_path_buf(),
         source: Box::new(source),
     })?;
-    if gltf
-        .document
-        .extensions_used()
-        .any(|extension| extension == "KHR_texture_transform")
-    {
+    if let Some(extension) = gltf.document.extensions_used().find(|extension| {
+        matches!(
+            *extension,
+            "KHR_texture_transform" | "KHR_materials_emissive_strength"
+        )
+    }) {
         return Err(GltfError::Unsupported {
             path: path.to_path_buf(),
-            reason: "KHR_texture_transform is not supported".to_string(),
+            reason: format!("{extension} is not supported"),
         });
     }
     let base = path.parent().unwrap_or_else(|| Path::new("./"));
@@ -615,6 +616,14 @@ fn convert_material(
     let roughness = pbr.roughness_factor();
     let emissive_factor = mat.emissive_factor();
     let emissive = Vector3::from(emissive_factor);
+    let normal_scale = mat
+        .normal_texture()
+        .map(|texture| texture.scale())
+        .unwrap_or(1.0);
+    let occlusion_strength = mat
+        .occlusion_texture()
+        .map(|texture| texture.strength())
+        .unwrap_or(1.0);
 
     let get_tex = |info: Option<gltf::texture::Info>, usage| {
         info.map(|info| {
@@ -673,12 +682,13 @@ fn convert_material(
         gltf::material::AlphaMode::Blend => AlphaMode::Blend,
     };
 
-    Ok(Material::Pbr(PbrMaterial {
+    let mut material = PbrMaterial {
         albedo,
         alpha,
         metallic,
         roughness,
-        ao: 1.0, // Base factor, usually 1.0 in GLTF if texture exists
+        normal_scale,
+        occlusion_strength,
         emissive,
         alpha_mode,
         double_sided: mat.double_sided(),
@@ -687,7 +697,10 @@ fn convert_material(
         normal_texture,
         ao_texture,
         emissive_texture,
-    }))
+    };
+    material.sanitize_factors();
+
+    Ok(Material::Pbr(material))
 }
 
 fn resolve_texture_binding(

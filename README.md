@@ -28,6 +28,7 @@ A high-performance, multi-threaded software rasterizer built from scratch in Rus
 - **Shadow Mapping:** Real-time soft shadows using Percentage-Closer Filtering (PCF), adaptive bias, and alpha-tested cutout casters.
 - **Anti-Aliasing:** SSAA (Super-Sample Anti-Aliasing) support for smooth edges.
 - **Texture Filtering:** glTF UV0/UV1 bindings with repeat, clamp, mirrored-repeat, nearest, linear, and mip-filter sampler semantics.
+- **glTF Materials:** Complete core metallic-roughness factors for base color, alpha, metallic, roughness, normals, occlusion, and emissive output. Unsupported `KHR_texture_transform` and `KHR_materials_emissive_strength` inputs fail explicitly.
 
 ### High Performance Architecture
 

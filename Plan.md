@@ -310,17 +310,17 @@ Status: completed
 
 ### 6D: Complete Material Factors
 
-Implement and test:
+Status: completed
 
-- base-color texture multiplied by base-color RGB and alpha factors;
-- metallic and roughness channels multiplied by their factors;
-- normal texture scale;
-- occlusion strength;
-- emissive factor and documented extension limitations;
-- clamped, finite material inputs;
-- per-material double-sided behavior from Phase 5.
+- [x] Multiply base-color texture RGB and alpha by their factors.
+- [x] Multiply metallic and roughness texture channels by their factors.
+- [x] Apply normal texture scale to tangent-space X/Y components.
+- [x] Blend occlusion from fully lit to the texture R channel using occlusion strength.
+- [x] Multiply emissive texture RGB by the emissive factor and explicitly reject unsupported `KHR_materials_emissive_strength`.
+- [x] Replace non-finite inputs and clamp core material factors to their supported ranges.
+- [x] Preserve per-material double-sided behavior from Phase 5.
 
-Base-color RGB factor is a known current rendering bug and should be the first 6D fix.
+The base-color RGB factor bug was fixed first, before the remaining 6D factors were completed.
 
 ### 6E: Normals, Tangents, and Mirrored Transforms
 
@@ -501,12 +501,12 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 6C:
+Repository state after Phase 6D:
 
 - branch: `main`;
-- completed commits through `c5a586a` cover Phases 1 through 6B;
-- commit Phase 6C as a bounded change before starting Phase 6D;
-- 95 tests are present after Phase 6C;
+- completed commits through `f22da0d` cover Phases 1 through 6C;
+- commit Phase 6D as a bounded change before starting Phase 6E;
+- 102 tests are present after Phase 6D;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 6D, beginning with the base-color RGB factor bug. Do not begin MikkTSpace work or the tile renderer in the same change set.
+Immediate target: Phase 6E, beginning with MikkTSpace-compatible tangent generation now that UV-set selection and missing-normal generation are in place. Do not begin the tile renderer in the same change set.

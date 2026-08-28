@@ -877,6 +877,7 @@ fn pbr_material_texture_binding_selects_texcoord1() {
         false,
     );
     let material = Material::Pbr(PbrMaterial {
+        albedo: Vector3::new(0.25, 0.5, 0.75),
         albedo_texture: Some(TextureBinding::new(
             Arc::new(image),
             SamplerState {
@@ -916,7 +917,7 @@ fn pbr_material_texture_binding_selects_texcoord1() {
         FragmentOutput::Discard => panic!("opaque PBR fragment should produce color"),
     };
 
-    assert_vec3_approx(color.xyz(), Vector3::new(0.0, 1.0, 0.0));
+    assert_vec3_approx(color.xyz(), Vector3::new(0.0, 0.5, 0.0));
 }
 
 #[test]
