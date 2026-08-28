@@ -1,6 +1,7 @@
+use crate::core::color::srgb_to_linear;
 use image::{DynamicImage, GenericImageView};
 use log::info;
-use nalgebra::Vector4;
+use nalgebra::{Vector3, Vector4};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -149,16 +150,7 @@ impl TextureBinding {
     }
 
     pub fn sample_with_density(&self, u: f32, v: f32, uv_density: f32) -> Vector4<f32> {
-        let sample = self.sample_data_with_density(u, v, uv_density);
-        match self.usage {
-            TextureUsage::Color => Vector4::new(
-                sample.x.powf(2.2),
-                sample.y.powf(2.2),
-                sample.z.powf(2.2),
-                sample.w,
-            ),
-            TextureUsage::Data => sample,
-        }
+        self.sample_data_with_density(u, v, uv_density)
     }
 
     pub fn sample(&self, u: f32, v: f32) -> Vector4<f32> {
@@ -251,12 +243,19 @@ impl TextureBinding {
         let x = Self::address_index(x, width, self.sampler.wrap_u);
         let y = Self::address_index(y, height, self.sampler.wrap_v);
         let pixel = image.get_pixel(x as u32, y as u32);
-        Vector4::new(
+        let sample = Vector4::new(
             pixel[0] as f32 / 255.0,
             pixel[1] as f32 / 255.0,
             pixel[2] as f32 / 255.0,
             pixel[3] as f32 / 255.0,
-        )
+        );
+        match self.usage {
+            TextureUsage::Color => {
+                let linear = srgb_to_linear(Vector3::new(sample.x, sample.y, sample.z));
+                Vector4::new(linear.x, linear.y, linear.z, sample.w)
+            }
+            TextureUsage::Data => sample,
+        }
     }
 
     fn address_index(index: i32, size: i32, wrap: WrapMode) -> i32 {
@@ -489,26 +488,82 @@ mod tests {
     }
 
     #[test]
-    fn color_binding_decodes_srgb_but_preserves_alpha() {
-        let image = Arc::new(TextureImage::from_image(test_image(), false));
+    fn color_binding_decodes_texels_before_filtering_and_preserves_alpha() {
+        let image = Arc::new(two_texel_image());
+        let sampler = SamplerState {
+            wrap_u: WrapMode::ClampToEdge,
+            wrap_v: WrapMode::ClampToEdge,
+            mag_filter: MagFilter::Linear,
+            min_filter: MinFilter::Linear,
+        };
         let data = TextureBinding::new(
             image.clone(),
-            SamplerState::default(),
+            sampler,
             TexCoordSet::TexCoord0,
             TextureUsage::Data,
         )
         .sample(0.5, 0.5);
-        let color = TextureBinding::new(
-            image,
-            SamplerState::default(),
+        let color =
+            TextureBinding::new(image, sampler, TexCoordSet::TexCoord0, TextureUsage::Color)
+                .sample(0.5, 0.5);
+
+        assert_vec4_approx(color, Vector4::new(0.5, 0.5, 0.0, 1.0));
+        assert_vec4_approx(color, data);
+        assert_eq!(color.w, data.w);
+    }
+
+    #[test]
+    fn color_and_data_bindings_interpret_mid_gray_differently() {
+        let image = Arc::new(TextureImage::from_image(
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(1, 1, Rgba([128, 128, 128, 128]))),
+            false,
+        ));
+        let sample = |usage| {
+            TextureBinding::new(
+                image.clone(),
+                SamplerState::default(),
+                TexCoordSet::TexCoord0,
+                usage,
+            )
+            .sample(0.5, 0.5)
+        };
+
+        let encoded = 128.0 / 255.0;
+        let linear = srgb_to_linear(Vector3::repeat(encoded)).x;
+        assert_vec4_approx(
+            sample(TextureUsage::Color),
+            Vector4::new(linear, linear, linear, encoded),
+        );
+        assert_vec4_approx(sample(TextureUsage::Data), Vector4::repeat(encoded));
+    }
+
+    #[test]
+    fn trilinear_color_filtering_blends_decoded_mip_texels() {
+        let mip = |value| {
+            Arc::new(DynamicImage::ImageRgba8(RgbaImage::from_pixel(
+                1,
+                1,
+                Rgba([value, value, value, 255]),
+            )))
+        };
+        let texture = TextureBinding::new(
+            Arc::new(TextureImage {
+                mips: vec![mip(128), mip(255)],
+                width: 2,
+                height: 1,
+            }),
+            SamplerState {
+                min_filter: MinFilter::LinearMipmapLinear,
+                ..Default::default()
+            },
             TexCoordSet::TexCoord0,
             TextureUsage::Color,
-        )
-        .sample(0.5, 0.5);
+        );
+        let density_for_halfway_lod = 2.0_f32.sqrt() / 2.0;
+        let sample = texture.sample_with_density(0.5, 0.5, density_for_halfway_lod);
+        let gray_linear = srgb_to_linear(Vector3::repeat(128.0 / 255.0)).x;
+        let expected = (gray_linear + 1.0) * 0.5;
 
-        assert!(color.x < data.x);
-        assert!(color.y < data.y);
-        assert!(color.z < data.z);
-        assert_eq!(color.w, data.w);
+        assert_vec4_approx(sample, Vector4::new(expected, expected, expected, 1.0));
     }
 }

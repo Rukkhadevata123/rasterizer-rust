@@ -345,15 +345,17 @@ Suggested commits:
 
 ## Phase 7: Color and Rendering Correctness
 
-Status: planned
+Status: in progress
 
 ### 7A: Color Space
 
-- Replace gamma-2.2 approximations with standard piecewise sRGB transfer functions.
-- Decode color texels before bilinear/trilinear interpolation.
-- Keep metallic, roughness, normal, and AO textures as linear data.
-- Prevent negative or non-finite values from reaching gamma conversion.
-- Define whether TOML colors are linear or sRGB.
+Status: completed
+
+- [x] Replace gamma-2.2 approximations with standard piecewise sRGB transfer functions.
+- [x] Decode color texels before bilinear/trilinear interpolation.
+- [x] Keep metallic, roughness, normal, and AO textures as linear data.
+- [x] Prevent negative or non-finite values from reaching gamma conversion.
+- [x] Define TOML color triplets as linear RGB values.
 
 ### 7B: Mip Correctness
 
@@ -501,12 +503,12 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 6E:
+Repository state after Phase 7A:
 
 - branch: `main`;
-- completed commits through `3ace2e7` cover Phases 1 through 6D;
-- Phase 6E adds MikkTSpace tangent generation and mirrored-transform handling;
-- 108 tests are present after Phase 6E;
+- completed commits through `74546e4` cover Phases 1 through 6E;
+- Phase 7A uses standard sRGB transfer functions and filters color textures in linear space;
+- 112 tests are present after Phase 7A;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 7A color-space correctness. Do not begin the tile renderer in the same change set.
+Immediate target: Phase 7B mip correctness. Do not begin the tile renderer in the same change set.

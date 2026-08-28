@@ -3,6 +3,7 @@
 # ==========================================
 
 [render]
+# TOML color triplets are linear RGB values.
 # --- Output & Quality ---
 width = 1280
 height = 720
