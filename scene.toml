@@ -27,7 +27,8 @@ background_gradient_bottom = [0.02, 0.02, 0.05]
 use_shadows = true
 shadow_map_size = 1024
 shadow_ortho_size = 10.0  # Size of the orthographic projection for directional light shadows
-shadow_bias = 0.01        # Bias to prevent shadow apnea
+shadow_constant_bias = 0.001 # Base depth offset to prevent shadow acne
+shadow_slope_bias = 0.01     # Additional offset for surfaces facing away from the light
 use_pcf = true            # Percentage Closer Filtering for soft shadows
 pcf_kernel_size = 1       # Radius of PCF sampling (1 = 3x3 kernel, 2 = 5x5)
 

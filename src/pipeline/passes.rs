@@ -13,7 +13,7 @@ use crate::scene::material::{AlphaMode, Material};
 use crate::scene::texture::{
     MinFilter, SamplerState, TexCoordSet, TextureBinding, TextureImage, TextureUsage,
 };
-use nalgebra::{Matrix4, Point3, Vector3};
+use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
 use std::sync::Arc;
 
@@ -22,6 +22,11 @@ pub struct ShadowPassOutput {
     pub size: usize,
     pub light_space_matrix: Matrix4<f32>,
     pub light_index: Option<usize>,
+}
+
+struct ShadowCamera {
+    view: Matrix4<f32>,
+    projection: Matrix4<f32>,
 }
 
 impl ShadowPassOutput {
@@ -33,6 +38,80 @@ impl ShadowPassOutput {
             light_index: None,
         }
     }
+}
+
+fn shadow_camera(
+    config: &Config,
+    context: &RenderContext,
+    light_direction: Vector3<f32>,
+) -> ShadowCamera {
+    let inverse_view_projection = (context.camera.projection_matrix()
+        * context.camera.view_matrix())
+    .try_inverse()
+    .unwrap_or_else(Matrix4::identity);
+    let mut corners = Vec::with_capacity(8);
+    for z in [-1.0, 1.0] {
+        for y in [-1.0, 1.0] {
+            for x in [-1.0, 1.0] {
+                let homogeneous = inverse_view_projection * Vector4::new(x, y, z, 1.0);
+                if homogeneous.w.abs() > f32::EPSILON {
+                    corners.push(Point3::from(homogeneous.xyz() / homogeneous.w));
+                }
+            }
+        }
+    }
+
+    let max_distance = config.render.shadow_ortho_size;
+    for corner in &mut corners {
+        let offset = *corner - context.camera.position;
+        if offset.norm() > max_distance {
+            *corner = context.camera.position + offset.normalize() * max_distance;
+        }
+    }
+    let center = corners
+        .iter()
+        .fold(Vector3::zeros(), |sum, corner| sum + corner.coords)
+        / corners.len().max(1) as f32;
+    let center = Point3::from(center);
+    let light_up = if light_direction.y.abs() > 0.9 {
+        Vector3::z()
+    } else {
+        Vector3::y()
+    };
+    let view = TransformFactory::view(
+        &(center - light_direction * max_distance),
+        &center,
+        &light_up,
+    );
+
+    let mut min = Vector3::repeat(f32::INFINITY);
+    let mut max = Vector3::repeat(f32::NEG_INFINITY);
+    let mut include = |point: Point3<f32>| {
+        let point = view.transform_point(&point);
+        min = min.zip_map(&point.coords, f32::min);
+        max = max.zip_map(&point.coords, f32::max);
+    };
+    for corner in corners {
+        include(corner);
+    }
+    for object in &context.scene_objects {
+        for mesh in &object.model.meshes {
+            for vertex in &mesh.vertices {
+                include(object.transform.transform_point(&vertex.position));
+            }
+        }
+    }
+
+    let padding = 0.1;
+    let projection = TransformFactory::orthographic(
+        min.x - padding,
+        max.x + padding,
+        min.y - padding,
+        max.y + padding,
+        (-max.z - padding).max(0.01),
+        (-min.z + padding).max(0.02),
+    );
+    ShadowCamera { view, projection }
 }
 
 pub fn render_shadow_pass(
@@ -48,18 +127,18 @@ pub fn render_shadow_pass(
         return ShadowPassOutput::disabled();
     };
 
-    let light_target = Point3::origin();
-    let light_dir = (light_target - shadow_light.position).normalize();
-    let light_up = if light_dir.y.abs() > 0.9 {
-        Vector3::z()
-    } else {
-        Vector3::y()
-    };
-
-    let light_view = TransformFactory::view(&shadow_light.position, &light_target, &light_up);
-    let ortho_size = config.render.shadow_ortho_size;
-    let light_projection =
-        TransformFactory::orthographic(-ortho_size, ortho_size, -ortho_size, ortho_size, 0.1, 50.0);
+    let light_direction = context
+        .lights
+        .get(shadow_light.light_index)
+        .and_then(|light| match light {
+            crate::scene::light::Light::Directional { direction, .. } => Some(*direction),
+            crate::scene::light::Light::Point { .. } => None,
+        })
+        .unwrap_or_else(|| (Point3::origin() - shadow_light.position).normalize());
+    let ShadowCamera {
+        view: light_view,
+        projection: light_projection,
+    } = shadow_camera(config, context, light_direction);
     let light_space_matrix = light_projection * light_view;
 
     shadow_renderer.clear_with_options(ClearOptions {
@@ -178,7 +257,8 @@ pub fn render_main_pass(
         shader.shadow_map_size = shadow.size;
         shader.shadow_light_index = shadow.light_index;
         shader.light_space_matrix = shadow.light_space_matrix;
-        shader.shadow_bias = config.render.shadow_bias;
+        shader.shadow_constant_bias = config.render.shadow_constant_bias;
+        shader.shadow_slope_bias = config.render.shadow_slope_bias;
         shader.use_pcf = config.render.use_pcf;
         shader.pcf_kernel_size = config.render.pcf_kernel_size;
         shader

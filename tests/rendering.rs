@@ -1140,7 +1140,8 @@ fn pbr_shadow_uses_recorded_light_index() {
         shader.shadow_map_size = 1;
         shader.shadow_light_index = Some(shadow_light_index);
         shader.light_space_matrix = Matrix4::identity();
-        shader.shadow_bias = 0.0;
+        shader.shadow_constant_bias = 0.0;
+        shader.shadow_slope_bias = 0.0;
         shader.use_pcf = false;
         match shader.fragment(
             FragmentInput {
@@ -1230,4 +1231,78 @@ fn shadow_output_reports_actual_buffer_size() {
     assert_eq!(shadow.size, 16);
     assert_eq!(shadow.depth.unwrap().len(), 16 * 16);
     assert_eq!(shadow.light_index, Some(0));
+}
+
+#[test]
+fn directional_shadow_bounds_follow_the_camera_frustum() {
+    let render = |camera_x| {
+        let context = RenderContext {
+            camera: Camera::new_perspective(
+                Point3::new(camera_x, 0.0, 3.0),
+                Point3::new(camera_x, 0.0, 0.0),
+                Vector3::y(),
+                45.0_f32.to_radians(),
+                1.0,
+                0.1,
+                100.0,
+            ),
+            lights: vec![Light::new_directional(
+                Vector3::new(0.0, 0.0, -1.0),
+                Vector3::repeat(1.0),
+                1.0,
+            )],
+            scene_objects: Vec::new(),
+            shadow_light: Some(ShadowLight {
+                light_index: 0,
+                position: Point3::new(0.0, 0.0, 10.0),
+            }),
+        };
+        let mut config = rasterizer_rust::io::config::Config::default();
+        config.render.shadow_map_size = 16;
+        config.render.shadow_ortho_size = 10.0;
+        let mut renderer = Renderer::new(16, 16, 1).expect("test dimensions should be valid");
+        render_shadow_pass(&config, &context, &mut renderer).light_space_matrix
+    };
+
+    let origin = render(0.0);
+    let translated = render(20.0);
+    assert!((origin - translated).abs().max() > 0.1);
+    assert!(translated.iter().all(|component| component.is_finite()));
+}
+
+#[test]
+fn directional_shadow_bounds_include_scene_geometry() {
+    let render = |scene_objects| {
+        let context = RenderContext {
+            camera: shadow_test_camera(),
+            lights: vec![Light::new_directional(
+                Vector3::new(0.0, 0.0, -1.0),
+                Vector3::repeat(1.0),
+                1.0,
+            )],
+            scene_objects,
+            shadow_light: Some(ShadowLight {
+                light_index: 0,
+                position: Point3::new(0.0, 0.0, 10.0),
+            }),
+        };
+        let mut config = rasterizer_rust::io::config::Config::default();
+        config.render.shadow_ortho_size = 2.0;
+        let mut renderer = Renderer::new(16, 16, 1).expect("test dimensions should be valid");
+        render_shadow_pass(&config, &context, &mut renderer).light_space_matrix
+    };
+    let far_caster = SceneObject::new(
+        SceneObjectKind::Model { config_index: 0 },
+        Model::new(
+            vec![triangle(0.0, Vector4::zeros())],
+            vec![Material::Pbr(PbrMaterial::default())],
+        ),
+        Matrix4::new_translation(&Vector3::new(20.0, 0.0, 0.0)),
+    );
+
+    let camera_only = render(Vec::new());
+    let with_caster = render(vec![far_caster]);
+
+    assert!(with_caster[(0, 0)] < camera_only[(0, 0)] * 0.5);
+    assert!(with_caster.iter().all(|component| component.is_finite()));
 }

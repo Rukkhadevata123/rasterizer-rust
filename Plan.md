@@ -378,10 +378,12 @@ Status: completed
 
 ### 7D: Shadow Quality
 
-- Separate constant and slope-scaled bias.
-- Define shadow-map border behavior instead of clamping every PCF tap to an edge texel.
-- Evaluate scene- or camera-fitted directional shadow bounds.
-- Keep point-light cubemap shadows as an explicit future feature.
+Status: completed
+
+- [x] Separate constant and slope-scaled bias.
+- [x] Treat PCF taps outside the shadow map as lit border samples instead of clamping them to edge texels.
+- [x] Fit directional shadow bounds to the camera frustum and scene geometry, capping the camera-frustum reach with the configured shadow distance.
+- [x] Keep point-light cubemap shadows as an explicit future feature.
 
 ### 7E: PBR Scope
 
@@ -507,12 +509,12 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 7C:
+Repository state after Phase 7D:
 
 - branch: `main`;
-- completed commits through `caa4a88` cover Phases 1 through 7B;
-- Phase 7C applies top-left coverage, pixel-space wireframe width, and finite raster input checks;
-- 118 tests are present after Phase 7C;
+- completed commits through `bb5bc01` cover Phases 1 through 7C;
+- Phase 7D separates shadow bias terms, defines lit PCF borders, and fits directional shadow bounds;
+- 122 tests are present after Phase 7D;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 7D shadow quality. Do not begin the tile renderer in the same change set.
+Immediate target: Phase 7E PBR scope. Do not begin the tile renderer in the same change set.

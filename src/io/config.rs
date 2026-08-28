@@ -67,7 +67,8 @@ pub struct RenderConfig {
     pub use_shadows: bool,
     pub shadow_map_size: usize,
     pub shadow_ortho_size: f32,
-    pub shadow_bias: f32,
+    pub shadow_constant_bias: f32,
+    pub shadow_slope_bias: f32,
     pub use_pcf: bool,
     pub pcf_kernel_size: i32,
     pub use_aces: bool,
@@ -92,7 +93,8 @@ impl Default for RenderConfig {
             use_shadows: true,
             shadow_map_size: 720,
             shadow_ortho_size: 8.0,
-            shadow_bias: 0.01,
+            shadow_constant_bias: 0.001,
+            shadow_slope_bias: 0.01,
             use_pcf: true,
             pcf_kernel_size: 1,
             use_aces: true,
@@ -283,10 +285,11 @@ impl Config {
             self.render.background_gradient_bottom,
         )?;
         validate_positive("render.shadow_ortho_size", self.render.shadow_ortho_size)?;
-        validate_finite("render.shadow_bias", self.render.shadow_bias)?;
-        if self.render.shadow_bias < 0.0 {
-            return Err("render.shadow_bias must be non-negative".to_string());
-        }
+        validate_non_negative(
+            "render.shadow_constant_bias",
+            self.render.shadow_constant_bias,
+        )?;
+        validate_non_negative("render.shadow_slope_bias", self.render.shadow_slope_bias)?;
         if self.render.pcf_kernel_size < 0 {
             return Err("render.pcf_kernel_size must be non-negative".to_string());
         }

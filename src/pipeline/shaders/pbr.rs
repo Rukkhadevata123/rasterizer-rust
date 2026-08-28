@@ -108,7 +108,8 @@ pub struct PbrShader {
     pub shadow_map_size: usize,
     pub shadow_light_index: Option<usize>,
     pub light_space_matrix: Matrix4<f32>,
-    pub shadow_bias: f32,
+    pub shadow_constant_bias: f32,
+    pub shadow_slope_bias: f32,
     pub use_pcf: bool,
     pub pcf_kernel_size: i32,
 
@@ -138,7 +139,8 @@ impl PbrShader {
             shadow_map_size: 0,
             shadow_light_index: None,
             light_space_matrix: Matrix4::identity(),
-            shadow_bias: 0.005,
+            shadow_constant_bias: 0.001,
+            shadow_slope_bias: 0.01,
             use_pcf: true,
             pcf_kernel_size: 1,
             fallback_material: PbrMaterial::default(),
@@ -175,8 +177,7 @@ impl PbrShader {
             return 1.0;
         }
 
-        // Adaptive bias based on surface angle
-        let bias = self.shadow_bias.max(0.05 * (1.0 - n_dot_l));
+        let bias = self.shadow_bias(n_dot_l);
 
         if !self.use_pcf {
             let map_x = (u * (self.shadow_map_size - 1) as f32)
@@ -201,13 +202,13 @@ impl PbrShader {
                 let pcf_u = u + x as f32 * texel_size;
                 let pcf_v = v + y as f32 * texel_size;
 
-                // Clamp coordinates
-                let map_x = (pcf_u * (self.shadow_map_size - 1) as f32)
-                    .clamp(0.0, (self.shadow_map_size - 1) as f32)
-                    as usize;
-                let map_y = (pcf_v * (self.shadow_map_size - 1) as f32)
-                    .clamp(0.0, (self.shadow_map_size - 1) as f32)
-                    as usize;
+                if !(0.0..=1.0).contains(&pcf_u) || !(0.0..=1.0).contains(&pcf_v) {
+                    shadow += 1.0;
+                    continue;
+                }
+
+                let map_x = (pcf_u * (self.shadow_map_size - 1) as f32) as usize;
+                let map_y = (pcf_v * (self.shadow_map_size - 1) as f32) as usize;
                 let index = map_y * self.shadow_map_size + map_x;
 
                 let pcf_depth = shadow_map[index];
@@ -221,6 +222,10 @@ impl PbrShader {
         }
 
         shadow / ((kernel_size * 2 + 1_i32).pow(2) as f32)
+    }
+
+    fn shadow_bias(&self, n_dot_l: f32) -> f32 {
+        self.shadow_constant_bias + self.shadow_slope_bias * (1.0 - n_dot_l.clamp(0.0, 1.0))
     }
 
     // --- PBR Helper Functions ---
@@ -477,5 +482,40 @@ mod tests {
             tangent_space_normal(texel, 0.5),
             Vector3::new(0.25, -0.25, 1.0),
         );
+    }
+
+    #[test]
+    fn shadow_bias_separates_constant_and_slope_terms() {
+        let mut shader = PbrShader::new(
+            Matrix4::identity(),
+            Matrix4::identity(),
+            Matrix4::identity(),
+            Point3::origin(),
+        );
+        shader.shadow_constant_bias = 0.001;
+        shader.shadow_slope_bias = 0.01;
+
+        assert!((shader.shadow_bias(1.0) - 0.001).abs() < 1.0e-6);
+        assert!((shader.shadow_bias(0.5) - 0.006).abs() < 1.0e-6);
+        assert!((shader.shadow_bias(0.0) - 0.011).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn pcf_uses_lit_border_for_out_of_bounds_taps() {
+        let mut shader = PbrShader::new(
+            Matrix4::identity(),
+            Matrix4::identity(),
+            Matrix4::identity(),
+            Point3::origin(),
+        );
+        shader.shadow_map = Some(Arc::new(vec![0.0; 9]));
+        shader.shadow_map_size = 3;
+        shader.shadow_constant_bias = 0.0;
+        shader.shadow_slope_bias = 0.0;
+        shader.use_pcf = true;
+        shader.pcf_kernel_size = 1;
+
+        let visibility = shader.calculate_shadow(&Point3::new(-1.0, 1.0, 0.0), 1.0);
+        assert!((visibility - 5.0 / 9.0).abs() < 1.0e-6);
     }
 }
