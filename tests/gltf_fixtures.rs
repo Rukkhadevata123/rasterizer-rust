@@ -367,20 +367,30 @@ fn phase_4e_invalid_attributes_return_contextual_errors() {
 }
 
 #[test]
-fn phase_4e_normal_map_without_tangents_is_explicitly_unsupported() {
-    let error = match load_gltf(fixture_path("normal-map-without-tangents.gltf"), false) {
-        Ok(_) => panic!("normal map without tangents should be rejected"),
-        Err(error) => error,
-    };
+fn phase_6e_generates_mikktspace_tangents_for_normal_maps() {
+    let model = load_gltf(fixture_path("normal-map-without-tangents.gltf"), false)
+        .expect("normal-mapped geometry should generate missing tangents");
+    let mesh = &model.meshes[0];
 
-    match error {
-        GltfError::Primitive { context } => {
-            assert!(context.reason.contains("unsupported normal map"));
-            assert!(context.reason.contains("TANGENT"));
-            assert!(context.reason.contains("Phase 6"));
-        }
-        error => panic!("expected contextual primitive error, got {error}"),
+    assert_eq!(mesh.vertices.len(), 3);
+    assert_eq!(mesh.indices, [0, 2, 1]);
+    for vertex in &mesh.vertices {
+        assert!((vertex.normal - Vector3::z()).norm() < 1e-5);
+        assert!((vertex.tangent.xyz() + Vector3::x()).norm() < 1e-5);
+        assert_eq!(vertex.tangent.w, -1.0);
     }
+    assert_eq!(
+        mesh.vertices[0].position.coords,
+        Vector3::new(1.0, -1.5, 0.0)
+    );
+    assert_eq!(
+        mesh.vertices[1].position.coords,
+        Vector3::new(-1.0, -1.5, 0.0)
+    );
+    assert_eq!(
+        mesh.vertices[2].position.coords,
+        Vector3::new(0.0, 1.5, 0.0)
+    );
 }
 
 #[test]

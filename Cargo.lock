@@ -1038,6 +1038,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mikktspace"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d0b56b403871a8f992ca626d52cc0a690d4841baea8955dc4af6304ac62f8b0"
+dependencies = [
+ "glam 0.15.2",
+]
+
+[[package]]
 name = "minifb"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1417,6 +1426,7 @@ dependencies = [
  "gltf",
  "image",
  "log",
+ "mikktspace",
  "minifb",
  "nalgebra",
  "rayon",

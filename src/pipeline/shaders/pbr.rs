@@ -1,4 +1,5 @@
 use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
+use crate::core::math::transform::TangentFrameTransform;
 use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use crate::scene::light::Light;
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
@@ -94,7 +95,7 @@ pub struct PbrShader {
     pub model_matrix: Matrix4<f32>,
     pub view_matrix: Matrix4<f32>,
     pub projection_matrix: Matrix4<f32>,
-    pub normal_matrix: Matrix3<f32>,
+    tangent_frame_transform: TangentFrameTransform,
 
     pub camera_pos: Point3<f32>,
     pub lights: Vec<Light>,
@@ -123,13 +124,13 @@ impl PbrShader {
         camera_pos: Point3<f32>,
     ) -> Self {
         let model_3x3 = model.fixed_view::<3, 3>(0, 0).into_owned();
-        let normal_matrix = model_3x3.try_inverse().unwrap_or(model_3x3).transpose();
+        let tangent_frame_transform = TangentFrameTransform::new(model_3x3);
 
         Self {
             model_matrix: model,
             view_matrix: view,
             projection_matrix: projection,
-            normal_matrix,
+            tangent_frame_transform,
             camera_pos,
             lights: Vec::new(),
             ambient_light: Vector3::new(0.03, 0.03, 0.03), // Default low ambient
@@ -269,17 +270,9 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
     fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
         let world_pos =
             Point3::from_homogeneous(self.model_matrix * vertex.position.to_homogeneous()).unwrap();
-        let world_normal = (self.normal_matrix * vertex.normal).normalize();
-
-        // Transform XYZ of tangent, Keep W (Sign)
-        let t_xyz = vertex.tangent.xyz();
-        let t_transformed = (self.normal_matrix * t_xyz).normalize();
-        let world_tangent = Vector4::new(
-            t_transformed.x,
-            t_transformed.y,
-            t_transformed.z,
-            vertex.tangent.w,
-        );
+        let (world_normal, world_tangent) = self
+            .tangent_frame_transform
+            .transform(vertex.normal, vertex.tangent);
         let clip_pos = self.projection_matrix
             * self.view_matrix
             * self.model_matrix

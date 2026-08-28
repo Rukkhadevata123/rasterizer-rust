@@ -1,4 +1,4 @@
-use nalgebra::{Matrix4, Point2, Point3, Vector3, Vector4};
+use nalgebra::{Matrix3, Matrix4, Point2, Point3, Vector3, Vector4};
 
 //=================================
 // Transform Matrix Factory
@@ -169,6 +169,62 @@ pub fn ndc_to_screen(ndc_x: f32, ndc_y: f32, width: f32, height: f32) -> Point2<
     )
 }
 
+/// Precomputed normal/tangent transform for a linear object-space transform.
+#[derive(Clone, Copy)]
+pub struct TangentFrameTransform {
+    linear: Matrix3<f32>,
+    normal: Matrix3<f32>,
+    orientation: f32,
+}
+
+impl TangentFrameTransform {
+    pub fn new(linear: Matrix3<f32>) -> Self {
+        let normal = linear
+            .try_inverse()
+            .map(|matrix| matrix.transpose())
+            .unwrap_or(linear);
+        let orientation = if linear.determinant() < 0.0 {
+            -1.0
+        } else {
+            1.0
+        };
+        Self {
+            linear,
+            normal,
+            orientation,
+        }
+    }
+
+    pub fn transform(
+        &self,
+        normal: Vector3<f32>,
+        tangent: Vector4<f32>,
+    ) -> (Vector3<f32>, Vector4<f32>) {
+        let transformed_normal = (self.normal * normal).normalize();
+        let tangent_direction = tangent.xyz();
+        if tangent_direction.norm_squared() <= f32::EPSILON {
+            return (transformed_normal, tangent);
+        }
+
+        let transformed_tangent = self.linear * tangent_direction;
+        let orthogonal_tangent =
+            transformed_tangent - transformed_normal * transformed_normal.dot(&transformed_tangent);
+        let tangent_direction = orthogonal_tangent
+            .try_normalize(f32::EPSILON)
+            .unwrap_or_else(Vector3::zeros);
+
+        (
+            transformed_normal,
+            Vector4::new(
+                tangent_direction.x,
+                tangent_direction.y,
+                tangent_direction.z,
+                tangent.w * self.orientation,
+            ),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +259,29 @@ mod tests {
             transform.transform_point(&Point3::new(1.0, 0.0, 0.0)),
             Point3::new(1.0, 2.0, 1.0),
         );
+    }
+
+    #[test]
+    fn tangent_frame_handles_non_uniform_and_mirrored_transforms() {
+        let non_uniform = Matrix3::new(2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.5);
+        let (normal, tangent) = TangentFrameTransform::new(non_uniform)
+            .transform(Vector3::z(), Vector4::new(1.0, 1.0, 0.0, 1.0));
+        assert_point_approx(Point3::from(normal), Point3::new(0.0, 0.0, 1.0));
+        assert!((tangent.xyz() - Vector3::new(2.0, 3.0, 0.0).normalize()).norm() < 1e-5);
+        assert_eq!(tangent.w, 1.0);
+
+        let mirrored = Matrix3::new(-1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+        let (_, tangent) = TangentFrameTransform::new(mirrored)
+            .transform(Vector3::z(), Vector4::new(1.0, 0.0, 0.0, 1.0));
+        assert!((tangent.xyz() + Vector3::x()).norm() < 1e-5);
+        assert_eq!(tangent.w, -1.0);
+    }
+
+    #[test]
+    fn tangent_frame_preserves_missing_tangents() {
+        let (_, tangent) = TangentFrameTransform::new(Matrix3::identity())
+            .transform(Vector3::z(), Vector4::new(0.0, 0.0, 0.0, 1.0));
+        assert_eq!(tangent, Vector4::new(0.0, 0.0, 0.0, 1.0));
     }
 
     #[test]

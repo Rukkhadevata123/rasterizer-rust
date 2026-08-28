@@ -468,6 +468,26 @@ fn fragment_input_reports_triangle_facing() {
 }
 
 #[test]
+fn mirrored_render_state_inverts_culling_and_fragment_facing() {
+    let mesh = triangle(0.0, Vector4::zeros());
+    let render = |cull_mode, front_face_inverted| {
+        let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+        let state = RenderState {
+            cull_mode,
+            front_face_inverted,
+            ..Default::default()
+        };
+        draw_mesh(&mut renderer, &mesh, &FacingShader, None, state);
+        renderer.framebuffer.get_pixel(16, 16).unwrap()
+    };
+
+    assert_vec3_approx(render(CullMode::None, false), Vector3::new(0.0, 1.0, 0.0));
+    assert_vec3_approx(render(CullMode::None, true), Vector3::new(1.0, 0.0, 0.0));
+    assert!(render(CullMode::Back, false).norm_squared() > 0.0);
+    assert_eq!(render(CullMode::Back, true), Vector3::zeros());
+}
+
+#[test]
 fn double_sided_material_disables_culling_per_command() {
     let render = |double_sided| {
         let mut mesh = triangle(0.0, Vector4::zeros());
@@ -918,6 +938,29 @@ fn pbr_material_texture_binding_selects_texcoord1() {
     };
 
     assert_vec3_approx(color.xyz(), Vector3::new(0.0, 0.5, 0.0));
+}
+
+#[test]
+fn pbr_vertex_preserves_tangent_frame_under_mirrored_non_uniform_scale() {
+    let model = Matrix4::new_nonuniform_scaling(&Vector3::new(-2.0, 3.0, 0.5));
+    let shader = PbrShader::new(
+        model,
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Point3::new(0.0, 0.0, 2.0),
+    );
+    let mut vertex = Vertex::new(Point3::origin(), Vector3::z(), Vector2::zeros());
+    vertex.tangent = Vector4::new(1.0, 1.0, 0.0, 1.0);
+
+    let (_, varying) = shader.vertex(&vertex);
+
+    assert_vec3_approx(varying.normal, Vector3::z());
+    assert_vec3_approx(
+        varying.tangent.xyz(),
+        Vector3::new(-2.0, 3.0, 0.0).normalize(),
+    );
+    assert!(varying.normal.dot(&varying.tangent.xyz()).abs() < 1e-5);
+    assert_eq!(varying.tangent.w, -1.0);
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use crate::core::color::{aces_tone_mapping, linear_to_srgb};
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::geometry::Vertex;
-use crate::core::math::transform::TransformFactory;
+use crate::core::math::transform::{TangentFrameTransform, TransformFactory};
 use crate::core::rasterizer::{BlendMode, CullMode, RenderState};
 use crate::error::AssetError;
 use crate::io::config::Config;
@@ -13,7 +13,7 @@ use crate::scene::material::{AlphaMode, Material};
 use crate::scene::texture::{
     MinFilter, SamplerState, TexCoordSet, TextureBinding, TextureImage, TextureUsage,
 };
-use nalgebra::{Matrix4, Point3, Vector3, Vector4};
+use nalgebra::{Matrix4, Point3, Vector3};
 use rayon::prelude::*;
 use std::sync::Arc;
 
@@ -89,6 +89,7 @@ pub fn render_shadow_pass(
                 } else {
                     shadow_state.cull_mode
                 },
+                front_face_inverted: object.transform.fixed_view::<3, 3>(0, 0).determinant() < 0.0,
                 ..shadow_state
             };
             shadow_queue.push(
@@ -222,6 +223,7 @@ pub fn render_main_pass(
                 } else {
                     state.cull_mode
                 },
+                front_face_inverted: obj.transform.fixed_view::<3, 3>(0, 0).determinant() < 0.0,
                 ..state
             };
 
@@ -229,18 +231,13 @@ pub fn render_main_pass(
                 let model_matrix = obj.transform;
                 let view_matrix = context.camera.view_matrix();
 
-                // Calculate Normal Matrix for transforming normals/tangents correctly
                 let model_3x3 = model_matrix.fixed_view::<3, 3>(0, 0).into_owned();
-                let normal_matrix = model_3x3.try_inverse().unwrap_or(model_3x3).transpose();
+                let tangent_frame_transform = TangentFrameTransform::new(model_3x3);
 
                 // Pre-transform all vertices to World Space
                 let transform_vertex = |v: &Vertex| -> Vertex {
                     let pos_world = model_matrix.transform_point(&v.position);
-                    let n_world = (normal_matrix * v.normal).normalize();
-                    let t_xyz_local = Vector3::new(v.tangent.x, v.tangent.y, v.tangent.z);
-                    let t_xyz_world = (normal_matrix * t_xyz_local).normalize();
-                    let t_world =
-                        Vector4::new(t_xyz_world.x, t_xyz_world.y, t_xyz_world.z, v.tangent.w);
+                    let (n_world, t_world) = tangent_frame_transform.transform(v.normal, v.tangent);
 
                     let mut new_v = *v;
                     new_v.position = pos_world;

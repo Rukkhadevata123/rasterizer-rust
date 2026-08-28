@@ -2,26 +2,58 @@
   "asset": { "version": "2.0" },
   "scene": 0,
   "scenes": [{ "nodes": [0] }],
-  "nodes": [{ "mesh": 0 }],
+  "nodes": [{ "mesh": 0, "scale": [-2.0, 3.0, 0.5] }],
   "meshes": [{
-    "primitives": [{ "attributes": { "POSITION": 0 }, "material": 0 }]
+    "primitives": [{
+      "attributes": {
+        "POSITION": 0,
+        "NORMAL": 1,
+        "TEXCOORD_0": 3,
+        "TEXCOORD_1": 2
+      },
+      "material": 0
+    }]
   }],
-  "materials": [{ "normalTexture": { "index": 0 } }],
+  "materials": [{ "normalTexture": { "index": 0, "texCoord": 1 } }],
   "textures": [{ "source": 0 }],
   "images": [{
     "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/j///9/AAn7A/0FQ0XKAAAAAElFTkSuQmCC"
   }],
-  "buffers": [{
-    "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAAAAAAAPwAAAL8AAAAAAAAAAAAAAD8AAAAA",
-    "byteLength": 36
-  }],
-  "bufferViews": [{ "buffer": 0, "byteLength": 36, "target": 34962 }],
-  "accessors": [{
-    "bufferView": 0,
-    "componentType": 5126,
-    "count": 3,
-    "type": "VEC3",
-    "min": [-0.5, -0.5, 0.0],
-    "max": [0.5, 0.5, 0.0]
-  }]
+  "buffers": [
+    {
+      "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAAAAAAAPwAAAL8AAAAAAAAAAAAAAD8AAAAA",
+      "byteLength": 36
+    },
+    {
+      "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/",
+      "byteLength": 36
+    },
+    {
+      "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/",
+      "byteLength": 24
+    },
+    {
+      "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "byteLength": 24
+    }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 36, "target": 34962 },
+    { "buffer": 1, "byteOffset": 0, "byteLength": 36, "target": 34962 },
+    { "buffer": 2, "byteOffset": 0, "byteLength": 24, "target": 34962 },
+    { "buffer": 3, "byteOffset": 0, "byteLength": 24, "target": 34962 }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 3,
+      "type": "VEC3",
+      "min": [-0.5, -0.5, 0.0],
+      "max": [0.5, 0.5, 0.0]
+    },
+    { "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3" },
+    { "bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC2" },
+    { "bufferView": 3, "componentType": 5126, "count": 3, "type": "VEC2" }
+  ]
 }

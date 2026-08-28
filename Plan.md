@@ -272,7 +272,7 @@ Suggested commits:
 
 ## Phase 6: glTF Material, Texture, and Geometry Semantics
 
-Status: in progress
+Status: completed
 
 ### 6A: Texture Resource Model
 
@@ -324,15 +324,15 @@ The base-color RGB factor bug was fixed first, before the remaining 6D factors w
 
 ### 6E: Normals, Tangents, and Mirrored Transforms
 
-Order the work as:
+Status: completed
 
-1. UV-set support;
-2. missing-normal generation;
-3. MikkTSpace-compatible tangent generation using the normal map's selected UV set;
-4. negative-determinant and non-uniform transform handling;
-5. tangent handedness verification.
+- [x] Preserve UV-set support through tangent generation.
+- [x] Generate missing normals before tangent generation.
+- [x] Generate MikkTSpace-compatible tangents using the normal map's selected UV set.
+- [x] Handle negative-determinant and non-uniform node and object transforms.
+- [x] Preserve tangent handedness and mirrored front-face semantics.
 
-Test UV seams, mirrored UVs, degenerate UVs, negative node scales, and non-uniform transforms. Do not label a simpler tangent accumulator as MikkTSpace-compatible.
+Covered UV seams, mirrored and degenerate UVs, negative node scales, non-uniform transforms, and runtime mirrored object transforms.
 
 Suggested commits:
 
@@ -501,12 +501,12 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 6D:
+Repository state after Phase 6E:
 
 - branch: `main`;
-- completed commits through `f22da0d` cover Phases 1 through 6C;
-- commit Phase 6D as a bounded change before starting Phase 6E;
-- 102 tests are present after Phase 6D;
+- completed commits through `3ace2e7` cover Phases 1 through 6D;
+- Phase 6E adds MikkTSpace tangent generation and mirrored-transform handling;
+- 108 tests are present after Phase 6E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 6E, beginning with MikkTSpace-compatible tangent generation now that UV-set selection and missing-normal generation are in place. Do not begin the tile renderer in the same change set.
+Immediate target: Phase 7A color-space correctness. Do not begin the tile renderer in the same change set.

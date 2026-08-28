@@ -56,6 +56,7 @@ impl DepthCompare {
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub struct RenderState {
     pub cull_mode: CullMode,
+    pub front_face_inverted: bool,
     pub depth_test: bool,
     pub depth_compare: DepthCompare,
     pub depth_write: bool,
@@ -67,6 +68,7 @@ impl Default for RenderState {
     fn default() -> Self {
         Self {
             cull_mode: CullMode::Back,
+            front_face_inverted: false,
             depth_test: true,
             depth_compare: DepthCompare::Less,
             depth_write: true,
@@ -317,9 +319,11 @@ impl Rasterizer {
             return None;
         }
 
+        let front_facing = (signed_area < 0.0) != state.front_face_inverted;
+
         match state.cull_mode {
-            CullMode::Back if signed_area >= 0.0 => return None,
-            CullMode::Front if signed_area <= 0.0 => return None,
+            CullMode::Back if !front_facing => return None,
+            CullMode::Front if front_facing => return None,
             _ => {}
         }
 
@@ -377,7 +381,7 @@ impl Rasterizer {
             shader,
             state,
             fragment_context,
-            front_facing: signed_area < 0.0,
+            front_facing,
             uv_densities,
             start_x: min_x.max(0) as usize,
             end_x: max_x.min(framebuffer_width as i32 - 1) as usize,

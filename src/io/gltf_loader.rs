@@ -1,4 +1,5 @@
 use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
+use crate::core::math::transform::TangentFrameTransform;
 use crate::error::{GltfError, PrimitiveContext};
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
@@ -9,6 +10,7 @@ use crate::scene::texture::{
 };
 use image::DynamicImage;
 use log::info;
+use mikktspace::Geometry;
 use nalgebra::{Matrix4, Point3, Quaternion, UnitQuaternion, Vector2, Vector3, Vector4};
 use std::collections::HashMap;
 use std::path::Path;
@@ -141,13 +143,8 @@ impl SceneImporter<'_> {
         // Parent * Local = Global
         let global_transform = parent_transform * translation * rotation * scale;
 
-        // Normal Matrix: Inverse Transpose of the upper-left 3x3.
-        // Necessary to transform normals correctly if there is non-uniform scaling.
         let global_rotation_scale = global_transform.fixed_view::<3, 3>(0, 0).into_owned();
-        let normal_matrix = global_rotation_scale
-            .try_inverse()
-            .map(|m| m.transpose())
-            .unwrap_or(global_rotation_scale); // Fallback if singular
+        let tangent_frame_transform = TangentFrameTransform::new(global_rotation_scale);
 
         // 2. Process Mesh
         if let Some(mesh) = node.mesh() {
@@ -344,16 +341,6 @@ impl SceneImporter<'_> {
                     })?;
 
                 let prim_mat = primitive.material();
-                if prim_mat.normal_texture().is_some() && tangents.is_empty() {
-                    return Err(primitive_error(
-                        self.path,
-                        self.scene_index,
-                        node,
-                        mesh.index(),
-                        primitive_index,
-                        "unsupported normal map without TANGENT attribute; tangent generation is planned for Phase 6",
-                    ));
-                }
                 for (slot, tex_coord) in material_tex_coords(&prim_mat).into_iter().flatten() {
                     let set = TexCoordSet::try_from(tex_coord).map_err(|unsupported| {
                         GltfError::Unsupported {
@@ -379,15 +366,18 @@ impl SceneImporter<'_> {
                     }
                 }
 
-                // --- Bake Vertices ---
-                let mut vertices = Vec::with_capacity(positions.len());
-                for i in 0..positions.len() {
-                    // Position: Apply full Global Transform
-                    let pos_local = Point3::from(positions[i]);
-                    let pos_world = global_transform.transform_point(&pos_local);
-
-                    let normal_world =
-                        normalize_transformed_vector(normal_matrix * normals[i], "NORMAL", i)
+                let generated_tangents = if tangents.is_empty() {
+                    prim_mat
+                        .normal_texture()
+                        .map(|normal_texture| {
+                            let tex_coord = TexCoordSet::try_from(normal_texture.tex_coord())
+                                .expect("material UV sets were validated above");
+                            generate_mikktspace_tangents(
+                                &positions,
+                                &normals,
+                                &uv_sets[tex_coord.index()],
+                                &indices,
+                            )
                             .map_err(|reason| {
                                 primitive_error(
                                     self.path,
@@ -397,33 +387,57 @@ impl SceneImporter<'_> {
                                     primitive_index,
                                     reason,
                                 )
-                            })?;
+                            })
+                        })
+                        .transpose()?
+                } else {
+                    None
+                };
 
-                    // Tangent Handling with Sign
-                    let tangent_world = if !tangents.is_empty() {
-                        let t_vec_local =
-                            Vector3::new(tangents[i][0], tangents[i][1], tangents[i][2]);
-                        let t_sign = tangents[i][3]; // Extract Sign (W)
+                let (vertex_indices, mut mesh_indices) = if generated_tangents.is_some() {
+                    (
+                        indices
+                            .iter()
+                            .map(|&index| index as usize)
+                            .collect::<Vec<_>>(),
+                        (0..indices.len() as u32).collect(),
+                    )
+                } else {
+                    ((0..positions.len()).collect(), indices)
+                };
+                if global_rotation_scale.determinant() < 0.0 {
+                    for triangle in mesh_indices.chunks_exact_mut(3) {
+                        triangle.swap(1, 2);
+                    }
+                }
 
-                        // Rotate the vector part
-                        let t_vec_world =
-                            normalize_transformed_vector(normal_matrix * t_vec_local, "TANGENT", i)
-                                .map_err(|reason| {
-                                    primitive_error(
-                                        self.path,
-                                        self.scene_index,
-                                        node,
-                                        mesh.index(),
-                                        primitive_index,
-                                        reason,
-                                    )
-                                })?;
+                // --- Bake Vertices ---
+                let mut vertices = Vec::with_capacity(vertex_indices.len());
+                for (vertex_index, &i) in vertex_indices.iter().enumerate() {
+                    // Position: Apply full Global Transform
+                    let pos_local = Point3::from(positions[i]);
+                    let pos_world = global_transform.transform_point(&pos_local);
 
-                        // Store as Vector4
-                        Vector4::new(t_vec_world.x, t_vec_world.y, t_vec_world.z, t_sign)
-                    } else {
-                        Vector4::new(0.0, 0.0, 0.0, 1.0)
-                    };
+                    let tangent = generated_tangents
+                        .as_ref()
+                        .map(|generated| generated[vertex_index])
+                        .or_else(|| tangents.get(i).copied());
+                    let tangent_local = tangent
+                        .map(Vector4::from)
+                        .unwrap_or(Vector4::new(0.0, 0.0, 0.0, 1.0));
+                    let (normal_world, tangent_world) =
+                        tangent_frame_transform.transform(normals[i], tangent_local);
+                    let normal_world = normalize_transformed_vector(normal_world, "NORMAL", i)
+                        .map_err(|reason| {
+                            primitive_error(
+                                self.path,
+                                self.scene_index,
+                                node,
+                                mesh.index(),
+                                primitive_index,
+                                reason,
+                            )
+                        })?;
 
                     let texcoords = std::array::from_fn(|set| {
                         uv_sets[set]
@@ -464,7 +478,7 @@ impl SceneImporter<'_> {
                 };
 
                 // Push the processed sub-mesh
-                self.meshes.push(Mesh::new(vertices, indices, mat_idx));
+                self.meshes.push(Mesh::new(vertices, mesh_indices, mat_idx));
             }
         }
 
@@ -575,6 +589,80 @@ fn generate_area_weighted_normals(
             normalize_transformed_vector(normal, "generated NORMAL", normal_index)
         })
         .collect()
+}
+
+struct MikktspaceGeometry<'a> {
+    positions: &'a [[f32; 3]],
+    normals: &'a [Vector3<f32>],
+    texcoords: &'a [[f32; 2]],
+    indices: &'a [u32],
+    tangents: Vec<[f32; 4]>,
+}
+
+impl MikktspaceGeometry<'_> {
+    fn source_index(&self, face: usize, vertex: usize) -> usize {
+        self.indices[face * 3 + vertex] as usize
+    }
+}
+
+impl Geometry for MikktspaceGeometry<'_> {
+    fn num_faces(&self) -> usize {
+        self.indices.len() / 3
+    }
+
+    fn num_vertices_of_face(&self, _face: usize) -> usize {
+        3
+    }
+
+    fn position(&self, face: usize, vertex: usize) -> [f32; 3] {
+        self.positions[self.source_index(face, vertex)]
+    }
+
+    fn normal(&self, face: usize, vertex: usize) -> [f32; 3] {
+        self.normals[self.source_index(face, vertex)].into()
+    }
+
+    fn tex_coord(&self, face: usize, vertex: usize) -> [f32; 2] {
+        self.texcoords[self.source_index(face, vertex)]
+    }
+
+    fn set_tangent_encoded(&mut self, tangent: [f32; 4], face: usize, vertex: usize) {
+        self.tangents[face * 3 + vertex] = tangent;
+    }
+}
+
+fn generate_mikktspace_tangents(
+    positions: &[[f32; 3]],
+    normals: &[Vector3<f32>],
+    texcoords: &[[f32; 2]],
+    indices: &[u32],
+) -> Result<Vec<[f32; 4]>, String> {
+    let mut geometry = MikktspaceGeometry {
+        positions,
+        normals,
+        texcoords,
+        indices,
+        tangents: vec![[0.0; 4]; indices.len()],
+    };
+    if !mikktspace::generate_tangents(&mut geometry) {
+        return Err("MikkTSpace tangent generation failed for the normal texture UV set".into());
+    }
+    if geometry
+        .tangents
+        .iter()
+        .flatten()
+        .any(|component| !component.is_finite())
+    {
+        return Err("MikkTSpace tangent generation produced a non-finite value".into());
+    }
+    if let Some((corner, _)) = geometry.tangents.iter().enumerate().find(|(_, tangent)| {
+        Vector3::new(tangent[0], tangent[1], tangent[2]).norm_squared() <= f32::EPSILON
+    }) {
+        return Err(format!(
+            "MikkTSpace tangent generation produced a zero-length tangent at corner {corner}"
+        ));
+    }
+    Ok(geometry.tangents)
 }
 
 fn normalized_vector3(
@@ -848,4 +936,63 @@ where
         image_index,
         reason: format!("pixel data length does not match {width}x{height} {format:?} image"),
     })
+}
+
+#[cfg(test)]
+mod tangent_tests {
+    use super::*;
+
+    #[test]
+    fn mikktspace_preserves_mirrored_uv_handedness_per_corner() {
+        let positions = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ];
+        let normals = vec![Vector3::z(); positions.len()];
+        let texcoords = [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [0.0, 0.0],
+            [-1.0, 0.0],
+            [0.0, 1.0],
+        ];
+        let indices = [0, 1, 2, 3, 4, 5];
+
+        let tangents = generate_mikktspace_tangents(&positions, &normals, &texcoords, &indices)
+            .expect("valid mirrored UV islands should generate tangents");
+
+        for tangent in &tangents[..3] {
+            let direction = Vector3::new(tangent[0], tangent[1], tangent[2]);
+            assert!((direction - Vector3::x()).norm() < 1e-5);
+            assert_eq!(tangent[3], 1.0);
+        }
+        for tangent in &tangents[3..] {
+            let direction = Vector3::new(tangent[0], tangent[1], tangent[2]);
+            assert!((direction + Vector3::x()).norm() < 1e-5);
+            assert_eq!(tangent[3], -1.0);
+        }
+    }
+
+    #[test]
+    fn mikktspace_handles_degenerate_uvs_with_finite_tangents() {
+        let positions = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let normals = vec![Vector3::z(); positions.len()];
+        let texcoords = [[0.0, 0.0]; 3];
+
+        let tangents = generate_mikktspace_tangents(&positions, &normals, &texcoords, &[0, 1, 2])
+            .expect("MikkTSpace should provide its deterministic degenerate-UV fallback");
+
+        assert_eq!(tangents.len(), 3);
+        for tangent in tangents {
+            let direction = Vector3::new(tangent[0], tangent[1], tangent[2]);
+            assert!(direction.iter().all(|component| component.is_finite()));
+            assert!((direction.norm() - 1.0).abs() < 1e-5);
+            assert!(tangent[3].abs() == 1.0);
+        }
+    }
 }
