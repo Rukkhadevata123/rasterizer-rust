@@ -97,6 +97,8 @@ Color triplets in TOML configuration, including backgrounds, ambient light, grou
 
 Directional shadows fit orthographic bounds to the camera frustum and scene geometry; `shadow_ortho_size` caps how far the camera frustum contributes to that fit. `shadow_constant_bias` supplies a base depth offset and `shadow_slope_bias` adds an angle-dependent offset. PCF samples outside the shadow map use a lit border.
 
+The renderer implements direct-light metallic-roughness PBR with a configurable ambient-light approximation. Image-based lighting, including irradiance maps, prefiltered environment reflections, and BRDF lookup tables, is intentionally outside the supported scope.
+
 ## Controls (GUI Mode)
 
 | Input                  | Action                                  |

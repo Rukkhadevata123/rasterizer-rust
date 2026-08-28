@@ -345,7 +345,7 @@ Suggested commits:
 
 ## Phase 7: Color and Rendering Correctness
 
-Status: in progress
+Status: completed
 
 ### 7A: Color Space
 
@@ -387,7 +387,10 @@ Status: completed
 
 ### 7E: PBR Scope
 
-Either implement image-based lighting or update documentation to state that the renderer uses direct-light PBR plus an ambient approximation.
+Status: completed
+
+- [x] Keep the renderer scoped to direct-light metallic-roughness PBR plus an ambient approximation.
+- [x] Document that image-based lighting is intentionally not implemented.
 
 ## Phase 8: Profile-Guided Performance Work
 
@@ -509,12 +512,13 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 7D:
+Repository state after Phase 7:
 
 - branch: `main`;
-- completed commits through `bb5bc01` cover Phases 1 through 7C;
+- completed commits through `3479167` cover Phases 1 through 7D;
 - Phase 7D separates shadow bias terms, defines lit PCF borders, and fits directional shadow bounds;
-- 122 tests are present after Phase 7D;
+- Phase 7E records direct-light PBR plus an ambient approximation as the intended scope, without image-based lighting;
+- 122 tests are present after Phase 7;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 7E PBR scope. Do not begin the tile renderer in the same change set.
+Immediate target: Phase 8A benchmark baseline. Do not replace horizontal bands or begin the tile renderer before measurements justify it.
