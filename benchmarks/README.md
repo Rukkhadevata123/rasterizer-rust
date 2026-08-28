@@ -28,3 +28,5 @@ node scripts/run-benchmarks.mjs
 ```
 
 Set `BENCHMARK_THREADS` to the machine's physical-core count when simultaneous multithreading makes the runtime's available parallelism larger. Compare only runs with matching metadata and output hashes. The opaque and masked queues intentionally share one rasterization measurement because the current renderer prepares and bins them together as one pass.
+
+Committed machine baselines live under `baselines/`; benchmark-backed comparisons for completed optimization phases live under `results/`.

@@ -7,7 +7,6 @@ use crate::scene::texture::TextureBinding;
 use nalgebra::{Matrix3, Matrix4, Point3, Vector2, Vector3, Vector4};
 use std::f32::consts::PI;
 use std::ops::{Add, Mul};
-use std::sync::Arc;
 
 fn base_color(material: &PbrMaterial, texel: Option<Vector4<f32>>) -> (Vector3<f32>, f32) {
     let texel = texel.unwrap_or_else(|| Vector4::repeat(1.0));
@@ -91,20 +90,20 @@ impl Interpolatable for PbrVarying {
 }
 
 // --- PBR Shader ---
-pub struct PbrShader {
+pub struct PbrShader<'resources> {
     pub model_matrix: Matrix4<f32>,
     pub view_matrix: Matrix4<f32>,
     pub projection_matrix: Matrix4<f32>,
     tangent_frame_transform: TangentFrameTransform,
 
     pub camera_pos: Point3<f32>,
-    pub lights: Vec<Light>,
+    pub lights: &'resources [Light],
 
     // Added: Ambient Light Control
     pub ambient_light: Vector3<f32>,
 
     // Shadow Mapping Fields
-    pub shadow_map: Option<Arc<Vec<f32>>>,
+    pub shadow_map: Option<&'resources [f32]>,
     pub shadow_map_size: usize,
     pub shadow_light_index: Option<usize>,
     pub light_space_matrix: Matrix4<f32>,
@@ -117,7 +116,7 @@ pub struct PbrShader {
     pub fallback_material: PbrMaterial,
 }
 
-impl PbrShader {
+impl PbrShader<'_> {
     pub fn new(
         model: Matrix4<f32>,
         view: Matrix4<f32>,
@@ -125,15 +124,29 @@ impl PbrShader {
         camera_pos: Point3<f32>,
     ) -> Self {
         let model_3x3 = model.fixed_view::<3, 3>(0, 0).into_owned();
-        let tangent_frame_transform = TangentFrameTransform::new(model_3x3);
+        Self::new_with_tangent_frame_transform(
+            model,
+            view,
+            projection,
+            camera_pos,
+            TangentFrameTransform::new(model_3x3),
+        )
+    }
 
+    pub(crate) fn new_with_tangent_frame_transform(
+        model: Matrix4<f32>,
+        view: Matrix4<f32>,
+        projection: Matrix4<f32>,
+        camera_pos: Point3<f32>,
+        tangent_frame_transform: TangentFrameTransform,
+    ) -> Self {
         Self {
             model_matrix: model,
             view_matrix: view,
             projection_matrix: projection,
             tangent_frame_transform,
             camera_pos,
-            lights: Vec::new(),
+            lights: &[],
             ambient_light: Vector3::new(0.03, 0.03, 0.03), // Default low ambient
             shadow_map: None,
             shadow_map_size: 0,
@@ -269,7 +282,7 @@ impl PbrShader {
     }
 }
 
-impl<'a> Shader<Option<&'a Material>> for PbrShader {
+impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
     type Varying = PbrVarying;
 
     fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
@@ -297,7 +310,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
     fn fragment(
         &self,
         input: FragmentInput<Self::Varying>,
-        material: Option<&'a Material>,
+        material: Option<&'material Material>,
     ) -> FragmentOutput {
         let varying = input.varying;
         // 1. Retrieve Material Properties
@@ -508,7 +521,8 @@ mod tests {
             Matrix4::identity(),
             Point3::origin(),
         );
-        shader.shadow_map = Some(Arc::new(vec![0.0; 9]));
+        let shadow_map = vec![0.0; 9];
+        shader.shadow_map = Some(&shadow_map);
         shader.shadow_map_size = 3;
         shader.shadow_constant_bias = 0.0;
         shader.shadow_slope_bias = 0.0;

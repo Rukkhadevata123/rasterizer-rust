@@ -9,15 +9,33 @@ pub struct Mesh {
     pub indices: Vec<u32>,
     /// Index into the Model's material list.
     pub material_id: usize,
+    reuses_vertices: bool,
 }
 
 impl Mesh {
     pub fn new(vertices: Vec<Vertex>, indices: Vec<u32>, material_id: usize) -> Self {
+        let reuses_vertices = indices.len() > vertices.len() || {
+            let mut referenced = vec![false; vertices.len()];
+            indices.iter().any(|&index| {
+                referenced
+                    .get_mut(index as usize)
+                    .is_some_and(|was_referenced| {
+                        let reused = *was_referenced;
+                        *was_referenced = true;
+                        reused
+                    })
+            })
+        };
         Self {
             vertices,
             indices,
             material_id,
+            reuses_vertices,
         }
+    }
+
+    pub fn reuses_vertices(&self) -> bool {
+        self.reuses_vertices
     }
 
     pub fn create_plane(size: f32, material_id: usize) -> Self {

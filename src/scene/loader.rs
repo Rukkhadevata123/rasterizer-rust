@@ -89,7 +89,7 @@ pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) 
                 let Some(object_config) = config.objects.get(config_index) else {
                     continue;
                 };
-                scene_object.transform = object_transform(object_config);
+                scene_object.set_transform(object_transform(object_config));
             }
         }
     }
@@ -334,7 +334,7 @@ mod tests {
         );
         assert_eq!(
             scene_objects[0]
-                .transform
+                .transform()
                 .transform_point(&Point3::origin()),
             Point3::new(3.0, 4.0, 5.0)
         );

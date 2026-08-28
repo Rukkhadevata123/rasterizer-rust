@@ -1,6 +1,5 @@
 use crate::core::color::{aces_tone_mapping, linear_to_srgb};
 use crate::core::framebuffer::FrameBuffer;
-use crate::core::geometry::Vertex;
 use crate::core::math::transform::{TangentFrameTransform, TransformFactory};
 use crate::core::rasterizer::{BlendMode, CullMode, RenderState};
 use crate::error::AssetError;
@@ -10,9 +9,6 @@ use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
 use crate::scene::context::RenderContext;
 use crate::scene::material::{AlphaMode, Material};
-use crate::scene::texture::{
-    MinFilter, SamplerState, TexCoordSet, TextureBinding, TextureImage, TextureUsage,
-};
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -41,6 +37,33 @@ pub struct MainPassTimings {
 struct ShadowCamera {
     view: Matrix4<f32>,
     projection: Matrix4<f32>,
+}
+
+fn configured_pbr_shader<'resources>(
+    config: &Config,
+    context: &'resources RenderContext,
+    shadow: &'resources ShadowPassOutput,
+    model: Matrix4<f32>,
+    tangent_frame_transform: TangentFrameTransform,
+) -> PbrShader<'resources> {
+    let mut shader = PbrShader::new_with_tangent_frame_transform(
+        model,
+        context.camera.view_matrix(),
+        context.camera.projection_matrix(),
+        context.camera.position,
+        tangent_frame_transform,
+    );
+    shader.lights = &context.lights;
+    shader.ambient_light = Vector3::from(config.render.ambient_light);
+    shader.shadow_map = shadow.depth.as_deref().map(Vec::as_slice);
+    shader.shadow_map_size = shadow.size;
+    shader.shadow_light_index = shadow.light_index;
+    shader.light_space_matrix = shadow.light_space_matrix;
+    shader.shadow_constant_bias = config.render.shadow_constant_bias;
+    shader.shadow_slope_bias = config.render.shadow_slope_bias;
+    shader.use_pcf = config.render.use_pcf;
+    shader.pcf_kernel_size = config.render.pcf_kernel_size;
+    shader
 }
 
 impl ShadowPassOutput {
@@ -111,7 +134,7 @@ fn shadow_camera(
     for object in &context.scene_objects {
         for mesh in &object.model.meshes {
             for vertex in &mesh.vertices {
-                include(object.transform.transform_point(&vertex.position));
+                include(object.transform().transform_point(&vertex.position));
             }
         }
     }
@@ -184,9 +207,15 @@ pub fn render_shadow_pass_profiled(
     let shaders: Vec<ShadowShader> = context
         .scene_objects
         .iter()
-        .map(|object| ShadowShader::new(object.transform, light_view, light_projection))
+        .map(|object| ShadowShader::new(object.transform(), light_view, light_projection))
         .collect();
-    let mut shadow_queue = RenderQueue::default();
+    let mut shadow_queue = RenderQueue::with_capacity(
+        context
+            .scene_objects
+            .iter()
+            .map(|object| object.model.meshes.len())
+            .sum(),
+    );
 
     for (shader_index, object) in context.scene_objects.iter().enumerate() {
         for mesh in &object.model.meshes {
@@ -203,7 +232,7 @@ pub fn render_shadow_pass_profiled(
                 } else {
                     shadow_state.cull_mode
                 },
-                front_face_inverted: object.transform.fixed_view::<3, 3>(0, 0).determinant() < 0.0,
+                front_face_inverted: object.front_face_inverted(),
                 ..shadow_state
             };
             shadow_queue.push(
@@ -218,7 +247,7 @@ pub fn render_shadow_pass_profiled(
     let draw_timings = shadow_renderer.draw_queue_profiled(&shadow_queue, &shaders);
 
     let output = ShadowPassOutput {
-        depth: Some(Arc::new(shadow_renderer.framebuffer.depth_values())),
+        depth: Some(shadow_renderer.shared_depth_values()),
         size: shadow_renderer.framebuffer.width,
         light_space_matrix,
         light_index: Some(shadow_light.light_index),
@@ -253,22 +282,14 @@ pub fn render_main_pass_profiled(
     let pass_started = Instant::now();
     let bg_texture = if let Some(path) = &config.render.background_image {
         let background_path = config.resolve_path(path);
-        let image =
-            TextureImage::load(&background_path, config.render.use_mipmap).map_err(|source| {
-                AssetError::BackgroundImage {
+        Some(
+            renderer
+                .background_texture(&background_path, config.render.use_mipmap)
+                .map_err(|source| AssetError::BackgroundImage {
                     path: background_path,
                     source,
-                }
-            })?;
-        Some(TextureBinding::new(
-            Arc::new(image),
-            SamplerState {
-                min_filter: MinFilter::LinearMipmapLinear,
-                ..Default::default()
-            },
-            TexCoordSet::TexCoord0,
-            TextureUsage::Color,
-        ))
+                })?,
+        )
     } else {
         None
     };
@@ -290,33 +311,9 @@ pub fn render_main_pass_profiled(
     renderer.clear_with_options(ClearOptions {
         color,
         gradient,
-        texture: bg_texture.as_ref(),
+        texture: bg_texture.as_deref(),
         depth: f32::INFINITY,
     });
-
-    let ambient_light = Vector3::from(config.render.ambient_light);
-
-    // Helper to create configured PBR shader
-    let create_pbr_shader = |model: Matrix4<f32>| -> PbrShader {
-        let mut shader = PbrShader::new(
-            model,
-            context.camera.view_matrix(),
-            context.camera.projection_matrix(),
-            context.camera.position,
-        );
-
-        shader.lights = context.lights.clone();
-        shader.ambient_light = ambient_light;
-        shader.shadow_map = shadow.depth.clone();
-        shader.shadow_map_size = shadow.size;
-        shader.shadow_light_index = shadow.light_index;
-        shader.light_space_matrix = shadow.light_space_matrix;
-        shader.shadow_constant_bias = config.render.shadow_constant_bias;
-        shader.shadow_slope_bias = config.render.shadow_slope_bias;
-        shader.use_pcf = config.render.use_pcf;
-        shader.pcf_kernel_size = config.render.pcf_kernel_size;
-        shader
-    };
 
     let opaque_state = RenderState {
         blend_mode: BlendMode::Opaque,
@@ -328,19 +325,55 @@ pub fn render_main_pass_profiled(
         depth_write: false,
         ..state
     };
-    let mut shaders: Vec<PbrShader> = context
+    let mut shaders: Vec<PbrShader<'_>> = context
         .scene_objects
         .iter()
-        .map(|object| create_pbr_shader(object.transform))
+        .map(|object| {
+            configured_pbr_shader(
+                config,
+                context,
+                shadow,
+                object.transform(),
+                object.tangent_frame_transform(),
+            )
+        })
         .collect();
     let transparent_shader_index = shaders.len();
-    shaders.push(create_pbr_shader(Matrix4::identity()));
-    let mut opaque_queue = RenderQueue::default();
-    let mut masked_queue = RenderQueue::default();
-    let mut transparent_queue = RenderQueue::default();
+    shaders.push(configured_pbr_shader(
+        config,
+        context,
+        shadow,
+        Matrix4::identity(),
+        TangentFrameTransform::new(nalgebra::Matrix3::identity()),
+    ));
+
+    let queue_counts = context
+        .scene_objects
+        .iter()
+        .fold([0; 3], |mut counts, object| {
+            for mesh in &object.model.meshes {
+                let alpha_mode = object
+                    .model
+                    .materials
+                    .get(mesh.material_id)
+                    .map(|material| match material {
+                        Material::Pbr(material) => material.alpha_mode,
+                    })
+                    .unwrap_or(AlphaMode::Opaque);
+                match alpha_mode {
+                    AlphaMode::Opaque => counts[0] += 1,
+                    AlphaMode::Mask(_) => counts[1] += 1,
+                    AlphaMode::Blend => counts[2] += mesh.indices.len() / 3,
+                }
+            }
+            counts
+        });
+    let mut opaque_queue = RenderQueue::with_capacity(queue_counts[0]);
+    let mut masked_queue = RenderQueue::with_capacity(queue_counts[1]);
+    let mut transparent_queue = RenderQueue::with_capacity(queue_counts[2]);
 
     for (shader_index, obj) in context.scene_objects.iter().enumerate() {
-        for mesh in &obj.model.meshes {
+        for (mesh_index, mesh) in obj.model.meshes.iter().enumerate() {
             let material = if mesh.material_id < obj.model.materials.len() {
                 Some(&obj.model.materials[mesh.material_id])
             } else {
@@ -357,41 +390,25 @@ pub fn render_main_pass_profiled(
                 } else {
                     state.cull_mode
                 },
-                front_face_inverted: obj.transform.fixed_view::<3, 3>(0, 0).determinant() < 0.0,
+                front_face_inverted: obj.front_face_inverted(),
                 ..state
             };
 
             if alpha_mode == AlphaMode::Blend {
-                let model_matrix = obj.transform;
                 let view_matrix = context.camera.view_matrix();
-
-                let model_3x3 = model_matrix.fixed_view::<3, 3>(0, 0).into_owned();
-                let tangent_frame_transform = TangentFrameTransform::new(model_3x3);
-
-                // Pre-transform all vertices to World Space
-                let transform_vertex = |v: &Vertex| -> Vertex {
-                    let pos_world = model_matrix.transform_point(&v.position);
-                    let (n_world, t_world) = tangent_frame_transform.transform(v.normal, v.tangent);
-
-                    let mut new_v = *v;
-                    new_v.position = pos_world;
-                    new_v.normal = n_world;
-                    new_v.tangent = t_world;
-                    new_v
-                };
-
-                // Use Rayon for parallel vertex transformation
-                let world_vertices: Vec<Vertex> =
-                    mesh.vertices.par_iter().map(transform_vertex).collect();
+                let world_vertices = obj
+                    .transparent_world_vertices(mesh_index)
+                    .expect("transparent meshes cache world-space vertices");
 
                 for chunk in mesh.indices.chunks(3) {
                     if chunk.len() < 3 {
                         continue;
                     }
                     // Use transformed vertices directly
-                    let v0_world = world_vertices[chunk[0] as usize];
-                    let v1_world = world_vertices[chunk[1] as usize];
-                    let v2_world = world_vertices[chunk[2] as usize];
+                    let indices = [chunk[0], chunk[1], chunk[2]];
+                    let v0_world = world_vertices[indices[0] as usize];
+                    let v1_world = world_vertices[indices[1] as usize];
+                    let v2_world = world_vertices[indices[2] as usize];
 
                     if let Some(mat) = material {
                         // Calculate Z in View Space using the centroid of World Space vertices
@@ -404,7 +421,11 @@ pub fn render_main_pass_profiled(
 
                         transparent_queue.push(
                             transparent_shader_index,
-                            RenderGeometry::Triangle([v0_world, v1_world, v2_world]),
+                            RenderGeometry::IndexedTriangle {
+                                vertices: world_vertices,
+                                indices,
+                                cache_vertices: mesh.reuses_vertices(),
+                            },
                             Some(mat),
                             command_state(transparent_state),
                             centroid_view.z,

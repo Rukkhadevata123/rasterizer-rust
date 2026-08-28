@@ -9,8 +9,44 @@ use std::ops::RangeInclusive;
 
 const RASTER_BAND_HEIGHT: usize = 16;
 const WIREFRAME_HALF_WIDTH: f32 = 1.0;
+const MAX_CLIPPED_VERTICES: usize = 9;
+pub(crate) const MAX_PREPARED_TRIANGLES: usize = MAX_CLIPPED_VERTICES - 2;
 
-pub struct Rasterizer;
+pub struct Rasterizer {
+    band_bins: Vec<Vec<usize>>,
+}
+
+struct ClippedPolygon<V: Copy> {
+    vertices: [Option<(Vector4<f32>, V)>; MAX_CLIPPED_VERTICES],
+    len: usize,
+}
+
+impl<V: Copy> ClippedPolygon<V> {
+    fn new() -> Self {
+        Self {
+            vertices: [None; MAX_CLIPPED_VERTICES],
+            len: 0,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    fn push(&mut self, vertex: (Vector4<f32>, V)) {
+        debug_assert!(self.len < MAX_CLIPPED_VERTICES);
+        self.vertices[self.len] = Some(vertex);
+        self.len += 1;
+    }
+
+    fn get(&self, index: usize) -> (Vector4<f32>, V) {
+        self.vertices[index].expect("clipped vertex index is in bounds")
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum CullMode {
@@ -104,7 +140,9 @@ impl Default for Rasterizer {
 
 impl Rasterizer {
     pub fn new() -> Self {
-        Self
+        Self {
+            band_bins: Vec::new(),
+        }
     }
 
     pub(crate) fn prepare_triangle<'a, S, C>(
@@ -115,7 +153,7 @@ impl Rasterizer {
         shader: &'a S,
         state: RenderState,
         fragment_context: C,
-    ) -> Vec<PreparedTriangle<'a, S::Varying, S, C>>
+    ) -> [Option<PreparedTriangle<'a, S::Varying, S, C>>; MAX_PREPARED_TRIANGLES]
     where
         S: Shader<C>,
         S::Varying: Interpolatable + Copy,
@@ -125,11 +163,11 @@ impl Rasterizer {
             .iter()
             .any(|position| !position.iter().all(|component| component.is_finite()))
         {
-            return Vec::new();
+            return std::array::from_fn(|_| None);
         }
 
-        let mut current_poly = Vec::with_capacity(16);
-        let mut clip_buffer = Vec::with_capacity(16);
+        let mut current_poly = ClippedPolygon::new();
+        let mut clip_buffer = ClippedPolygon::new();
 
         for index in 0..3 {
             current_poly.push((clip_coords[index], varyings[index]));
@@ -146,36 +184,40 @@ impl Rasterizer {
 
         for &(axis, sign) in &planes {
             if current_poly.is_empty() {
-                return Vec::new();
+                return std::array::from_fn(|_| None);
             }
 
-            Self::clip_polygon_against_plane::<S, C>(&current_poly, &mut clip_buffer, axis, sign);
+            Self::clip_polygon_against_plane(&current_poly, &mut clip_buffer, axis, sign);
             std::mem::swap(&mut current_poly, &mut clip_buffer);
         }
 
-        if current_poly.len() < 3 {
-            return Vec::new();
+        if current_poly.len < 3 {
+            return std::array::from_fn(|_| None);
         }
 
-        let first = current_poly[0];
-        (1..current_poly.len() - 1)
-            .filter_map(|index| {
-                let second = current_poly[index];
-                let third = current_poly[index + 1];
-                self.prepare_screen_triangle(
-                    framebuffer_size,
-                    &[first.0, second.0, third.0],
-                    &[first.1, second.1, third.1],
-                    shader,
-                    state,
-                    fragment_context,
-                )
-            })
-            .collect()
+        let first = current_poly.get(0);
+        let mut prepared = std::array::from_fn(|_| None);
+        let mut prepared_len = 0;
+        for index in 1..current_poly.len - 1 {
+            let second = current_poly.get(index);
+            let third = current_poly.get(index + 1);
+            if let Some(triangle) = self.prepare_screen_triangle(
+                framebuffer_size,
+                &[first.0, second.0, third.0],
+                &[first.1, second.1, third.1],
+                shader,
+                state,
+                fragment_context,
+            ) {
+                prepared[prepared_len] = Some(triangle);
+                prepared_len += 1;
+            }
+        }
+        prepared
     }
 
     pub(crate) fn rasterize_prepared<S, C>(
-        &self,
+        &mut self,
         framebuffer: &mut FrameBuffer,
         triangles: &[PreparedTriangle<'_, S::Varying, S, C>],
     ) where
@@ -190,15 +232,22 @@ impl Rasterizer {
         let width = framebuffer.buffer_width;
         let height = framebuffer.buffer_height;
         let band_count = height.div_ceil(RASTER_BAND_HEIGHT);
-        let mut band_bins = vec![Vec::new(); band_count];
+        if self.band_bins.len() < band_count {
+            self.band_bins.resize_with(band_count, Vec::new);
+        }
+        for band in &mut self.band_bins[..band_count] {
+            band.clear();
+        }
 
         for (triangle_index, triangle) in triangles.iter().enumerate() {
             let first_band = triangle.start_y / RASTER_BAND_HEIGHT;
             let last_band = triangle.end_y / RASTER_BAND_HEIGHT;
-            for band in &mut band_bins[first_band..=last_band] {
+            for band in &mut self.band_bins[first_band..=last_band] {
                 band.push(triangle_index);
             }
         }
+
+        let band_bins = &self.band_bins[..band_count];
 
         framebuffer
             .samples_mut()
@@ -209,7 +258,7 @@ impl Rasterizer {
                 let band_end_y = (band_start_y + samples.len() / width - 1).min(height - 1);
 
                 for &triangle_index in &band_bins[band_index] {
-                    self.rasterize_triangle_band(
+                    Self::rasterize_triangle_band(
                         samples,
                         width,
                         band_start_y..=band_end_y,
@@ -219,15 +268,13 @@ impl Rasterizer {
             });
     }
 
-    fn clip_polygon_against_plane<S, C>(
-        input: &[(Vector4<f32>, S::Varying)],
-        output: &mut Vec<(Vector4<f32>, S::Varying)>,
+    fn clip_polygon_against_plane<V>(
+        input: &ClippedPolygon<V>,
+        output: &mut ClippedPolygon<V>,
         axis: usize,
         sign: f32,
     ) where
-        S: Shader<C>,
-        S::Varying: Interpolatable + Copy,
-        C: Copy + Send + Sync,
+        V: Interpolatable + Copy,
     {
         output.clear();
         if input.is_empty() {
@@ -235,43 +282,42 @@ impl Rasterizer {
         }
 
         let is_inside = |position: &Vector4<f32>| sign * position[axis] <= position.w + 1e-6;
-        let mut previous = input[input.len() - 1];
+        let mut previous = input.get(input.len - 1);
         let mut previous_inside = is_inside(&previous.0);
 
-        for current in input {
+        for index in 0..input.len {
+            let current = input.get(index);
             let current_inside = is_inside(&current.0);
 
             if current_inside {
                 if !previous_inside
                     && let Some(intersection) =
-                        Self::intersect_edge_plane::<S, C>(previous, *current, axis, sign)
+                        Self::intersect_edge_plane(previous, current, axis, sign)
                 {
                     output.push(intersection);
                 }
-                output.push(*current);
+                output.push(current);
             } else if previous_inside
                 && let Some(intersection) =
-                    Self::intersect_edge_plane::<S, C>(previous, *current, axis, sign)
+                    Self::intersect_edge_plane(previous, current, axis, sign)
             {
                 output.push(intersection);
             }
 
-            previous = *current;
+            previous = current;
             previous_inside = current_inside;
         }
     }
 
     #[inline(always)]
-    fn intersect_edge_plane<S, C>(
-        a: (Vector4<f32>, S::Varying),
-        b: (Vector4<f32>, S::Varying),
+    fn intersect_edge_plane<V>(
+        a: (Vector4<f32>, V),
+        b: (Vector4<f32>, V),
         axis: usize,
         sign: f32,
-    ) -> Option<(Vector4<f32>, S::Varying)>
+    ) -> Option<(Vector4<f32>, V)>
     where
-        S: Shader<C>,
-        S::Varying: Interpolatable + Copy,
-        C: Copy + Send + Sync,
+        V: Interpolatable + Copy,
     {
         let denominator = sign * (b.0[axis] - a.0[axis]) - (b.0.w - a.0.w);
         if denominator.abs() < 1e-9 {
@@ -454,7 +500,6 @@ impl Rasterizer {
     }
 
     fn rasterize_triangle_band<S, C>(
-        &self,
         samples: &mut [Sample],
         framebuffer_width: usize,
         band_rows: RangeInclusive<usize>,

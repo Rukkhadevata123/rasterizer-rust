@@ -25,6 +25,7 @@ use rasterizer_rust::scene::texture::{
 };
 use std::ops::{Add, Mul};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone, Copy)]
 struct ColorVarying {
@@ -198,6 +199,32 @@ struct NonFiniteClipShader {
     clip: Vector4<f32>,
 }
 
+struct CountingShader<'a> {
+    vertex_calls: &'a AtomicUsize,
+}
+
+impl<'a, 'material> Shader<Option<&'material Material>> for CountingShader<'a> {
+    type Varying = ColorVarying;
+
+    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+        self.vertex_calls.fetch_add(1, Ordering::Relaxed);
+        (
+            vertex.position.to_homogeneous(),
+            ColorVarying {
+                color: Vector4::new(1.0, 1.0, 1.0, 1.0),
+            },
+        )
+    }
+
+    fn fragment(
+        &self,
+        input: FragmentInput<Self::Varying>,
+        _material: Option<&'material Material>,
+    ) -> FragmentOutput {
+        FragmentOutput::Color(input.varying.color)
+    }
+}
+
 impl<'a> Shader<Option<&'a Material>> for NonFiniteClipShader {
     type Varying = ColorVarying;
 
@@ -236,6 +263,34 @@ fn assert_vec3_approx(actual: Vector3<f32>, expected: Vector3<f32>) {
         (actual - expected).norm() < 1e-4,
         "expected {expected:?}, got {actual:?}"
     );
+}
+
+#[test]
+fn indexed_mesh_shades_each_vertex_once_per_draw() {
+    let calls = AtomicUsize::new(0);
+    let shader = CountingShader {
+        vertex_calls: &calls,
+    };
+    let vertices = vec![
+        Vertex::new(Point3::new(-0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(-0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+    ];
+    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
+    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let mut queue = RenderQueue::default();
+    queue.push(
+        0,
+        RenderGeometry::Mesh(&mesh),
+        None,
+        test_render_state(),
+        0.0,
+    );
+
+    renderer.draw_queue(&queue, &[shader]);
+
+    assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len());
 }
 
 fn test_render_state() -> RenderState {
@@ -1117,13 +1172,7 @@ fn pbr_shadow_uses_recorded_light_index() {
         ..Default::default()
     });
     let render = |shadow_light_index| {
-        let mut shader = PbrShader::new(
-            Matrix4::identity(),
-            Matrix4::identity(),
-            Matrix4::identity(),
-            Point3::new(0.0, 0.0, 2.0),
-        );
-        shader.lights = vec![
+        let lights = [
             Light::new_directional(
                 Vector3::new(0.0, 0.0, -1.0),
                 Vector3::new(1.0, 0.0, 0.0),
@@ -1135,8 +1184,16 @@ fn pbr_shadow_uses_recorded_light_index() {
                 1.0,
             ),
         ];
+        let mut shader = PbrShader::new(
+            Matrix4::identity(),
+            Matrix4::identity(),
+            Matrix4::identity(),
+            Point3::new(0.0, 0.0, 2.0),
+        );
+        shader.lights = &lights;
         shader.ambient_light = Vector3::zeros();
-        shader.shadow_map = Some(Arc::new(vec![0.0]));
+        let shadow_map = vec![0.0];
+        shader.shadow_map = Some(&shadow_map);
         shader.shadow_map_size = 1;
         shader.shadow_light_index = Some(shadow_light_index);
         shader.light_space_matrix = Matrix4::identity();
@@ -1179,17 +1236,18 @@ fn pbr_back_faces_flip_the_geometric_normal() {
         double_sided: true,
         ..Default::default()
     });
+    let lights = [Light::new_directional(
+        Vector3::z(),
+        Vector3::new(1.0, 1.0, 1.0),
+        1.0,
+    )];
     let mut shader = PbrShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
         Matrix4::identity(),
         Point3::new(0.0, 0.0, -2.0),
     );
-    shader.lights = vec![Light::new_directional(
-        Vector3::z(),
-        Vector3::new(1.0, 1.0, 1.0),
-        1.0,
-    )];
+    shader.lights = &lights;
     shader.ambient_light = Vector3::zeros();
     let shade = |front_facing| match shader.fragment(
         FragmentInput {

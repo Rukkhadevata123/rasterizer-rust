@@ -96,6 +96,12 @@ impl FrameBuffer {
         self.samples.iter().map(|sample| sample.depth).collect()
     }
 
+    pub(crate) fn copy_depth_values_into(&self, output: &mut Vec<f32>) {
+        output.clear();
+        output.reserve(self.samples.len());
+        output.extend(self.samples.iter().map(|sample| sample.depth));
+    }
+
     pub fn clear_with<F>(&mut self, depth: f32, color_at: F)
     where
         F: Fn(usize, usize) -> Vector3<f32> + Sync,

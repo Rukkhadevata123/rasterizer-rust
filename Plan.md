@@ -414,12 +414,16 @@ The committed benchmark driver covers one large triangle, 400 small triangles, t
 
 ### 8B: Low-Risk Resource and Allocation Improvements
 
-- Cache background textures and reload only when path or mip policy changes.
-- Reuse shadow depth storage instead of copying it into a new `Vec<f32>` and `Arc` every frame.
-- Borrow or share lights instead of cloning them per object.
-- Process each indexed vertex once per pass.
-- Cache static object transforms where beneficial.
-- Reuse clipping buffers, prepared-triangle storage, bins, transparent queues, and output buffers.
+Status: completed
+
+- [x] Cache background textures and reload only when path or mip policy changes.
+- [x] Reuse shadow depth storage with copy-on-write protection when an older frame still holds it.
+- [x] Borrow lights and shadow depth from pass resources instead of cloning them per object.
+- [x] Process shared indexed vertices once per queue group; skip the cache when indices do not reuse vertices.
+- [x] Cache tangent-frame transforms, winding orientation, and transparent world-space vertices on static scene objects, rebuilding them when hot reload changes the transform.
+- [x] Eliminate per-triangle clipping allocations with fixed-capacity stack storage, retain horizontal-band bins across draws, reserve render queues exactly, and keep output buffers persistent in repeated-frame modes.
+
+The generic prepared-triangle vector remains one whole-queue allocation per draw. Persisting it or the borrowed command queues across frames would require type erasure, unsafe lifetime conversion, or a larger submission-model redesign, so it is outside this low-risk subphase. Phase 8B preserves every Phase 8A output hash. On the recorded i5-13500H matrix, the clearest complete-frame changes were city at -4.1% with one worker and -1.7% with 12 workers, and high transparency at -25.4% with 12 workers; small differences elsewhere are within run-to-run noise. See `benchmarks/results/2026-08-29-phase-8b-i5-13500h.md`.
 
 ### 8C: Whole-Pass Binning
 
@@ -515,14 +519,15 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 8A:
+Repository state after Phase 8B:
 
 - branch: `main`;
-- completed commits through `ccf86c6` cover Phases 1 through 7;
+- completed commits through Phase 8A cover the benchmark infrastructure and baseline;
 - Phase 7D separates shadow bias terms, defines lit PCF borders, and fits directional shadow bounds;
 - Phase 7E records direct-light PBR plus an ambient approximation as the intended scope, without image-based lighting;
-- commit Phase 8A as a bounded benchmark-infrastructure change before beginning optimization;
-- 127 tests are present after Phase 8A;
+- Phase 8B caches stable resources and transforms, shares pass data, deduplicates indexed vertex work, removes clipping heap allocations, and reuses band/depth storage;
+- all Phase 8A matrix hashes remain unchanged between the baseline and Phase 8B and across one versus 12 workers;
+- 130 tests are present after Phase 8B;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 8B low-risk resource and allocation improvements, beginning with the preparation-heavy city path identified by the baseline. Do not replace horizontal bands or begin the tile renderer before measurements justify it.
+Immediate target: Phase 8C audit. Whole queue groups are already prepared and binned together; measure the remaining per-command collection and transparent submission work before deciding whether 8C needs code. Do not replace horizontal bands or begin the tile renderer before Phase 8D measurements justify it.
