@@ -394,22 +394,23 @@ Status: completed
 
 ## Phase 8: Profile-Guided Performance Work
 
-Status: planned
+Status: in progress
 
 This is the reordered version of the original Phase 6. Correctness and stable submission/resource models must land first.
 
 ### 8A: Benchmark Baseline
 
-Record timings for:
+Status: completed
 
-- scene loading;
-- shadow preparation and rasterization;
-- main-pass preparation;
-- opaque, masked, and transparent rasterization;
-- post-processing;
-- complete frame time.
+- [x] Record scene loading.
+- [x] Record shadow preparation and rasterization.
+- [x] Record main-pass preparation.
+- [x] Record combined opaque/masked and separate transparent rasterization without changing the existing whole-pass binning architecture.
+- [x] Record post-processing and complete frame time.
+- [x] Reject output changes across measured frames and compare hashes across worker counts.
+- [x] Emit per-frame CSV, environment metadata, and a mean/p95 Markdown summary.
 
-Use representative scenes: one large triangle, many small triangles, the default car, the city asset, high transparency, shadows on/off, 1×/2× supersampling, and one versus all physical cores. Preserve output hashes during optimization.
+The committed benchmark driver covers one large triangle, 400 small triangles, the default car, the city asset, high transparency, shadows on/off, 1×/2× supersampling, and one versus all configured physical cores. The initial Windows/i5-13500H baseline is recorded under `benchmarks/baselines/`.
 
 ### 8B: Low-Risk Resource and Allocation Improvements
 
@@ -423,6 +424,8 @@ Use representative scenes: one large triangle, many small triangles, the default
 ### 8C: Whole-Pass Binning
 
 Move from per-mesh preparation/binning to complete render-queue preparation so overlapping work and allocations are amortized across the pass.
+
+Audit note from 8A: `Renderer::draw_queues` already prepares and bins complete queue groups. Confirm whether any per-command collection or transparent-path work remains before treating 8C as an implementation task.
 
 ### 8D: Horizontal Bands versus 2D Tiles
 
@@ -512,13 +515,14 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 7:
+Repository state after Phase 8A:
 
 - branch: `main`;
-- completed commits through `3479167` cover Phases 1 through 7D;
+- completed commits through `ccf86c6` cover Phases 1 through 7;
 - Phase 7D separates shadow bias terms, defines lit PCF borders, and fits directional shadow bounds;
 - Phase 7E records direct-light PBR plus an ambient approximation as the intended scope, without image-based lighting;
-- 122 tests are present after Phase 7;
+- commit Phase 8A as a bounded benchmark-infrastructure change before beginning optimization;
+- 127 tests are present after Phase 8A;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 8A benchmark baseline. Do not replace horizontal bands or begin the tile renderer before measurements justify it.
+Immediate target: Phase 8B low-risk resource and allocation improvements, beginning with the preparation-heavy city path identified by the baseline. Do not replace horizontal bands or begin the tile renderer before measurements justify it.

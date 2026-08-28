@@ -7,10 +7,17 @@ use crate::scene::mesh::Mesh;
 use crate::scene::texture::TextureBinding;
 use nalgebra::Vector3;
 use rayon::prelude::*;
+use std::time::{Duration, Instant};
 
 pub enum RenderGeometry<'a> {
     Mesh(&'a Mesh),
     Triangle([Vertex; 3]),
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DrawTimings {
+    pub preparation: Duration,
+    pub rasterization: Duration,
 }
 
 pub struct RenderCommand<'a> {
@@ -114,13 +121,36 @@ impl Renderer {
     where
         S: Shader<Option<&'a Material>>,
     {
-        self.draw_queues(&[queue], shaders);
+        let _ = self.draw_queues_profiled(&[queue], shaders);
     }
 
     pub fn draw_queues<'a, S>(&mut self, queues: &[&RenderQueue<'a>], shaders: &'a [S])
     where
         S: Shader<Option<&'a Material>>,
     {
+        let _ = self.draw_queues_profiled(queues, shaders);
+    }
+
+    pub fn draw_queue_profiled<'a, S>(
+        &mut self,
+        queue: &RenderQueue<'a>,
+        shaders: &'a [S],
+    ) -> DrawTimings
+    where
+        S: Shader<Option<&'a Material>>,
+    {
+        self.draw_queues_profiled(&[queue], shaders)
+    }
+
+    pub fn draw_queues_profiled<'a, S>(
+        &mut self,
+        queues: &[&RenderQueue<'a>],
+        shaders: &'a [S],
+    ) -> DrawTimings
+    where
+        S: Shader<Option<&'a Material>>,
+    {
+        let preparation_started = Instant::now();
         let width = self.framebuffer.buffer_width;
         let height = self.framebuffer.buffer_height;
         let prepared: Vec<PreparedTriangle<'_, S::Varying, S, Option<&Material>>> = queues
@@ -162,9 +192,15 @@ impl Renderer {
                 }
             })
             .collect();
+        let preparation = preparation_started.elapsed();
 
+        let rasterization_started = Instant::now();
         self.rasterizer
             .rasterize_prepared(&mut self.framebuffer, &prepared);
+        DrawTimings {
+            preparation,
+            rasterization: rasterization_started.elapsed(),
+        }
     }
 
     fn prepare_vertices<'a, S>(

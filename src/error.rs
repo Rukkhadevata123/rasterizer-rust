@@ -11,12 +11,34 @@ pub enum ApplicationError {
     ImageOutput(#[from] ImageOutputError),
     #[error(transparent)]
     Window(#[from] WindowError),
+    #[error(transparent)]
+    Benchmark(#[from] BenchmarkError),
     #[error("invalid runtime configuration: {reason}")]
     InvalidConfiguration { reason: String },
     #[error("failed to initialize {target}: {reason}")]
     RenderInitialization {
         target: &'static str,
         reason: String,
+    },
+}
+
+#[derive(Debug, Error)]
+pub enum BenchmarkError {
+    #[error("invalid benchmark options: {reason}")]
+    InvalidOptions { reason: String },
+    #[error("failed to write benchmark report '{}': {source}", path.display())]
+    Write {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error(
+        "benchmark output changed at measured frame {frame_index}: expected {expected:016x}, got {actual:016x}"
+    )]
+    OutputChanged {
+        frame_index: usize,
+        expected: u64,
+        actual: u64,
     },
 }
 

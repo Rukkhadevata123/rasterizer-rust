@@ -16,12 +16,26 @@ use crate::scene::texture::{
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 pub struct ShadowPassOutput {
     pub depth: Option<Arc<Vec<f32>>>,
     pub size: usize,
     pub light_space_matrix: Matrix4<f32>,
     pub light_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShadowPassTimings {
+    pub preparation: Duration,
+    pub rasterization: Duration,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MainPassTimings {
+    pub preparation: Duration,
+    pub opaque_masked_rasterization: Duration,
+    pub transparent_rasterization: Duration,
 }
 
 struct ShadowCamera {
@@ -119,12 +133,33 @@ pub fn render_shadow_pass(
     context: &RenderContext,
     shadow_renderer: &mut Renderer,
 ) -> ShadowPassOutput {
+    render_shadow_pass_profiled(config, context, shadow_renderer).0
+}
+
+pub fn render_shadow_pass_profiled(
+    config: &Config,
+    context: &RenderContext,
+    shadow_renderer: &mut Renderer,
+) -> (ShadowPassOutput, ShadowPassTimings) {
+    let pass_started = Instant::now();
     if !config.render.use_shadows {
-        return ShadowPassOutput::disabled();
+        return (
+            ShadowPassOutput::disabled(),
+            ShadowPassTimings {
+                preparation: pass_started.elapsed(),
+                ..Default::default()
+            },
+        );
     }
 
     let Some(shadow_light) = context.shadow_light else {
-        return ShadowPassOutput::disabled();
+        return (
+            ShadowPassOutput::disabled(),
+            ShadowPassTimings {
+                preparation: pass_started.elapsed(),
+                ..Default::default()
+            },
+        );
     };
 
     let light_direction = context
@@ -180,14 +215,22 @@ pub fn render_shadow_pass(
             );
         }
     }
-    shadow_renderer.draw_queue(&shadow_queue, &shaders);
+    let draw_timings = shadow_renderer.draw_queue_profiled(&shadow_queue, &shaders);
 
-    ShadowPassOutput {
+    let output = ShadowPassOutput {
         depth: Some(Arc::new(shadow_renderer.framebuffer.depth_values())),
         size: shadow_renderer.framebuffer.width,
         light_space_matrix,
         light_index: Some(shadow_light.light_index),
-    }
+    };
+    let total = pass_started.elapsed();
+    (
+        output,
+        ShadowPassTimings {
+            preparation: total.saturating_sub(draw_timings.rasterization),
+            rasterization: draw_timings.rasterization,
+        },
+    )
 }
 /// Executes the Main Rendering Pass.
 pub fn render_main_pass(
@@ -197,6 +240,17 @@ pub fn render_main_pass(
     shadow: &ShadowPassOutput,
     state: RenderState,
 ) -> Result<(), AssetError> {
+    render_main_pass_profiled(config, context, renderer, shadow, state).map(|_| ())
+}
+
+pub fn render_main_pass_profiled(
+    config: &Config,
+    context: &RenderContext,
+    renderer: &mut Renderer,
+    shadow: &ShadowPassOutput,
+    state: RenderState,
+) -> Result<MainPassTimings, AssetError> {
+    let pass_started = Instant::now();
     let bg_texture = if let Some(path) = &config.render.background_image {
         let background_path = config.resolve_path(path);
         let image =
@@ -377,11 +431,16 @@ pub fn render_main_pass(
         }
     }
 
-    renderer.draw_queues(&[&opaque_queue, &masked_queue], &shaders);
+    let opaque_masked = renderer.draw_queues_profiled(&[&opaque_queue, &masked_queue], &shaders);
     transparent_queue.sort_transparent();
-    renderer.draw_queue(&transparent_queue, &shaders);
+    let transparent = renderer.draw_queue_profiled(&transparent_queue, &shaders);
 
-    Ok(())
+    let rasterization = opaque_masked.rasterization + transparent.rasterization;
+    Ok(MainPassTimings {
+        preparation: pass_started.elapsed().saturating_sub(rasterization),
+        opaque_masked_rasterization: opaque_masked.rasterization,
+        transparent_rasterization: transparent.rasterization,
+    })
 }
 
 /// Post-processing: Tone Mapping -> Gamma Correction -> u32 Buffer.

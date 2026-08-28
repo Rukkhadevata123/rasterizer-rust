@@ -24,6 +24,14 @@ fn run_with_config_from(
         .expect("rasterizer process should start")
 }
 
+fn run_with_args(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_rasterizer"))
+        .args(args)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("rasterizer process should start")
+}
+
 fn write_minimal_gltf(directory: &std::path::Path) {
     let mut buffer = Vec::new();
     for value in [-0.5_f32, -0.5, 0.0, 0.5, -0.5, 0.0, 0.0, 0.5, 0.0] {
@@ -123,6 +131,46 @@ fn missing_requested_config_returns_failure() {
     assert!(stderr.contains("failed to read config"));
     assert!(stderr.contains(missing_config.to_string_lossy().as_ref()));
     assert!(!stderr.contains("Using defaults"));
+}
+
+#[test]
+fn benchmark_mode_writes_structured_csv_without_saving_a_png() {
+    let root = std::env::temp_dir().join(format!(
+        "rasterizer-benchmark-cli-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("benchmark directory should be created");
+    let png_path = root.join("unused.png");
+    let csv_path = root.join("results").join("baseline.csv");
+    let config = write_temp_config(
+        "benchmark.toml",
+        &output_config(&png_path).replace("width = 1", "width = 2"),
+    );
+    let output = run_with_args(&[
+        "--config",
+        config.to_string_lossy().as_ref(),
+        "--benchmark",
+        "--benchmark-scenario",
+        "cli-fixture",
+        "--benchmark-warmup",
+        "0",
+        "--benchmark-frames",
+        "2",
+        "--benchmark-output",
+        csv_path.to_string_lossy().as_ref(),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let csv = std::fs::read_to_string(&csv_path).expect("benchmark CSV should be written");
+    assert_eq!(csv.lines().count(), 3);
+    assert!(csv.contains("cli-fixture,0,2,1"));
+    assert!(csv.contains("cli-fixture,1,2,1"));
+    assert!(!png_path.exists());
 }
 
 #[test]

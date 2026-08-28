@@ -1,0 +1,32 @@
+{
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [{ "nodes": [0] }],
+  "nodes": [{ "mesh": 0 }],
+  "meshes": [{
+    "primitives": [{ "attributes": { "POSITION": 0 }, "material": 0 }]
+  }],
+  "materials": [{
+    "alphaMode": "BLEND",
+    "doubleSided": true,
+    "emissiveFactor": [0.2, 0.5, 0.9],
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [0.2, 0.5, 0.9, 0.25],
+      "metallicFactor": 0.0,
+      "roughnessFactor": 1.0
+    }
+  }],
+  "buffers": [{
+    "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAAAAAAAPwAAAL8AAAAAAAAAAAAAAD8AAAAA",
+    "byteLength": 36
+  }],
+  "bufferViews": [{ "buffer": 0, "byteLength": 36, "target": 34962 }],
+  "accessors": [{
+    "bufferView": 0,
+    "componentType": 5126,
+    "count": 3,
+    "type": "VEC3",
+    "min": [-0.5, -0.5, 0.0],
+    "max": [0.5, 0.5, 0.0]
+  }]
+}
