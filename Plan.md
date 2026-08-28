@@ -289,15 +289,15 @@ Status: completed
 
 ### 6B: Sampler Semantics
 
-Status: planned
+Status: completed
 
 Implement and test:
 
-- Repeat;
-- ClampToEdge;
-- MirroredRepeat;
-- glTF minification/magnification choices;
-- non-mip filters without forced trilinear sampling.
+- [x] Repeat;
+- [x] ClampToEdge;
+- [x] MirroredRepeat;
+- [x] glTF minification/magnification choices;
+- [x] non-mip filters without forced trilinear sampling.
 
 ### 6C: UV Sets and Texture Bindings
 
@@ -499,12 +499,12 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 6A:
+Repository state after Phase 6B:
 
 - branch: `main`;
-- completed commits through `267f2bb` cover Phases 1 through 5;
-- commit Phase 6A as a bounded change before starting Phase 6B;
-- 85 tests are present after Phase 6A;
+- completed commits through `387a8eb` cover Phases 1 through 6A;
+- commit Phase 6B as a bounded change before starting Phase 6C;
+- 89 tests are present after Phase 6B;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 6B. Do not begin UV-set vertex work, MikkTSpace work, or the tile renderer in the same change set.
+Immediate target: Phase 6C. Do not begin material-factor work, MikkTSpace work, or the tile renderer in the same change set.

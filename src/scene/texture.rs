@@ -121,9 +121,6 @@ impl TextureBinding {
         }
     }
 
-    /// Samples with the renderer's existing repeat, bilinear, and trilinear behavior.
-    /// `SamplerState` is retained independently so exact glTF choices can be applied by the
-    /// sampler implementation without changing image ownership or material bindings.
     pub fn sample_with_density(&self, u: f32, v: f32, uv_density: f32) -> Vector4<f32> {
         let sample = self.sample_data_with_density(u, v, uv_density);
         match self.usage {
@@ -142,19 +139,58 @@ impl TextureBinding {
     }
 
     fn sample_data_with_density(&self, u: f32, v: f32, uv_density: f32) -> Vector4<f32> {
-        if self.image.mips.len() == 1 || uv_density <= 0.0 {
-            return self.sample_bilinear_level(u, v, 0);
+        let size = self.image.width.max(self.image.height) as f32;
+        let texels_per_pixel = uv_density * size;
+        if texels_per_pixel <= 1.0 {
+            return match self.sampler.mag_filter {
+                MagFilter::Nearest => self.sample_nearest_level(u, v, 0),
+                MagFilter::Linear => self.sample_bilinear_level(u, v, 0),
+            };
         }
 
-        let size = self.image.width.max(self.image.height) as f32;
-        let lod = (uv_density * size).log2().max(0.0);
+        let lod = texels_per_pixel
+            .log2()
+            .clamp(0.0, (self.image.mips.len() - 1) as f32);
+        match self.sampler.min_filter {
+            MinFilter::Nearest => self.sample_nearest_level(u, v, 0),
+            MinFilter::Linear => self.sample_bilinear_level(u, v, 0),
+            MinFilter::NearestMipmapNearest => {
+                self.sample_nearest_level(u, v, lod.round() as usize)
+            }
+            MinFilter::LinearMipmapNearest => {
+                self.sample_bilinear_level(u, v, lod.round() as usize)
+            }
+            MinFilter::NearestMipmapLinear => {
+                self.sample_mipmap_linear(u, v, lod, Self::sample_nearest_level)
+            }
+            MinFilter::LinearMipmapLinear => {
+                self.sample_mipmap_linear(u, v, lod, Self::sample_bilinear_level)
+            }
+        }
+    }
+
+    fn sample_mipmap_linear(
+        &self,
+        u: f32,
+        v: f32,
+        lod: f32,
+        sample_level: fn(&Self, f32, f32, usize) -> Vector4<f32>,
+    ) -> Vector4<f32> {
         let lower_level = lod.floor() as usize;
         let upper_level = (lower_level + 1).min(self.image.mips.len() - 1);
-        let weight = lod - lod.floor();
+        let weight = lod - lower_level as f32;
 
-        let lower = self.sample_bilinear_level(u, v, lower_level);
-        let upper = self.sample_bilinear_level(u, v, upper_level);
+        let lower = sample_level(self, u, v, lower_level);
+        let upper = sample_level(self, u, v, upper_level);
         lower * (1.0 - weight) + upper * weight
+    }
+
+    fn sample_nearest_level(&self, u: f32, v: f32, level: usize) -> Vector4<f32> {
+        let level = level.min(self.image.mips.len() - 1);
+        let image = &self.image.mips[level];
+        let x = (u * image.width() as f32).floor() as i32;
+        let y = (v * image.height() as f32).floor() as i32;
+        self.get_pixel(image, x, y)
     }
 
     fn sample_bilinear_level(&self, u: f32, v: f32, level: usize) -> Vector4<f32> {
@@ -162,11 +198,6 @@ impl TextureBinding {
         let image = &self.image.mips[level];
         let width = image.width();
         let height = image.height();
-
-        let u = u.fract();
-        let v = v.fract();
-        let u = if u < 0.0 { 1.0 + u } else { u };
-        let v = if v < 0.0 { 1.0 + v } else { v };
 
         let x = u * width as f32 - 0.5;
         let y = v * height as f32 - 0.5;
@@ -177,28 +208,44 @@ impl TextureBinding {
         let x_weight = x - x.floor();
         let y_weight = y - y.floor();
 
-        let top_left = Self::get_pixel_wrapped(image, x0, y0);
-        let top_right = Self::get_pixel_wrapped(image, x1, y0);
-        let bottom_left = Self::get_pixel_wrapped(image, x0, y1);
-        let bottom_right = Self::get_pixel_wrapped(image, x1, y1);
+        let top_left = self.get_pixel(image, x0, y0);
+        let top_right = self.get_pixel(image, x1, y0);
+        let bottom_left = self.get_pixel(image, x0, y1);
+        let bottom_right = self.get_pixel(image, x1, y1);
         let top = top_left * (1.0 - x_weight) + top_right * x_weight;
         let bottom = bottom_left * (1.0 - x_weight) + bottom_right * x_weight;
 
         top * (1.0 - y_weight) + bottom * y_weight
     }
 
-    fn get_pixel_wrapped(image: &DynamicImage, x: i32, y: i32) -> Vector4<f32> {
+    fn get_pixel(&self, image: &DynamicImage, x: i32, y: i32) -> Vector4<f32> {
         let width = image.width() as i32;
         let height = image.height() as i32;
-        let wrapped_x = ((x % width) + width) % width;
-        let wrapped_y = ((y % height) + height) % height;
-        let pixel = image.get_pixel(wrapped_x as u32, wrapped_y as u32);
+        let x = Self::address_index(x, width, self.sampler.wrap_u);
+        let y = Self::address_index(y, height, self.sampler.wrap_v);
+        let pixel = image.get_pixel(x as u32, y as u32);
         Vector4::new(
             pixel[0] as f32 / 255.0,
             pixel[1] as f32 / 255.0,
             pixel[2] as f32 / 255.0,
             pixel[3] as f32 / 255.0,
         )
+    }
+
+    fn address_index(index: i32, size: i32, wrap: WrapMode) -> i32 {
+        match wrap {
+            WrapMode::Repeat => index.rem_euclid(size),
+            WrapMode::ClampToEdge => index.clamp(0, size - 1),
+            WrapMode::MirroredRepeat => {
+                let period = size * 2;
+                let mirrored = index.rem_euclid(period);
+                if mirrored < size {
+                    mirrored
+                } else {
+                    period - 1 - mirrored
+                }
+            }
+        }
     }
 }
 
@@ -218,6 +265,39 @@ mod tests {
 
     fn binding(image: TextureImage, usage: TextureUsage) -> TextureBinding {
         TextureBinding::new(Arc::new(image), SamplerState::default(), 0, usage)
+    }
+
+    fn binding_with_sampler(image: TextureImage, sampler: SamplerState) -> TextureBinding {
+        TextureBinding::new(Arc::new(image), sampler, 0, TextureUsage::Data)
+    }
+
+    fn two_texel_image() -> TextureImage {
+        TextureImage::from_image(
+            DynamicImage::ImageRgba8(
+                RgbaImage::from_vec(2, 1, vec![255, 0, 0, 255, 0, 255, 0, 255])
+                    .expect("test pixels should match image dimensions"),
+            ),
+            false,
+        )
+    }
+
+    fn mip_test_image() -> TextureImage {
+        let solid = |width, height, color| {
+            Arc::new(DynamicImage::ImageRgba8(RgbaImage::from_pixel(
+                width,
+                height,
+                Rgba(color),
+            )))
+        };
+        TextureImage {
+            mips: vec![
+                solid(4, 4, [255, 0, 0, 255]),
+                solid(2, 2, [0, 255, 0, 255]),
+                solid(1, 1, [0, 0, 255, 255]),
+            ],
+            width: 4,
+            height: 4,
+        }
     }
 
     fn assert_vec4_approx(actual: Vector4<f32>, expected: Vector4<f32>) {
@@ -246,6 +326,51 @@ mod tests {
     }
 
     #[test]
+    fn wrap_modes_address_outside_coordinates() {
+        let sample = |wrap_u, u| {
+            binding_with_sampler(
+                two_texel_image(),
+                SamplerState {
+                    wrap_u,
+                    wrap_v: WrapMode::ClampToEdge,
+                    mag_filter: MagFilter::Nearest,
+                    min_filter: MinFilter::Nearest,
+                },
+            )
+            .sample(u, 0.5)
+        };
+        let red = Vector4::new(1.0, 0.0, 0.0, 1.0);
+        let green = Vector4::new(0.0, 1.0, 0.0, 1.0);
+
+        assert_vec4_approx(sample(WrapMode::Repeat, -0.25), green);
+        assert_vec4_approx(sample(WrapMode::Repeat, 1.25), red);
+        assert_vec4_approx(sample(WrapMode::ClampToEdge, -0.25), red);
+        assert_vec4_approx(sample(WrapMode::ClampToEdge, 1.25), green);
+        assert_vec4_approx(sample(WrapMode::MirroredRepeat, -0.25), red);
+        assert_vec4_approx(sample(WrapMode::MirroredRepeat, 1.25), green);
+        assert_vec4_approx(sample(WrapMode::MirroredRepeat, 1.75), red);
+    }
+
+    #[test]
+    fn magnification_filter_selects_nearest_or_linear_sampling() {
+        let sample = |mag_filter| {
+            binding_with_sampler(
+                two_texel_image(),
+                SamplerState {
+                    wrap_u: WrapMode::ClampToEdge,
+                    wrap_v: WrapMode::ClampToEdge,
+                    mag_filter,
+                    min_filter: MinFilter::Linear,
+                },
+            )
+            .sample(0.5, 0.5)
+        };
+
+        assert_vec4_approx(sample(MagFilter::Nearest), Vector4::new(0.0, 1.0, 0.0, 1.0));
+        assert_vec4_approx(sample(MagFilter::Linear), Vector4::new(0.5, 0.5, 0.0, 1.0));
+    }
+
+    #[test]
     fn square_texture_generates_complete_mip_chain() {
         let texture = TextureImage::from_image(DynamicImage::new_rgba8(4, 4), true);
         let dimensions: Vec<_> = texture
@@ -259,24 +384,12 @@ mod tests {
 
     #[test]
     fn density_selects_expected_mip_level() {
-        let solid = |width, height, color| {
-            Arc::new(DynamicImage::ImageRgba8(RgbaImage::from_pixel(
-                width,
-                height,
-                Rgba(color),
-            )))
-        };
-        let texture = binding(
-            TextureImage {
-                mips: vec![
-                    solid(4, 4, [255, 0, 0, 255]),
-                    solid(2, 2, [0, 255, 0, 255]),
-                    solid(1, 1, [0, 0, 255, 255]),
-                ],
-                width: 4,
-                height: 4,
+        let texture = binding_with_sampler(
+            mip_test_image(),
+            SamplerState {
+                min_filter: MinFilter::LinearMipmapLinear,
+                ..Default::default()
             },
-            TextureUsage::Data,
         );
 
         assert_vec4_approx(
@@ -290,6 +403,51 @@ mod tests {
         assert_vec4_approx(
             texture.sample_with_density(0.5, 0.5, 1.0),
             Vector4::new(0.0, 0.0, 1.0, 1.0),
+        );
+    }
+
+    #[test]
+    fn non_mip_minification_filters_stay_on_base_level() {
+        for min_filter in [MinFilter::Nearest, MinFilter::Linear] {
+            let texture = binding_with_sampler(
+                mip_test_image(),
+                SamplerState {
+                    min_filter,
+                    ..Default::default()
+                },
+            );
+            assert_vec4_approx(
+                texture.sample_with_density(0.5, 0.5, 1.0),
+                Vector4::new(1.0, 0.0, 0.0, 1.0),
+            );
+        }
+    }
+
+    #[test]
+    fn mip_minification_filters_select_and_blend_levels() {
+        let sample = |min_filter, density| {
+            binding_with_sampler(
+                mip_test_image(),
+                SamplerState {
+                    min_filter,
+                    ..Default::default()
+                },
+            )
+            .sample_with_density(0.5, 0.5, density)
+        };
+        let green = Vector4::new(0.0, 1.0, 0.0, 1.0);
+        let red_green = Vector4::new(0.5, 0.5, 0.0, 1.0);
+
+        assert_vec4_approx(sample(MinFilter::NearestMipmapNearest, 0.5), green);
+        assert_vec4_approx(sample(MinFilter::LinearMipmapNearest, 0.5), green);
+        let halfway_density = 2.0_f32.sqrt() / 4.0;
+        assert_vec4_approx(
+            sample(MinFilter::NearestMipmapLinear, halfway_density),
+            red_green,
+        );
+        assert_vec4_approx(
+            sample(MinFilter::LinearMipmapLinear, halfway_density),
+            red_green,
         );
     }
 
