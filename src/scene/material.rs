@@ -1,6 +1,5 @@
-use crate::scene::texture::Texture;
+use crate::scene::texture::TextureBinding;
 use nalgebra::Vector3;
-use std::sync::Arc;
 
 /// Defines how the material handles alpha transparency.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,14 +45,13 @@ pub struct PbrMaterial {
     /// Render both sides of each primitive.
     pub double_sided: bool,
 
-    // Textures (Optional)
-    pub albedo_texture: Option<Arc<Texture>>,
-    pub metallic_roughness_texture: Option<Arc<Texture>>,
-    pub normal_texture: Option<Arc<Texture>>,
+    // Each binding retains its image, sampler, UV set, and color/data usage.
+    pub albedo_texture: Option<TextureBinding>,
+    pub metallic_roughness_texture: Option<TextureBinding>,
+    pub normal_texture: Option<TextureBinding>,
 
-    // GLTF compliant optional textures
-    pub ao_texture: Option<Arc<Texture>>,
-    pub emissive_texture: Option<Arc<Texture>>,
+    pub ao_texture: Option<TextureBinding>,
+    pub emissive_texture: Option<TextureBinding>,
 }
 
 impl Default for PbrMaterial {

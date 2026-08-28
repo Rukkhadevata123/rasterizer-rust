@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use rasterizer_rust::error::GltfError;
 use rasterizer_rust::io::gltf_loader::load_gltf;
+use rasterizer_rust::scene::texture::{MagFilter, MinFilter, TextureUsage, WrapMode};
 
 fn fixture_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -31,7 +32,7 @@ fn shared_image_fixture_keeps_texture_and_source_indices_distinct() {
 }
 
 #[test]
-fn phase_4d_texture_bindings_share_source_image_resource() {
+fn phase_6a_texture_bindings_share_images_and_preserve_metadata() {
     let model = match load_gltf(fixture_path("shared-image-textures.gltf"), false) {
         Ok(model) => model,
         Err(error) => panic!("shared image fixture should load: {error}"),
@@ -50,8 +51,32 @@ fn phase_4d_texture_bindings_share_source_image_resource() {
         .emissive_texture
         .as_ref()
         .expect("texture 0 should resolve its source image");
+    let metallic_roughness = material
+        .metallic_roughness_texture
+        .as_ref()
+        .expect("texture 0 should bind as linear data");
 
-    assert!(std::sync::Arc::ptr_eq(albedo, emissive));
+    assert!(std::sync::Arc::ptr_eq(&albedo.image, &emissive.image));
+    assert!(std::sync::Arc::ptr_eq(
+        &emissive.image,
+        &metallic_roughness.image
+    ));
+    assert_eq!(albedo.tex_coord, 1);
+    assert_eq!(albedo.usage, TextureUsage::Color);
+    assert_eq!(albedo.sampler.mag_filter, MagFilter::Linear);
+    assert_eq!(albedo.sampler.min_filter, MinFilter::LinearMipmapLinear);
+    assert_eq!(albedo.sampler.wrap_u, WrapMode::Repeat);
+    assert_eq!(albedo.sampler.wrap_v, WrapMode::Repeat);
+
+    assert_eq!(emissive.tex_coord, 0);
+    assert_eq!(emissive.usage, TextureUsage::Color);
+    assert_eq!(emissive.sampler.mag_filter, MagFilter::Nearest);
+    assert_eq!(emissive.sampler.min_filter, MinFilter::NearestMipmapNearest);
+    assert_eq!(emissive.sampler.wrap_u, WrapMode::ClampToEdge);
+    assert_eq!(emissive.sampler.wrap_v, WrapMode::MirroredRepeat);
+    assert_eq!(metallic_roughness.tex_coord, 0);
+    assert_eq!(metallic_roughness.usage, TextureUsage::Data);
+    assert_eq!(metallic_roughness.sampler, emissive.sampler);
 }
 
 #[test]

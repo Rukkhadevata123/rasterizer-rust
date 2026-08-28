@@ -19,7 +19,7 @@ use rasterizer_rust::scene::material::{AlphaMode, Material, PbrMaterial};
 use rasterizer_rust::scene::mesh::Mesh;
 use rasterizer_rust::scene::model::Model;
 use rasterizer_rust::scene::scene_object::{SceneObject, SceneObjectKind};
-use rasterizer_rust::scene::texture::Texture;
+use rasterizer_rust::scene::texture::{SamplerState, TextureBinding, TextureImage, TextureUsage};
 use std::ops::{Add, Mul};
 use std::sync::Arc;
 
@@ -632,13 +632,19 @@ fn masked_shadow_fragments_respect_material_alpha() {
 
 #[test]
 fn masked_shadow_fragments_sample_base_color_texture_alpha() {
-    let texture = Texture::from_image(
+    let image = TextureImage::from_image(
         DynamicImage::ImageRgba8(RgbaImage::from_pixel(1, 1, Rgba([255, 255, 255, 0]))),
         false,
     );
+    let texture = TextureBinding::new(
+        Arc::new(image),
+        SamplerState::default(),
+        0,
+        TextureUsage::Color,
+    );
     let material = Material::Pbr(PbrMaterial {
         alpha_mode: AlphaMode::Mask(0.5),
-        albedo_texture: Some(Arc::new(texture)),
+        albedo_texture: Some(texture),
         ..Default::default()
     });
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");

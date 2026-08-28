@@ -4,7 +4,7 @@ use crate::core::pipeline::Shader;
 use crate::core::rasterizer::{PreparedTriangle, Rasterizer, RenderState};
 use crate::scene::material::Material;
 use crate::scene::mesh::Mesh;
-use crate::scene::texture::Texture;
+use crate::scene::texture::TextureBinding;
 use nalgebra::Vector3;
 use rayon::prelude::*;
 
@@ -65,7 +65,7 @@ impl<'a> RenderQueue<'a> {
 pub struct ClearOptions<'a> {
     pub color: Vector3<f32>,
     pub gradient: Option<(Vector3<f32>, Vector3<f32>)>,
-    pub texture: Option<&'a Texture>,
+    pub texture: Option<&'a TextureBinding>,
     pub depth: f32,
 }
 
@@ -101,7 +101,7 @@ impl Renderer {
             let v = y as f32 / height as f32;
 
             if let Some(texture) = options.texture {
-                texture.sample_color(u, v).xyz()
+                texture.sample(u, v).xyz()
             } else if let Some((top, bottom)) = options.gradient {
                 top.lerp(&bottom, v)
             } else {

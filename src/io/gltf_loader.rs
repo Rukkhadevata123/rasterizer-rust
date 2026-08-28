@@ -3,7 +3,9 @@ use crate::error::{GltfError, PrimitiveContext};
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
-use crate::scene::texture::Texture;
+use crate::scene::texture::{
+    MagFilter, MinFilter, SamplerState, TextureBinding, TextureImage, TextureUsage, WrapMode,
+};
 use image::DynamicImage;
 use log::info;
 use nalgebra::{Matrix4, Point3, Quaternion, UnitQuaternion, Vector2, Vector3, Vector4};
@@ -44,12 +46,12 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
     }
     let document = gltf.document;
 
-    // 2. Load Textures into memory
-    // gltf::import gives us raw image structs. We convert them to our engine's Texture type.
-    let mut image_textures = Vec::new();
+    // Keep decoded images independent from glTF texture objects so several bindings can share
+    // pixels while retaining their own sampler and material-slot metadata.
+    let mut image_resources = Vec::new();
     for (image_index, image_data) in images.into_iter().enumerate() {
-        let tex = process_gltf_image(path, image_index, image_data, use_mipmap)?;
-        image_textures.push(Arc::new(tex));
+        let image = process_gltf_image(path, image_index, image_data, use_mipmap)?;
+        image_resources.push(Arc::new(image));
     }
 
     // 3. Prepare Accumulators
@@ -73,7 +75,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
         path,
         scene_index: scene.index(),
         buffers: &buffers,
-        image_textures: &image_textures,
+        image_resources: &image_resources,
         meshes: &mut final_meshes,
         materials: &mut final_materials,
         material_cache: &mut material_cache,
@@ -105,7 +107,7 @@ struct SceneImporter<'a> {
     path: &'a Path,
     scene_index: usize,
     buffers: &'a [gltf::buffer::Data],
-    image_textures: &'a [Arc<Texture>],
+    image_resources: &'a [Arc<TextureImage>],
     meshes: &'a mut Vec<Mesh>,
     materials: &'a mut Vec<Material>,
     material_cache: &'a mut HashMap<usize, usize>,
@@ -382,7 +384,7 @@ impl SceneImporter<'_> {
                         local_idx
                     } else {
                         // Create new material
-                        let new_mat = convert_material(self.path, &prim_mat, self.image_textures)?;
+                        let new_mat = convert_material(self.path, &prim_mat, self.image_resources)?;
                         let local_idx = self.materials.len();
                         self.materials.push(new_mat);
                         self.material_cache.insert(gltf_idx, local_idx);
@@ -391,7 +393,7 @@ impl SceneImporter<'_> {
                 } else {
                     // Default material handling
                     // We don't cache "None" materials essentially, or make a default "Geometry" material
-                    let new_mat = convert_material(self.path, &prim_mat, self.image_textures)?;
+                    let new_mat = convert_material(self.path, &prim_mat, self.image_resources)?;
                     let local_idx = self.materials.len();
                     self.materials.push(new_mat);
                     local_idx
@@ -519,7 +521,7 @@ fn normalize_transformed_vector(
 fn convert_material(
     path: &Path,
     mat: &gltf::Material,
-    image_textures: &[Arc<Texture>],
+    image_resources: &[Arc<TextureImage>],
 ) -> Result<Material, GltfError> {
     let pbr = mat.pbr_metallic_roughness();
 
@@ -532,34 +534,56 @@ fn convert_material(
     let emissive_factor = mat.emissive_factor();
     let emissive = Vector3::from(emissive_factor);
 
-    // Texture Helper
-    let get_tex = |info: Option<gltf::texture::Info>| -> Result<Option<Arc<Texture>>, GltfError> {
-        info.map(|info| resolve_texture(path, mat.index(), info.texture(), image_textures))
-            .transpose()
+    let get_tex = |info: Option<gltf::texture::Info>, usage| {
+        info.map(|info| {
+            resolve_texture_binding(
+                path,
+                mat.index(),
+                info.texture(),
+                info.tex_coord(),
+                usage,
+                image_resources,
+            )
+        })
+        .transpose()
     };
 
-    // Valid for normal texture specific struct
-    let get_normal_tex =
-        |info: Option<gltf::material::NormalTexture>| -> Result<Option<Arc<Texture>>, GltfError> {
-            info.map(|info| resolve_texture(path, mat.index(), info.texture(), image_textures))
-                .transpose()
-        };
+    let get_normal_tex = |info: Option<gltf::material::NormalTexture>| {
+        info.map(|info| {
+            resolve_texture_binding(
+                path,
+                mat.index(),
+                info.texture(),
+                info.tex_coord(),
+                TextureUsage::Data,
+                image_resources,
+            )
+        })
+        .transpose()
+    };
 
-    // Valid for occlusion
-    let get_occlusion_tex =
-        |info: Option<gltf::material::OcclusionTexture>| -> Result<Option<Arc<Texture>>, GltfError> {
-            info.map(|info| resolve_texture(path, mat.index(), info.texture(), image_textures))
-                .transpose()
-        };
+    let get_occlusion_tex = |info: Option<gltf::material::OcclusionTexture>| {
+        info.map(|info| {
+            resolve_texture_binding(
+                path,
+                mat.index(),
+                info.texture(),
+                info.tex_coord(),
+                TextureUsage::Data,
+                image_resources,
+            )
+        })
+        .transpose()
+    };
 
-    let albedo_texture = get_tex(pbr.base_color_texture())?;
+    let albedo_texture = get_tex(pbr.base_color_texture(), TextureUsage::Color)?;
 
     // GLTF packs Metallic (B) and Roughness (G). Our shader supports this.
-    let metallic_roughness_texture = get_tex(pbr.metallic_roughness_texture())?;
+    let metallic_roughness_texture = get_tex(pbr.metallic_roughness_texture(), TextureUsage::Data)?;
 
     let normal_texture = get_normal_tex(mat.normal_texture())?;
     let ao_texture = get_occlusion_tex(mat.occlusion_texture())?;
-    let emissive_texture = get_tex(mat.emissive_texture())?;
+    let emissive_texture = get_tex(mat.emissive_texture(), TextureUsage::Color)?;
 
     let alpha_mode = match mat.alpha_mode() {
         gltf::material::AlphaMode::Opaque => AlphaMode::Opaque,
@@ -584,15 +608,18 @@ fn convert_material(
     }))
 }
 
-fn resolve_texture(
+fn resolve_texture_binding(
     path: &Path,
     material_index: Option<usize>,
     texture: gltf::Texture,
-    image_textures: &[Arc<Texture>],
-) -> Result<Arc<Texture>, GltfError> {
+    tex_coord: u32,
+    usage: TextureUsage,
+    image_resources: &[Arc<TextureImage>],
+) -> Result<TextureBinding, GltfError> {
     let texture_index = texture.index();
     let source_image_index = texture.source().index();
-    image_textures
+    let sampler = sampler_state(texture.sampler());
+    let image = image_resources
         .get(source_image_index)
         .cloned()
         .ok_or_else(|| GltfError::Texture {
@@ -600,16 +627,45 @@ fn resolve_texture(
             material_index,
             texture_index,
             source_image_index,
-        })
+        })?;
+
+    Ok(TextureBinding::new(image, sampler, tex_coord, usage))
 }
 
-/// Convert glTF raw image data to Engine Texture
+fn sampler_state(sampler: gltf::texture::Sampler) -> SamplerState {
+    let wrap_mode = |mode| match mode {
+        gltf::texture::WrappingMode::ClampToEdge => WrapMode::ClampToEdge,
+        gltf::texture::WrappingMode::MirroredRepeat => WrapMode::MirroredRepeat,
+        gltf::texture::WrappingMode::Repeat => WrapMode::Repeat,
+    };
+    let mag_filter = match sampler.mag_filter() {
+        Some(gltf::texture::MagFilter::Nearest) => MagFilter::Nearest,
+        Some(gltf::texture::MagFilter::Linear) | None => MagFilter::Linear,
+    };
+    let min_filter = match sampler.min_filter() {
+        Some(gltf::texture::MinFilter::Nearest) => MinFilter::Nearest,
+        Some(gltf::texture::MinFilter::Linear) | None => MinFilter::Linear,
+        Some(gltf::texture::MinFilter::NearestMipmapNearest) => MinFilter::NearestMipmapNearest,
+        Some(gltf::texture::MinFilter::LinearMipmapNearest) => MinFilter::LinearMipmapNearest,
+        Some(gltf::texture::MinFilter::NearestMipmapLinear) => MinFilter::NearestMipmapLinear,
+        Some(gltf::texture::MinFilter::LinearMipmapLinear) => MinFilter::LinearMipmapLinear,
+    };
+
+    SamplerState {
+        wrap_u: wrap_mode(sampler.wrap_s()),
+        wrap_v: wrap_mode(sampler.wrap_t()),
+        mag_filter,
+        min_filter,
+    }
+}
+
+/// Converts decoded glTF image data into a shareable image resource.
 fn process_gltf_image(
     path: &Path,
     image_index: usize,
     data: gltf::image::Data,
     use_mipmap: bool,
-) -> Result<Texture, GltfError> {
+) -> Result<TextureImage, GltfError> {
     let width = data.width;
     let height = data.height;
     let format = data.format;
@@ -670,7 +726,7 @@ fn process_gltf_image(
         }
     };
 
-    Ok(Texture::from_image(dyn_img, use_mipmap))
+    Ok(TextureImage::from_image(dyn_img, use_mipmap))
 }
 
 fn image_buffer<P: image::Pixel + 'static>(

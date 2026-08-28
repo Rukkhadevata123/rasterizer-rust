@@ -19,7 +19,7 @@ A high-performance, multi-threaded software rasterizer built from scratch in Rus
 - **Workflow:** Standard Metallic-Roughness workflow.
 - **BRDF:** Cook-Torrance specular BRDF with Trowbridge-Reitz GGX distribution and Smith Geometry function.
 - **Fresnel:** Fresnel-Schlick approximation for realistic light reflection at varying angles.
-- **Normal Mapping:** Full support for tangent-space normal mapping with MikkTSpace-compliant tangent generation.
+- **Normal Mapping:** Tangent-space normal mapping for glTF assets that provide tangent attributes; MikkTSpace-compatible generation is planned.
 - **Tone Mapping:** ACES Filmic Tone Mapping for cinematic color reproduction.
 
 ### Advanced Rendering Capabilities
@@ -60,7 +60,7 @@ src
 │   └── shaders        # Programmable PBR & Shadow shaders
 ├── scene              # Scene Graph & Assets
 │   ├── material.rs    # PBR Material & Alpha Mode definitions
-│   ├── texture.rs     # Texture loading, mipmapping & filtering
+│   ├── texture.rs     # Image resources, sampler state, bindings & mipmapping
 │   ├── light.rs       # Lighting definitions
 │   └── loader.rs      # Resource management & Hot-reloading
 ├── io                 # File I/O

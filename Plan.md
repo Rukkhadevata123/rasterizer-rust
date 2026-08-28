@@ -272,19 +272,24 @@ Suggested commits:
 
 ## Phase 6: glTF Material, Texture, and Geometry Semantics
 
-Status: planned
+Status: in progress
 
 ### 6A: Texture Resource Model
 
-Separate:
+Status: completed
 
-- image pixel/mip data;
-- sampler state;
-- material texture binding.
+- [x] Separate:
 
-A binding should identify the image, sampler, UV set, and color-space/data usage. This permits one image to be reused by several glTF textures with different samplers.
+  - image pixel/mip data;
+  - sampler state;
+  - material texture binding.
+
+- [x] Make each binding identify the image, sampler, UV set, and color-space/data usage.
+- [x] Preserve image sharing when several glTF textures use different samplers.
 
 ### 6B: Sampler Semantics
+
+Status: planned
 
 Implement and test:
 
@@ -494,12 +499,12 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state when this roadmap was revised:
+Repository state after Phase 6A:
 
 - branch: `main`;
-- completed commits include `c32a12f` for band ownership and `2bc0630` for remaining Phase 2 safety;
-- working tree should be clean before starting implementation;
-- 54 tests are present after Phase 3E;
+- completed commits through `267f2bb` cover Phases 1 through 5;
+- commit Phase 6A as a bounded change before starting Phase 6B;
+- 85 tests are present after Phase 6A;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 6A. Do not begin MikkTSpace work or the tile renderer in the same change set.
+Immediate target: Phase 6B. Do not begin UV-set vertex work, MikkTSpace work, or the tile renderer in the same change set.

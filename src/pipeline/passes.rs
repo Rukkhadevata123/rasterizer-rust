@@ -10,7 +10,7 @@ use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
 use crate::scene::context::RenderContext;
 use crate::scene::material::{AlphaMode, Material};
-use crate::scene::texture::Texture;
+use crate::scene::texture::{SamplerState, TextureBinding, TextureImage, TextureUsage};
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -117,14 +117,19 @@ pub fn render_main_pass(
 ) -> Result<(), AssetError> {
     let bg_texture = if let Some(path) = &config.render.background_image {
         let background_path = config.resolve_path(path);
-        Some(
-            Texture::load(&background_path, config.render.use_mipmap).map_err(|source| {
+        let image =
+            TextureImage::load(&background_path, config.render.use_mipmap).map_err(|source| {
                 AssetError::BackgroundImage {
                     path: background_path,
                     source,
                 }
-            })?,
-        )
+            })?;
+        Some(TextureBinding::new(
+            Arc::new(image),
+            SamplerState::default(),
+            0,
+            TextureUsage::Color,
+        ))
     } else {
         None
     };

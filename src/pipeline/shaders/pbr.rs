@@ -270,7 +270,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         };
 
         let (albedo, alpha) = if let Some(tex) = &mat.albedo_texture {
-            let s = tex.sample_color_with_density(varying.uv.x, varying.uv.y, input.uv_density);
+            let s = tex.sample_with_density(varying.uv.x, varying.uv.y, input.uv_density);
             (s.xyz(), s.w * mat.alpha)
         } else {
             (mat.albedo, mat.alpha)
@@ -280,10 +280,9 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
             return FragmentOutput::Discard;
         }
 
-        // Metallic/Roughness uses sample_data (no Gamma correction)
         // Standard glTF packing: Green = Roughness, Blue = Metallic
         let (roughness, metallic) = if let Some(tex) = &mat.metallic_roughness_texture {
-            let sample = tex.sample_data_with_density(varying.uv.x, varying.uv.y, input.uv_density);
+            let sample = tex.sample_with_density(varying.uv.x, varying.uv.y, input.uv_density);
             (sample.y * mat.roughness, sample.z * mat.metallic)
         } else {
             (mat.roughness, mat.metallic)
@@ -292,7 +291,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         // Sample AO
         // GLTF Occlusion: Usually R channel.
         let ao = if let Some(tex) = &mat.ao_texture {
-            tex.sample_data_with_density(varying.uv.x, varying.uv.y, input.uv_density)
+            tex.sample_with_density(varying.uv.x, varying.uv.y, input.uv_density)
                 .x
                 * mat.ao
         } else {
@@ -302,7 +301,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         // Sample Emissive
         // Emissive Map should be sRGB -> Linear
         let emissive_color = if let Some(tex) = &mat.emissive_texture {
-            tex.sample_color_with_density(varying.uv.x, varying.uv.y, input.uv_density)
+            tex.sample_with_density(varying.uv.x, varying.uv.y, input.uv_density)
                 .xyz()
                 .component_mul(&mat.emissive)
         } else {
@@ -332,19 +331,12 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
 
                 let tbn = Matrix3::from_columns(&[t, b, geom_normal]);
 
-                // 2.4 Sample Normal Map
-                let packed_normal = normal_map.sample_data(varying.uv.x, varying.uv.y).xyz();
+                let packed_normal = normal_map.sample(varying.uv.x, varying.uv.y).xyz();
 
-                // 2.5 Decode
-                // Since we fixed Texture V-flip:
-                // Normal Map Y usually corresponds to V direction (Down in GLTF, or Up in OpenGL).
-                // glTF spec: "+Y corresponds to Green channel".
-                // We should adhere to standard mapping first.
-                // Try STANDARD mapping: (val * 2 - 1) for all channels.
-                // TODO: Should we flip Y based on some flag?
+                // glTF tangent-space normals store +Y in the green channel.
                 let local_normal = Vector3::new(
                     packed_normal.x * 2.0 - 1.0,
-                    packed_normal.y * 2.0 - 1.0, // Removed Flip Y for now.
+                    packed_normal.y * 2.0 - 1.0,
                     packed_normal.z * 2.0 - 1.0,
                 );
 

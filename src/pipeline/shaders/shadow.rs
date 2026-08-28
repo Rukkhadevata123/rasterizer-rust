@@ -73,7 +73,7 @@ impl<'a> Shader<Option<&'a Material>> for ShadowShader {
             .and_then(|material| material.albedo_texture.as_ref())
             .map(|texture| {
                 texture
-                    .sample_color_with_density(varying.uv.x, varying.uv.y, input.uv_density)
+                    .sample_with_density(varying.uv.x, varying.uv.y, input.uv_density)
                     .w
             })
             .unwrap_or(1.0);
