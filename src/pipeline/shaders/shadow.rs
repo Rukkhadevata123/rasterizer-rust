@@ -1,4 +1,4 @@
-use crate::core::geometry::Vertex;
+use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
 use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use crate::scene::material::{AlphaMode, Material};
 use nalgebra::{Matrix4, Vector2, Vector4};
@@ -6,7 +6,7 @@ use std::ops::{Add, Mul};
 
 #[derive(Clone, Copy, Debug)]
 pub struct ShadowVarying {
-    uv: Vector2<f32>,
+    uvs: [Vector2<f32>; SUPPORTED_TEXCOORD_SETS],
 }
 
 impl Add for ShadowVarying {
@@ -14,7 +14,7 @@ impl Add for ShadowVarying {
 
     fn add(self, other: Self) -> Self {
         Self {
-            uv: self.uv + other.uv,
+            uvs: std::array::from_fn(|set| self.uvs[set] + other.uvs[set]),
         }
     }
 }
@@ -24,14 +24,14 @@ impl Mul<f32> for ShadowVarying {
 
     fn mul(self, scalar: f32) -> Self {
         Self {
-            uv: self.uv * scalar,
+            uvs: std::array::from_fn(|set| self.uvs[set] * scalar),
         }
     }
 }
 
 impl Interpolatable for ShadowVarying {
-    fn get_uv(&self) -> Option<Vector2<f32>> {
-        Some(self.uv)
+    fn get_uv(&self, set: usize) -> Option<Vector2<f32>> {
+        self.uvs.get(set).copied()
     }
 }
 
@@ -54,7 +54,7 @@ impl<'a> Shader<Option<&'a Material>> for ShadowShader {
         (
             self.mvp_matrix * vertex.position.to_homogeneous(),
             ShadowVarying {
-                uv: vertex.texcoord,
+                uvs: vertex.texcoords,
             },
         )
     }
@@ -72,8 +72,10 @@ impl<'a> Shader<Option<&'a Material>> for ShadowShader {
         let texture_alpha = pbr_material
             .and_then(|material| material.albedo_texture.as_ref())
             .map(|texture| {
+                let set = texture.tex_coord.index();
+                let uv = varying.uvs[set];
                 texture
-                    .sample_with_density(varying.uv.x, varying.uv.y, input.uv_density)
+                    .sample_with_density(uv.x, uv.y, input.uv_density(set))
                     .w
             })
             .unwrap_or(1.0);

@@ -5,7 +5,11 @@
   "nodes": [{ "mesh": 0 }],
   "meshes": [{
     "primitives": [{
-      "attributes": { "POSITION": 0 },
+      "attributes": {
+        "POSITION": 0,
+        "TEXCOORD_0": 1,
+        "TEXCOORD_1": 2
+      },
       "material": 0
     }]
   }],
@@ -38,21 +42,24 @@
     { "sampler": 1, "source": 0 }
   ],
   "buffers": [{
-    "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAAAAAAAPwAAAL8AAAAAAAAAAAAAAD8AAAAA",
-    "byteLength": 36
+    "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAAAAAAAPwAAAL8AAAAAAAAAAAAAAD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAgD8AAAAAAACAPwAAgD8AAAAA",
+    "byteLength": 84
   }],
-  "bufferViews": [{
-    "buffer": 0,
-    "byteOffset": 0,
-    "byteLength": 36,
-    "target": 34962
-  }],
-  "accessors": [{
-    "bufferView": 0,
-    "componentType": 5126,
-    "count": 3,
-    "type": "VEC3",
-    "min": [-0.5, -0.5, 0.0],
-    "max": [0.5, 0.5, 0.0]
-  }]
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 36, "target": 34962 },
+    { "buffer": 0, "byteOffset": 36, "byteLength": 24, "target": 34962 },
+    { "buffer": 0, "byteOffset": 60, "byteLength": 24, "target": 34962 }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 3,
+      "type": "VEC3",
+      "min": [-0.5, -0.5, 0.0],
+      "max": [0.5, 0.5, 0.0]
+    },
+    { "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC2" },
+    { "bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC2" }
+  ]
 }

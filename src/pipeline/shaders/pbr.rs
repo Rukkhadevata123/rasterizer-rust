@@ -1,7 +1,8 @@
-use crate::core::geometry::Vertex;
+use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
 use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use crate::scene::light::Light;
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
+use crate::scene::texture::TextureBinding;
 use nalgebra::{Matrix3, Matrix4, Point3, Vector2, Vector3, Vector4};
 use std::f32::consts::PI;
 use std::ops::{Add, Mul};
@@ -12,7 +13,7 @@ use std::sync::Arc;
 pub struct PbrVarying {
     pub world_pos: Point3<f32>,
     pub normal: Vector3<f32>,
-    pub uv: Vector2<f32>,
+    pub uvs: [Vector2<f32>; SUPPORTED_TEXCOORD_SETS],
     pub tangent: Vector4<f32>,
 }
 
@@ -22,7 +23,7 @@ impl Add for PbrVarying {
         Self {
             world_pos: Point3::from(self.world_pos.coords + other.world_pos.coords),
             normal: self.normal + other.normal,
-            uv: self.uv + other.uv,
+            uvs: std::array::from_fn(|set| self.uvs[set] + other.uvs[set]),
             // Linear interpolate sign? Usually sign is constant per triangle,
             // but lerping is fine as long as we don't normalize W.
             tangent: self.tangent + other.tangent,
@@ -36,7 +37,7 @@ impl Mul<f32> for PbrVarying {
         Self {
             world_pos: Point3::from(self.world_pos.coords * scalar),
             normal: self.normal * scalar,
-            uv: self.uv * scalar,
+            uvs: std::array::from_fn(|set| self.uvs[set] * scalar),
             tangent: self.tangent * scalar,
         }
     }
@@ -44,8 +45,8 @@ impl Mul<f32> for PbrVarying {
 
 // Implement Interpolatable and expose UV for LOD estimation.
 impl Interpolatable for PbrVarying {
-    fn get_uv(&self) -> Option<Vector2<f32>> {
-        Some(self.uv)
+    fn get_uv(&self, set: usize) -> Option<Vector2<f32>> {
+        self.uvs.get(set).copied()
     }
 }
 
@@ -250,7 +251,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
             PbrVarying {
                 world_pos,
                 normal: world_normal,
-                uv: vertex.texcoord,
+                uvs: vertex.texcoords,
                 tangent: world_tangent, // Pass Vec4
             },
         )
@@ -268,9 +269,14 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         } else {
             &self.fallback_material
         };
+        let sample_texture = |binding: &TextureBinding| {
+            let set = binding.tex_coord.index();
+            let uv = varying.uvs[set];
+            binding.sample_with_density(uv.x, uv.y, input.uv_density(set))
+        };
 
         let (albedo, alpha) = if let Some(tex) = &mat.albedo_texture {
-            let s = tex.sample_with_density(varying.uv.x, varying.uv.y, input.uv_density);
+            let s = sample_texture(tex);
             (s.xyz(), s.w * mat.alpha)
         } else {
             (mat.albedo, mat.alpha)
@@ -282,7 +288,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
 
         // Standard glTF packing: Green = Roughness, Blue = Metallic
         let (roughness, metallic) = if let Some(tex) = &mat.metallic_roughness_texture {
-            let sample = tex.sample_with_density(varying.uv.x, varying.uv.y, input.uv_density);
+            let sample = sample_texture(tex);
             (sample.y * mat.roughness, sample.z * mat.metallic)
         } else {
             (mat.roughness, mat.metallic)
@@ -291,9 +297,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         // Sample AO
         // GLTF Occlusion: Usually R channel.
         let ao = if let Some(tex) = &mat.ao_texture {
-            tex.sample_with_density(varying.uv.x, varying.uv.y, input.uv_density)
-                .x
-                * mat.ao
+            sample_texture(tex).x * mat.ao
         } else {
             mat.ao
         };
@@ -301,9 +305,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
         // Sample Emissive
         // Emissive Map should be sRGB -> Linear
         let emissive_color = if let Some(tex) = &mat.emissive_texture {
-            tex.sample_with_density(varying.uv.x, varying.uv.y, input.uv_density)
-                .xyz()
-                .component_mul(&mat.emissive)
+            sample_texture(tex).xyz().component_mul(&mat.emissive)
         } else {
             mat.emissive
         };
@@ -331,7 +333,7 @@ impl<'a> Shader<Option<&'a Material>> for PbrShader {
 
                 let tbn = Matrix3::from_columns(&[t, b, geom_normal]);
 
-                let packed_normal = normal_map.sample(varying.uv.x, varying.uv.y).xyz();
+                let packed_normal = sample_texture(normal_map).xyz();
 
                 // glTF tangent-space normals store +Y in the green channel.
                 let local_normal = Vector3::new(

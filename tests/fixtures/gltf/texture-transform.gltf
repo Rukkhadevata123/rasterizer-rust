@@ -1,0 +1,37 @@
+{
+  "asset": { "version": "2.0" },
+  "extensionsUsed": ["KHR_texture_transform"],
+  "scene": 0,
+  "scenes": [{ "nodes": [0] }],
+  "nodes": [{ "mesh": 0 }],
+  "meshes": [{
+    "primitives": [{ "attributes": { "POSITION": 0 }, "material": 0 }]
+  }],
+  "materials": [{
+    "pbrMetallicRoughness": {
+      "baseColorTexture": {
+        "index": 0,
+        "extensions": {
+          "KHR_texture_transform": { "offset": [0.5, 0.0] }
+        }
+      }
+    }
+  }],
+  "textures": [{ "source": 0 }],
+  "images": [{
+    "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAANSURBVBhXY/j///9/AAn7A/0FQ0XKAAAAAElFTkSuQmCC"
+  }],
+  "buffers": [{
+    "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAAAAAAAPwAAAL8AAAAAAAAAAAAAAD8AAAAA",
+    "byteLength": 36
+  }],
+  "bufferViews": [{ "buffer": 0, "byteLength": 36, "target": 34962 }],
+  "accessors": [{
+    "bufferView": 0,
+    "componentType": 5126,
+    "count": 3,
+    "type": "VEC3",
+    "min": [-0.5, -0.5, 0.0],
+    "max": [0.5, 0.5, 0.0]
+  }]
+}

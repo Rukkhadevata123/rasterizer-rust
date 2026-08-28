@@ -1,10 +1,11 @@
-use crate::core::geometry::Vertex;
+use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
 use crate::error::{GltfError, PrimitiveContext};
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
 use crate::scene::texture::{
-    MagFilter, MinFilter, SamplerState, TextureBinding, TextureImage, TextureUsage, WrapMode,
+    MagFilter, MinFilter, SamplerState, TexCoordSet, TextureBinding, TextureImage, TextureUsage,
+    WrapMode,
 };
 use image::DynamicImage;
 use log::info;
@@ -24,6 +25,16 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
         path: path.to_path_buf(),
         source: Box::new(source),
     })?;
+    if gltf
+        .document
+        .extensions_used()
+        .any(|extension| extension == "KHR_texture_transform")
+    {
+        return Err(GltfError::Unsupported {
+            path: path.to_path_buf(),
+            reason: "KHR_texture_transform is not supported".to_string(),
+        });
+    }
     let base = path.parent().unwrap_or_else(|| Path::new("./"));
     let buffers =
         gltf::import_buffers(&gltf.document, Some(base), gltf.blob).map_err(|source| {
@@ -141,6 +152,28 @@ impl SceneImporter<'_> {
         if let Some(mesh) = node.mesh() {
             for primitive in mesh.primitives() {
                 let primitive_index = primitive.index();
+                if let Some(set) = primitive
+                    .attributes()
+                    .find_map(|(semantic, _)| match semantic {
+                        gltf::Semantic::TexCoords(set)
+                            if set as usize >= SUPPORTED_TEXCOORD_SETS =>
+                        {
+                            Some(set)
+                        }
+                        _ => None,
+                    })
+                {
+                    return Err(GltfError::Unsupported {
+                        path: self.path.to_path_buf(),
+                        reason: format!(
+                            "scene {}, node {}, mesh {}, primitive {} uses unsupported TEXCOORD_{set}",
+                            self.scene_index,
+                            node.index(),
+                            mesh.index(),
+                            primitive_index
+                        ),
+                    });
+                }
                 let _mat = primitive.material();
                 // Removed skipping of AlphaMode::Blend
 
@@ -162,10 +195,13 @@ impl SceneImporter<'_> {
                     .read_normals()
                     .map(|iter| iter.collect())
                     .unwrap_or_default();
-                let uvs: Vec<[f32; 2]> = reader
-                    .read_tex_coords(0)
-                    .map(|iter| iter.into_f32().collect())
-                    .unwrap_or_default();
+                let uv_sets: [Vec<[f32; 2]>; SUPPORTED_TEXCOORD_SETS] =
+                    std::array::from_fn(|set| {
+                        reader
+                            .read_tex_coords(set as u32)
+                            .map(|iter| iter.into_f32().collect())
+                            .unwrap_or_default()
+                    });
                 let tangents: Vec<[f32; 4]> = reader
                     .read_tangents()
                     .map(|iter| iter.collect())
@@ -199,7 +235,8 @@ impl SceneImporter<'_> {
 
                 for (attribute, count) in [
                     ("NORMAL", normals.len()),
-                    ("TEXCOORD_0", uvs.len()),
+                    ("TEXCOORD_0", uv_sets[0].len()),
+                    ("TEXCOORD_1", uv_sets[1].len()),
                     ("TANGENT", tangents.len()),
                 ] {
                     if count != 0 && count != positions.len() {
@@ -316,6 +353,30 @@ impl SceneImporter<'_> {
                         "unsupported normal map without TANGENT attribute; tangent generation is planned for Phase 6",
                     ));
                 }
+                for (slot, tex_coord) in material_tex_coords(&prim_mat).into_iter().flatten() {
+                    let set = TexCoordSet::try_from(tex_coord).map_err(|unsupported| {
+                        GltfError::Unsupported {
+                            path: self.path.to_path_buf(),
+                            reason: format!(
+                                "material {:?} {slot} uses unsupported TEXCOORD_{unsupported}",
+                                prim_mat.index()
+                            ),
+                        }
+                    })?;
+                    if uv_sets[set.index()].is_empty() {
+                        return Err(primitive_error(
+                            self.path,
+                            self.scene_index,
+                            node,
+                            mesh.index(),
+                            primitive_index,
+                            format!(
+                                "material {slot} requires TEXCOORD_{} but the primitive does not provide it",
+                                set.index()
+                            ),
+                        ));
+                    }
+                }
 
                 // --- Bake Vertices ---
                 let mut vertices = Vec::with_capacity(positions.len());
@@ -363,16 +424,18 @@ impl SceneImporter<'_> {
                         Vector4::new(0.0, 0.0, 0.0, 1.0)
                     };
 
-                    let uv = if !uvs.is_empty() {
-                        Vector2::from(uvs[i])
-                    } else {
-                        Vector2::zeros()
-                    };
+                    let texcoords = std::array::from_fn(|set| {
+                        uv_sets[set]
+                            .get(i)
+                            .copied()
+                            .map(Vector2::from)
+                            .unwrap_or_else(Vector2::zeros)
+                    });
 
                     vertices.push(Vertex {
                         position: pos_world,
                         normal: normal_world,
-                        texcoord: uv,
+                        texcoords,
                         tangent: tangent_world, // Now Vector4
                     });
                 }
@@ -411,6 +474,25 @@ impl SceneImporter<'_> {
 
         Ok(())
     }
+}
+
+fn material_tex_coords(material: &gltf::Material) -> [Option<(&'static str, u32)>; 5] {
+    let pbr = material.pbr_metallic_roughness();
+    [
+        pbr.base_color_texture()
+            .map(|info| ("base-color texture", info.tex_coord())),
+        pbr.metallic_roughness_texture()
+            .map(|info| ("metallic-roughness texture", info.tex_coord())),
+        material
+            .normal_texture()
+            .map(|info| ("normal texture", info.tex_coord())),
+        material
+            .occlusion_texture()
+            .map(|info| ("occlusion texture", info.tex_coord())),
+        material
+            .emissive_texture()
+            .map(|info| ("emissive texture", info.tex_coord())),
+    ]
 }
 
 fn primitive_error(
@@ -619,6 +701,14 @@ fn resolve_texture_binding(
     let texture_index = texture.index();
     let source_image_index = texture.source().index();
     let sampler = sampler_state(texture.sampler());
+    let tex_coord = TexCoordSet::try_from(tex_coord).map_err(|unsupported| {
+        GltfError::Unsupported {
+            path: path.to_path_buf(),
+            reason: format!(
+                "texture {texture_index} for material {material_index:?} uses unsupported TEXCOORD_{unsupported}"
+            ),
+        }
+    })?;
     let image = image_resources
         .get(source_image_index)
         .cloned()

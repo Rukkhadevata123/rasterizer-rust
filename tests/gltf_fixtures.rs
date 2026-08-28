@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 
+use nalgebra::Vector2;
 use rasterizer_rust::error::GltfError;
 use rasterizer_rust::io::gltf_loader::load_gltf;
-use rasterizer_rust::scene::texture::{MagFilter, MinFilter, TextureUsage, WrapMode};
+use rasterizer_rust::scene::texture::{MagFilter, MinFilter, TexCoordSet, TextureUsage, WrapMode};
 
 fn fixture_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -61,22 +62,104 @@ fn phase_6a_texture_bindings_share_images_and_preserve_metadata() {
         &emissive.image,
         &metallic_roughness.image
     ));
-    assert_eq!(albedo.tex_coord, 1);
+    assert_eq!(albedo.tex_coord, TexCoordSet::TexCoord1);
     assert_eq!(albedo.usage, TextureUsage::Color);
     assert_eq!(albedo.sampler.mag_filter, MagFilter::Linear);
     assert_eq!(albedo.sampler.min_filter, MinFilter::LinearMipmapLinear);
     assert_eq!(albedo.sampler.wrap_u, WrapMode::Repeat);
     assert_eq!(albedo.sampler.wrap_v, WrapMode::Repeat);
 
-    assert_eq!(emissive.tex_coord, 0);
+    assert_eq!(emissive.tex_coord, TexCoordSet::TexCoord0);
     assert_eq!(emissive.usage, TextureUsage::Color);
     assert_eq!(emissive.sampler.mag_filter, MagFilter::Nearest);
     assert_eq!(emissive.sampler.min_filter, MinFilter::NearestMipmapNearest);
     assert_eq!(emissive.sampler.wrap_u, WrapMode::ClampToEdge);
     assert_eq!(emissive.sampler.wrap_v, WrapMode::MirroredRepeat);
-    assert_eq!(metallic_roughness.tex_coord, 0);
+    assert_eq!(metallic_roughness.tex_coord, TexCoordSet::TexCoord0);
     assert_eq!(metallic_roughness.usage, TextureUsage::Data);
     assert_eq!(metallic_roughness.sampler, emissive.sampler);
+}
+
+#[test]
+fn phase_6c_imports_two_uv_sets_for_material_bindings() {
+    let model = load_gltf(fixture_path("shared-image-textures.gltf"), false)
+        .expect("two-UV-set fixture should load");
+    let vertices = &model.meshes[0].vertices;
+
+    assert_eq!(vertices[0].texcoords[0], Vector2::new(0.0, 0.0));
+    assert_eq!(vertices[1].texcoords[0], Vector2::new(1.0, 0.0));
+    assert_eq!(vertices[2].texcoords[0], Vector2::new(0.0, 1.0));
+    assert_eq!(vertices[0].texcoords[1], Vector2::new(1.0, 1.0));
+    assert_eq!(vertices[1].texcoords[1], Vector2::new(0.0, 1.0));
+    assert_eq!(vertices[2].texcoords[1], Vector2::new(1.0, 0.0));
+
+    let rasterizer_rust::scene::material::Material::Pbr(material) = &model.materials[0];
+    assert_eq!(
+        material.albedo_texture.as_ref().unwrap().tex_coord,
+        TexCoordSet::TexCoord1
+    );
+    assert_eq!(
+        material.emissive_texture.as_ref().unwrap().tex_coord,
+        TexCoordSet::TexCoord0
+    );
+}
+
+#[test]
+fn phase_6c_rejects_higher_uv_sets() {
+    let path = fixture_path("unsupported-texcoord-set.gltf");
+    let error = match load_gltf(&path, false) {
+        Ok(_) => panic!("TEXCOORD_2 should be unsupported"),
+        Err(error) => error,
+    };
+
+    match error {
+        GltfError::Unsupported {
+            path: error_path,
+            reason,
+        } => {
+            assert_eq!(error_path, path);
+            assert!(reason.contains("TEXCOORD_2"));
+        }
+        error => panic!("expected unsupported-feature error, got {error}"),
+    }
+}
+
+#[test]
+fn phase_6c_rejects_missing_uv_set_required_by_material() {
+    let path = fixture_path("missing-required-texcoord.gltf");
+    let error = match load_gltf(&path, false) {
+        Ok(_) => panic!("a required TEXCOORD_1 attribute should not be replaced with zeros"),
+        Err(error) => error,
+    };
+
+    match error {
+        GltfError::Primitive { context } => {
+            assert_eq!(context.path, path);
+            assert!(context.reason.contains("base-color texture"));
+            assert!(context.reason.contains("requires TEXCOORD_1"));
+        }
+        error => panic!("expected contextual primitive error, got {error}"),
+    }
+}
+
+#[test]
+fn phase_6c_rejects_texture_transform_extension() {
+    let path = fixture_path("texture-transform.gltf");
+    let error = match load_gltf(&path, false) {
+        Ok(_) => panic!("texture transforms should be explicit"),
+        Err(error) => error,
+    };
+
+    match error {
+        GltfError::Unsupported {
+            path: error_path,
+            reason,
+        } => {
+            assert_eq!(error_path, path);
+            assert!(reason.contains("KHR_texture_transform"));
+        }
+        error => panic!("expected unsupported-feature error, got {error}"),
+    }
 }
 
 #[test]

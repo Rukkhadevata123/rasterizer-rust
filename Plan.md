@@ -301,10 +301,12 @@ Implement and test:
 
 ### 6C: UV Sets and Texture Bindings
 
-- Support at least `TEXCOORD_0` and `TEXCOORD_1`.
-- Store a UV-set selection per material texture slot.
-- Explicitly reject unsupported higher sets.
-- Treat `KHR_texture_transform` as a separate extension task rather than silently ignoring it.
+Status: completed
+
+- [x] Support `TEXCOORD_0` and `TEXCOORD_1` through import, interpolation, LOD selection, and shading.
+- [x] Store a typed UV-set selection per material texture slot.
+- [x] Explicitly reject unsupported higher sets and missing material-required sets.
+- [x] Reject `KHR_texture_transform` explicitly as a separate extension task rather than silently ignoring it.
 
 ### 6D: Complete Material Factors
 
@@ -499,12 +501,12 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 6B:
+Repository state after Phase 6C:
 
 - branch: `main`;
-- completed commits through `387a8eb` cover Phases 1 through 6A;
-- commit Phase 6B as a bounded change before starting Phase 6C;
-- 89 tests are present after Phase 6B;
+- completed commits through `c5a586a` cover Phases 1 through 6B;
+- commit Phase 6C as a bounded change before starting Phase 6D;
+- 95 tests are present after Phase 6C;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 6C. Do not begin material-factor work, MikkTSpace work, or the tile renderer in the same change set.
+Immediate target: Phase 6D, beginning with the base-color RGB factor bug. Do not begin MikkTSpace work or the tile renderer in the same change set.

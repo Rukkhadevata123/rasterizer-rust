@@ -1,4 +1,4 @@
-use crate::core::geometry::Vertex;
+use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
 use nalgebra::Vector4;
 use std::ops::{Add, Mul};
 
@@ -11,9 +11,8 @@ use std::ops::{Add, Mul};
 pub trait Interpolatable:
     Copy + Clone + Add<Output = Self> + Mul<f32, Output = Self> + Send + Sync
 {
-    /// Optionally return UV coordinates if the varying contains them.
-    /// Default implementation returns `None` meaning no UVs are available.
-    fn get_uv(&self) -> Option<nalgebra::Vector2<f32>> {
+    /// Optionally returns one UV set if the varying contains it.
+    fn get_uv(&self, _set: usize) -> Option<nalgebra::Vector2<f32>> {
         None
     }
 }
@@ -36,7 +35,13 @@ pub enum FragmentOutput {
 pub struct FragmentInput<V> {
     pub varying: V,
     pub front_facing: bool,
-    pub uv_density: f32,
+    pub uv_densities: [f32; SUPPORTED_TEXCOORD_SETS],
+}
+
+impl<V> FragmentInput<V> {
+    pub fn uv_density(&self, set: usize) -> f32 {
+        self.uv_densities.get(set).copied().unwrap_or(0.0)
+    }
 }
 
 pub trait Shader<C>: Send + Sync
@@ -64,9 +69,8 @@ where
     /// Computes either a discarded fragment or its final linear RGBA color using
     /// the interpolated varying and caller-provided draw context.
     ///
-    /// Additionally, `uv_density` is provided as a triangle-level estimate of how
-    /// many texture texels correspond to one screen pixel (sqrt(Area_uv / Area_screen)).
-    /// Shaders may use this value to choose appropriate LOD when sampling textures.
+    /// Additionally, `uv_densities` provides a triangle-level estimate for each supported UV set
+    /// (sqrt(Area_uv / Area_screen)). Shaders use the density selected by each texture binding.
     ///
     /// # Arguments
     /// - `input`: interpolated varying and non-interpolated fragment metadata.

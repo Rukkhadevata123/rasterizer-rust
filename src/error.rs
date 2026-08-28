@@ -72,6 +72,8 @@ pub enum GltfError {
     NoScene { path: PathBuf },
     #[error("glTF '{}' contains no meshes", path.display())]
     NoMeshes { path: PathBuf },
+    #[error("unsupported feature in glTF '{}': {reason}", path.display())]
+    Unsupported { path: PathBuf, reason: String },
     #[error(
         "failed to process glTF '{}' scene {}, node {} ({}), mesh {}, primitive {}: {}",
         context.path.display(),

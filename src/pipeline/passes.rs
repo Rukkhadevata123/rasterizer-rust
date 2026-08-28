@@ -10,7 +10,9 @@ use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
 use crate::scene::context::RenderContext;
 use crate::scene::material::{AlphaMode, Material};
-use crate::scene::texture::{MinFilter, SamplerState, TextureBinding, TextureImage, TextureUsage};
+use crate::scene::texture::{
+    MinFilter, SamplerState, TexCoordSet, TextureBinding, TextureImage, TextureUsage,
+};
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -130,7 +132,7 @@ pub fn render_main_pass(
                 min_filter: MinFilter::LinearMipmapLinear,
                 ..Default::default()
             },
-            0,
+            TexCoordSet::TexCoord0,
             TextureUsage::Color,
         ))
     } else {

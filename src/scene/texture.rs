@@ -98,11 +98,38 @@ pub enum TextureUsage {
     Data,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TexCoordSet {
+    TexCoord0,
+    TexCoord1,
+}
+
+impl TexCoordSet {
+    pub fn index(self) -> usize {
+        match self {
+            Self::TexCoord0 => 0,
+            Self::TexCoord1 => 1,
+        }
+    }
+}
+
+impl TryFrom<u32> for TexCoordSet {
+    type Error = u32;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::TexCoord0),
+            1 => Ok(Self::TexCoord1),
+            unsupported => Err(unsupported),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TextureBinding {
     pub image: Arc<TextureImage>,
     pub sampler: SamplerState,
-    pub tex_coord: u32,
+    pub tex_coord: TexCoordSet,
     pub usage: TextureUsage,
 }
 
@@ -110,7 +137,7 @@ impl TextureBinding {
     pub fn new(
         image: Arc<TextureImage>,
         sampler: SamplerState,
-        tex_coord: u32,
+        tex_coord: TexCoordSet,
         usage: TextureUsage,
     ) -> Self {
         Self {
@@ -264,11 +291,21 @@ mod tests {
     }
 
     fn binding(image: TextureImage, usage: TextureUsage) -> TextureBinding {
-        TextureBinding::new(Arc::new(image), SamplerState::default(), 0, usage)
+        TextureBinding::new(
+            Arc::new(image),
+            SamplerState::default(),
+            TexCoordSet::TexCoord0,
+            usage,
+        )
     }
 
     fn binding_with_sampler(image: TextureImage, sampler: SamplerState) -> TextureBinding {
-        TextureBinding::new(Arc::new(image), sampler, 0, TextureUsage::Data)
+        TextureBinding::new(
+            Arc::new(image),
+            sampler,
+            TexCoordSet::TexCoord0,
+            TextureUsage::Data,
+        )
     }
 
     fn two_texel_image() -> TextureImage {
@@ -457,12 +494,17 @@ mod tests {
         let data = TextureBinding::new(
             image.clone(),
             SamplerState::default(),
-            0,
+            TexCoordSet::TexCoord0,
             TextureUsage::Data,
         )
         .sample(0.5, 0.5);
-        let color = TextureBinding::new(image, SamplerState::default(), 0, TextureUsage::Color)
-            .sample(0.5, 0.5);
+        let color = TextureBinding::new(
+            image,
+            SamplerState::default(),
+            TexCoordSet::TexCoord0,
+            TextureUsage::Color,
+        )
+        .sample(0.5, 0.5);
 
         assert!(color.x < data.x);
         assert!(color.y < data.y);

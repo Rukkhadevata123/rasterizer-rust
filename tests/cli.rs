@@ -29,6 +29,9 @@ fn write_minimal_gltf(directory: &std::path::Path) {
     for value in [-0.5_f32, -0.5, 0.0, 0.5, -0.5, 0.0, 0.0, 0.5, 0.0] {
         buffer.extend_from_slice(&value.to_le_bytes());
     }
+    for value in [0.0_f32, 0.0, 1.0, 0.0, 0.0, 1.0] {
+        buffer.extend_from_slice(&value.to_le_bytes());
+    }
     for index in [0_u16, 1, 2] {
         buffer.extend_from_slice(&index.to_le_bytes());
     }
@@ -44,8 +47,8 @@ fn write_minimal_gltf(directory: &std::path::Path) {
             "scenes": [{ "nodes": [0] }],
             "nodes": [{ "mesh": 0 }],
             "meshes": [{ "primitives": [{
-                "attributes": { "POSITION": 0 },
-                "indices": 1,
+                "attributes": { "POSITION": 0, "TEXCOORD_0": 1 },
+                "indices": 2,
                 "material": 0
             }] }],
             "images": [{ "uri": "model-texture.png" }],
@@ -55,10 +58,11 @@ fn write_minimal_gltf(directory: &std::path::Path) {
                     "baseColorTexture": { "index": 0 }
                 }
             }],
-            "buffers": [{ "uri": "triangle.bin", "byteLength": 42 }],
+            "buffers": [{ "uri": "triangle.bin", "byteLength": 66 }],
             "bufferViews": [
                 { "buffer": 0, "byteOffset": 0, "byteLength": 36, "target": 34962 },
-                { "buffer": 0, "byteOffset": 36, "byteLength": 6, "target": 34963 }
+                { "buffer": 0, "byteOffset": 36, "byteLength": 24, "target": 34962 },
+                { "buffer": 0, "byteOffset": 60, "byteLength": 6, "target": 34963 }
             ],
             "accessors": [
                 {
@@ -71,6 +75,12 @@ fn write_minimal_gltf(directory: &std::path::Path) {
                 },
                 {
                     "bufferView": 1,
+                    "componentType": 5126,
+                    "count": 3,
+                    "type": "VEC2"
+                },
+                {
+                    "bufferView": 2,
                     "componentType": 5123,
                     "count": 3,
                     "type": "SCALAR"

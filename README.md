@@ -27,7 +27,7 @@ A high-performance, multi-threaded software rasterizer built from scratch in Rus
 - **Transparency:** Correct rendering of semi-transparent objects (glass, ice) using back-to-front sorting and alpha blending logic.
 - **Shadow Mapping:** Real-time soft shadows using Percentage-Closer Filtering (PCF), adaptive bias, and alpha-tested cutout casters.
 - **Anti-Aliasing:** SSAA (Super-Sample Anti-Aliasing) support for smooth edges.
-- **Texture Filtering:** glTF repeat, clamp, mirrored-repeat, nearest, linear, and mip-filter sampler semantics.
+- **Texture Filtering:** glTF UV0/UV1 bindings with repeat, clamp, mirrored-repeat, nearest, linear, and mip-filter sampler semantics.
 
 ### High Performance Architecture
 

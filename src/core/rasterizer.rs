@@ -1,4 +1,5 @@
 use crate::core::framebuffer::{FrameBuffer, Sample};
+use crate::core::geometry::SUPPORTED_TEXCOORD_SETS;
 use crate::core::math::interpolation::{
     barycentric_coordinates, is_inside_triangle, perspective_correct_barycentric,
 };
@@ -84,7 +85,7 @@ pub(crate) struct PreparedTriangle<'a, V, S, C> {
     state: RenderState,
     fragment_context: C,
     front_facing: bool,
-    uv_density: f32,
+    uv_densities: [f32; SUPPORTED_TEXCOORD_SETS],
     start_x: usize,
     end_x: usize,
     start_y: usize,
@@ -323,18 +324,21 @@ impl Rasterizer {
         }
 
         let area_screen = signed_area.abs() * 0.5;
-        let uv_density = match (
-            varyings[0].get_uv(),
-            varyings[1].get_uv(),
-            varyings[2].get_uv(),
-        ) {
-            (Some(uv0), Some(uv1), Some(uv2)) => {
-                let area_uv = 0.5
-                    * ((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y)).abs();
-                (area_uv / area_screen).sqrt()
+        let uv_densities = std::array::from_fn(|set| {
+            match (
+                varyings[0].get_uv(set),
+                varyings[1].get_uv(set),
+                varyings[2].get_uv(set),
+            ) {
+                (Some(uv0), Some(uv1), Some(uv2)) => {
+                    let area_uv = 0.5
+                        * ((uv1.x - uv0.x) * (uv2.y - uv0.y) - (uv2.x - uv0.x) * (uv1.y - uv0.y))
+                            .abs();
+                    (area_uv / area_screen).sqrt()
+                }
+                _ => 0.0,
             }
-            _ => 0.0,
-        };
+        });
 
         let min_x = screen_coords[0]
             .x
@@ -374,7 +378,7 @@ impl Rasterizer {
             state,
             fragment_context,
             front_facing: signed_area < 0.0,
-            uv_density,
+            uv_densities,
             start_x: min_x.max(0) as usize,
             end_x: max_x.min(framebuffer_width as i32 - 1) as usize,
             start_y: min_y.max(0) as usize,
@@ -461,7 +465,7 @@ impl Rasterizer {
                 let input = FragmentInput {
                     varying,
                     front_facing: triangle.front_facing,
-                    uv_density: triangle.uv_density,
+                    uv_densities: triangle.uv_densities,
                 };
                 let FragmentOutput::Color(color) =
                     triangle.shader.fragment(input, triangle.fragment_context)

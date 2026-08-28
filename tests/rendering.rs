@@ -1,4 +1,4 @@
-use image::{DynamicImage, Rgba, RgbaImage};
+use image::{DynamicImage, RgbaImage};
 use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
 use rasterizer_rust::core::framebuffer::FrameBuffer;
 use rasterizer_rust::core::geometry::Vertex;
@@ -19,7 +19,10 @@ use rasterizer_rust::scene::material::{AlphaMode, Material, PbrMaterial};
 use rasterizer_rust::scene::mesh::Mesh;
 use rasterizer_rust::scene::model::Model;
 use rasterizer_rust::scene::scene_object::{SceneObject, SceneObjectKind};
-use rasterizer_rust::scene::texture::{SamplerState, TextureBinding, TextureImage, TextureUsage};
+use rasterizer_rust::scene::texture::{
+    MagFilter, MinFilter, SamplerState, TexCoordSet, TextureBinding, TextureImage, TextureUsage,
+    WrapMode,
+};
 use std::ops::{Add, Mul};
 use std::sync::Arc;
 
@@ -49,6 +52,65 @@ impl Mul<f32> for ColorVarying {
 }
 
 impl Interpolatable for ColorVarying {}
+
+#[derive(Clone, Copy)]
+struct DualUvVarying {
+    uvs: [Vector2<f32>; 2],
+}
+
+impl Add for DualUvVarying {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            uvs: std::array::from_fn(|set| self.uvs[set] + rhs.uvs[set]),
+        }
+    }
+}
+
+impl Mul<f32> for DualUvVarying {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self {
+            uvs: std::array::from_fn(|set| self.uvs[set] * rhs),
+        }
+    }
+}
+
+impl Interpolatable for DualUvVarying {
+    fn get_uv(&self, set: usize) -> Option<Vector2<f32>> {
+        self.uvs.get(set).copied()
+    }
+}
+
+struct DualUvDensityShader;
+
+impl<'a> Shader<Option<&'a Material>> for DualUvDensityShader {
+    type Varying = DualUvVarying;
+
+    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+        (
+            Vector4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0),
+            DualUvVarying {
+                uvs: vertex.texcoords,
+            },
+        )
+    }
+
+    fn fragment(
+        &self,
+        input: FragmentInput<Self::Varying>,
+        _material: Option<&'a Material>,
+    ) -> FragmentOutput {
+        FragmentOutput::Color(Vector4::new(
+            input.uv_densities[0],
+            input.uv_densities[1],
+            0.0,
+            1.0,
+        ))
+    }
+}
 
 struct ClipSpaceShader;
 
@@ -472,6 +534,27 @@ fn triangle_rasterization_crosses_band_boundaries() {
 }
 
 #[test]
+fn rasterizer_tracks_uv_density_per_texture_coordinate_set() {
+    let mut mesh = triangle(0.0, Vector4::zeros());
+    mesh.vertices[0].texcoords[1] = Vector2::new(0.0, 0.0);
+    mesh.vertices[1].texcoords[1] = Vector2::new(1.0, 0.0);
+    mesh.vertices[2].texcoords[1] = Vector2::new(0.0, 1.0);
+    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+
+    draw_mesh(
+        &mut renderer,
+        &mesh,
+        &DualUvDensityShader,
+        None,
+        test_render_state(),
+    );
+
+    let density = renderer.framebuffer.get_pixel(16, 16).unwrap();
+    assert_eq!(density.x, 0.0);
+    assert!(density.y > 0.0);
+}
+
+#[test]
 fn overlapping_triangles_produce_deterministic_depth_and_color() {
     let shader = ClipSpaceShader;
     let mut vertices = Vec::new();
@@ -633,13 +716,21 @@ fn masked_shadow_fragments_respect_material_alpha() {
 #[test]
 fn masked_shadow_fragments_sample_base_color_texture_alpha() {
     let image = TextureImage::from_image(
-        DynamicImage::ImageRgba8(RgbaImage::from_pixel(1, 1, Rgba([255, 255, 255, 0]))),
+        DynamicImage::ImageRgba8(
+            RgbaImage::from_vec(2, 1, vec![255, 255, 255, 255, 255, 255, 255, 0])
+                .expect("test pixels should match image dimensions"),
+        ),
         false,
     );
     let texture = TextureBinding::new(
         Arc::new(image),
-        SamplerState::default(),
-        0,
+        SamplerState {
+            wrap_u: WrapMode::ClampToEdge,
+            wrap_v: WrapMode::ClampToEdge,
+            mag_filter: MagFilter::Nearest,
+            min_filter: MinFilter::Nearest,
+        },
+        TexCoordSet::TexCoord1,
         TextureUsage::Color,
     );
     let material = Material::Pbr(PbrMaterial {
@@ -653,10 +744,15 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
         Matrix4::identity(),
         Matrix4::identity(),
     );
+    let mut mesh = triangle(0.0, Vector4::zeros());
+    for vertex in &mut mesh.vertices {
+        vertex.texcoords[0] = Vector2::new(0.25, 0.5);
+        vertex.texcoords[1] = Vector2::new(0.75, 0.5);
+    }
 
     draw_mesh(
         &mut renderer,
-        &triangle(0.0, Vector4::zeros()),
+        &mesh,
         &shader,
         Some(&material),
         test_render_state(),
@@ -770,12 +866,65 @@ fn point_only_scene_disables_shadow_pass() {
     assert_eq!(shadow.size, 0);
     assert!(shadow.light_index.is_none());
 }
+
+#[test]
+fn pbr_material_texture_binding_selects_texcoord1() {
+    let image = TextureImage::from_image(
+        DynamicImage::ImageRgba8(
+            RgbaImage::from_vec(2, 1, vec![255, 0, 0, 255, 0, 255, 0, 255])
+                .expect("test pixels should match image dimensions"),
+        ),
+        false,
+    );
+    let material = Material::Pbr(PbrMaterial {
+        albedo_texture: Some(TextureBinding::new(
+            Arc::new(image),
+            SamplerState {
+                wrap_u: WrapMode::ClampToEdge,
+                wrap_v: WrapMode::ClampToEdge,
+                mag_filter: MagFilter::Nearest,
+                min_filter: MinFilter::Nearest,
+            },
+            TexCoordSet::TexCoord1,
+            TextureUsage::Color,
+        )),
+        ..Default::default()
+    });
+    let varying = PbrVarying {
+        world_pos: Point3::origin(),
+        normal: Vector3::z(),
+        uvs: [Vector2::new(0.25, 0.5), Vector2::new(0.75, 0.5)],
+        tangent: Vector4::new(1.0, 0.0, 0.0, 1.0),
+    };
+    let mut shader = PbrShader::new(
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Point3::new(0.0, 0.0, 2.0),
+    );
+    shader.ambient_light = Vector3::repeat(1.0);
+
+    let color = match shader.fragment(
+        FragmentInput {
+            varying,
+            front_facing: true,
+            uv_densities: [0.0; 2],
+        },
+        Some(&material),
+    ) {
+        FragmentOutput::Color(color) => color,
+        FragmentOutput::Discard => panic!("opaque PBR fragment should produce color"),
+    };
+
+    assert_vec3_approx(color.xyz(), Vector3::new(0.0, 1.0, 0.0));
+}
+
 #[test]
 fn pbr_shadow_uses_recorded_light_index() {
     let varying = PbrVarying {
         world_pos: Point3::origin(),
         normal: Vector3::z(),
-        uv: Vector2::zeros(),
+        uvs: [Vector2::zeros(); 2],
         tangent: Vector4::new(1.0, 0.0, 0.0, 1.0),
     };
     let material = Material::Pbr(PbrMaterial {
@@ -813,7 +962,7 @@ fn pbr_shadow_uses_recorded_light_index() {
             FragmentInput {
                 varying,
                 front_facing: true,
-                uv_density: 0.0,
+                uv_densities: [0.0; 2],
             },
             Some(&material),
         ) {
@@ -836,7 +985,7 @@ fn pbr_back_faces_flip_the_geometric_normal() {
     let varying = PbrVarying {
         world_pos: Point3::origin(),
         normal: Vector3::z(),
-        uv: Vector2::zeros(),
+        uvs: [Vector2::zeros(); 2],
         tangent: Vector4::new(1.0, 0.0, 0.0, 1.0),
     };
     let material = Material::Pbr(PbrMaterial {
@@ -861,7 +1010,7 @@ fn pbr_back_faces_flip_the_geometric_normal() {
         FragmentInput {
             varying,
             front_facing,
-            uv_density: 0.0,
+            uv_densities: [0.0; 2],
         },
         Some(&material),
     ) {
