@@ -734,7 +734,7 @@ fn convert_material(
                 mat.index(),
                 info.texture(),
                 info.tex_coord(),
-                TextureUsage::Data,
+                TextureUsage::Normal,
                 image_resources,
             )
         })

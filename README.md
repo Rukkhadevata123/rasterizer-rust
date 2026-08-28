@@ -93,7 +93,7 @@ Render a single high-quality frame to an output image file (default: `output.png
 cargo run --release -- --config scene.toml
 ```
 
-Color triplets in TOML configuration, including backgrounds, ambient light, ground albedo, and light colors, are linear RGB values. Color images used for base color, emissive, and image backgrounds are decoded from sRGB before filtering and shading; metallic-roughness, normal, and occlusion textures remain linear data.
+Color triplets in TOML configuration, including backgrounds, ambient light, ground albedo, and light colors, are linear RGB values. Color images used for base color, emissive, and image backgrounds are decoded from sRGB before filtering and shading. Mip generation averages color in linear space, preserves metallic-roughness and occlusion values as raw data, and renormalizes normal maps.
 
 ## Controls (GUI Mode)
 

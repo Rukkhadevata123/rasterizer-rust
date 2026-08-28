@@ -359,11 +359,13 @@ Status: completed
 
 ### 7B: Mip Correctness
 
-- Generate color mips in linear space.
-- Downsample data textures without color conversion.
-- Renormalize normal-map mips.
-- Continue 1×N and N×1 chains until 1×1.
-- Add non-square and single-axis texture tests.
+Status: completed
+
+- [x] Generate color mips in linear space.
+- [x] Downsample data textures without color conversion.
+- [x] Renormalize normal-map mips.
+- [x] Continue 1×N and N×1 chains until 1×1.
+- [x] Add non-square, odd-sized, and single-axis texture tests.
 
 ### 7C: Rasterization Rules
 
@@ -503,12 +505,12 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 7A:
+Repository state after Phase 7B:
 
 - branch: `main`;
-- completed commits through `74546e4` cover Phases 1 through 6E;
-- Phase 7A uses standard sRGB transfer functions and filters color textures in linear space;
-- 112 tests are present after Phase 7A;
+- completed commits through `bd1b232` cover Phases 1 through 7A;
+- Phase 7B generates usage-aware linear color, raw data, and renormalized normal mip chains;
+- 115 tests are present after Phase 7B;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 7B mip correctness. Do not begin the tile renderer in the same change set.
+Immediate target: Phase 7C rasterization rules. Do not begin the tile renderer in the same change set.

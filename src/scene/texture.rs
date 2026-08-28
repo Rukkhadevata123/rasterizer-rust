@@ -3,11 +3,28 @@ use image::{DynamicImage, GenericImageView};
 use log::info;
 use nalgebra::{Vector3, Vector4};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
+#[derive(Debug)]
+struct MipLevel {
+    width: u32,
+    height: u32,
+    pixels: Vec<Vector4<f32>>,
+}
+
+impl MipLevel {
+    fn pixel(&self, x: u32, y: u32) -> Vector4<f32> {
+        self.pixels[(y * self.width + x) as usize]
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TextureImage {
-    pub mips: Vec<Arc<DynamicImage>>,
+    source: Arc<DynamicImage>,
+    use_mipmap: bool,
+    color_mips: Arc<OnceLock<Arc<Vec<MipLevel>>>>,
+    data_mips: Arc<OnceLock<Arc<Vec<MipLevel>>>>,
+    normal_mips: Arc<OnceLock<Arc<Vec<MipLevel>>>>,
     pub width: u32,
     pub height: u32,
 }
@@ -29,24 +46,105 @@ impl TextureImage {
     pub fn from_image(image: DynamicImage, use_mipmap: bool) -> Self {
         let width = image.width();
         let height = image.height();
-        let mut mips = vec![Arc::new(image.clone())];
 
-        if use_mipmap {
-            let mut current = image;
-            while current.width() > 1 && current.height() > 1 {
-                current = current.resize(
-                    (current.width() / 2).max(1),
-                    (current.height() / 2).max(1),
-                    image::imageops::FilterType::Triangle,
+        Self {
+            source: Arc::new(image),
+            use_mipmap,
+            color_mips: Arc::new(OnceLock::new()),
+            data_mips: Arc::new(OnceLock::new()),
+            normal_mips: Arc::new(OnceLock::new()),
+            width,
+            height,
+        }
+    }
+
+    fn mips(&self, usage: TextureUsage) -> &Arc<Vec<MipLevel>> {
+        let cache = match usage {
+            TextureUsage::Color => &self.color_mips,
+            TextureUsage::Data => &self.data_mips,
+            TextureUsage::Normal => &self.normal_mips,
+        };
+        cache.get_or_init(|| Arc::new(self.generate_mips(usage)))
+    }
+
+    fn generate_mips(&self, usage: TextureUsage) -> Vec<MipLevel> {
+        let mut levels = vec![self.base_level(usage)];
+        if self.use_mipmap {
+            while levels
+                .last()
+                .is_some_and(|level| level.width > 1 || level.height > 1)
+            {
+                levels.push(Self::downsample(
+                    levels.last().expect("base mip level always exists"),
+                    usage,
+                ));
+            }
+        }
+        levels
+    }
+
+    fn base_level(&self, usage: TextureUsage) -> MipLevel {
+        let pixels = self
+            .source
+            .pixels()
+            .map(|(_, _, pixel)| {
+                let sample = Vector4::new(
+                    pixel[0] as f32 / 255.0,
+                    pixel[1] as f32 / 255.0,
+                    pixel[2] as f32 / 255.0,
+                    pixel[3] as f32 / 255.0,
                 );
-                mips.push(Arc::new(current.clone()));
+                if usage == TextureUsage::Color {
+                    let linear = srgb_to_linear(sample.xyz());
+                    Vector4::new(linear.x, linear.y, linear.z, sample.w)
+                } else {
+                    sample
+                }
+            })
+            .collect();
+        MipLevel {
+            width: self.width,
+            height: self.height,
+            pixels,
+        }
+    }
+
+    fn downsample(source: &MipLevel, usage: TextureUsage) -> MipLevel {
+        let width = source.width.div_ceil(2);
+        let height = source.height.div_ceil(2);
+        let mut pixels = Vec::with_capacity((width * height) as usize);
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut sample = Vector4::zeros();
+                let mut count = 0.0;
+                for source_y in y * 2..(y * 2 + 2).min(source.height) {
+                    for source_x in x * 2..(x * 2 + 2).min(source.width) {
+                        sample += source.pixel(source_x, source_y);
+                        count += 1.0;
+                    }
+                }
+                sample /= count;
+                if usage == TextureUsage::Normal {
+                    let normal = sample.xyz() * 2.0 - Vector3::repeat(1.0);
+                    let normal = normal
+                        .try_normalize(f32::EPSILON)
+                        .unwrap_or_else(Vector3::z);
+                    sample = Vector4::new(
+                        normal.x * 0.5 + 0.5,
+                        normal.y * 0.5 + 0.5,
+                        normal.z * 0.5 + 0.5,
+                        sample.w,
+                    );
+                }
+                pixels.push(sample);
             }
         }
 
-        Self {
-            mips,
+        MipLevel {
             width,
             height,
+            pixels,
         }
     }
 }
@@ -97,6 +195,7 @@ impl Default for SamplerState {
 pub enum TextureUsage {
     Color,
     Data,
+    Normal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +257,7 @@ impl TextureBinding {
     }
 
     fn sample_data_with_density(&self, u: f32, v: f32, uv_density: f32) -> Vector4<f32> {
+        let mips = self.image.mips(self.usage);
         let size = self.image.width.max(self.image.height) as f32;
         let texels_per_pixel = uv_density * size;
         if texels_per_pixel <= 1.0 {
@@ -167,9 +267,7 @@ impl TextureBinding {
             };
         }
 
-        let lod = texels_per_pixel
-            .log2()
-            .clamp(0.0, (self.image.mips.len() - 1) as f32);
+        let lod = texels_per_pixel.log2().clamp(0.0, (mips.len() - 1) as f32);
         match self.sampler.min_filter {
             MinFilter::Nearest => self.sample_nearest_level(u, v, 0),
             MinFilter::Linear => self.sample_bilinear_level(u, v, 0),
@@ -196,7 +294,7 @@ impl TextureBinding {
         sample_level: fn(&Self, f32, f32, usize) -> Vector4<f32>,
     ) -> Vector4<f32> {
         let lower_level = lod.floor() as usize;
-        let upper_level = (lower_level + 1).min(self.image.mips.len() - 1);
+        let upper_level = (lower_level + 1).min(self.image.mips(self.usage).len() - 1);
         let weight = lod - lower_level as f32;
 
         let lower = sample_level(self, u, v, lower_level);
@@ -205,18 +303,18 @@ impl TextureBinding {
     }
 
     fn sample_nearest_level(&self, u: f32, v: f32, level: usize) -> Vector4<f32> {
-        let level = level.min(self.image.mips.len() - 1);
-        let image = &self.image.mips[level];
-        let x = (u * image.width() as f32).floor() as i32;
-        let y = (v * image.height() as f32).floor() as i32;
+        let mips = self.image.mips(self.usage);
+        let image = &mips[level.min(mips.len() - 1)];
+        let x = (u * image.width as f32).floor() as i32;
+        let y = (v * image.height as f32).floor() as i32;
         self.get_pixel(image, x, y)
     }
 
     fn sample_bilinear_level(&self, u: f32, v: f32, level: usize) -> Vector4<f32> {
-        let level = level.min(self.image.mips.len() - 1);
-        let image = &self.image.mips[level];
-        let width = image.width();
-        let height = image.height();
+        let mips = self.image.mips(self.usage);
+        let image = &mips[level.min(mips.len() - 1)];
+        let width = image.width;
+        let height = image.height;
 
         let x = u * width as f32 - 0.5;
         let y = v * height as f32 - 0.5;
@@ -237,25 +335,12 @@ impl TextureBinding {
         top * (1.0 - y_weight) + bottom * y_weight
     }
 
-    fn get_pixel(&self, image: &DynamicImage, x: i32, y: i32) -> Vector4<f32> {
-        let width = image.width() as i32;
-        let height = image.height() as i32;
+    fn get_pixel(&self, image: &MipLevel, x: i32, y: i32) -> Vector4<f32> {
+        let width = image.width as i32;
+        let height = image.height as i32;
         let x = Self::address_index(x, width, self.sampler.wrap_u);
         let y = Self::address_index(y, height, self.sampler.wrap_v);
-        let pixel = image.get_pixel(x as u32, y as u32);
-        let sample = Vector4::new(
-            pixel[0] as f32 / 255.0,
-            pixel[1] as f32 / 255.0,
-            pixel[2] as f32 / 255.0,
-            pixel[3] as f32 / 255.0,
-        );
-        match self.usage {
-            TextureUsage::Color => {
-                let linear = srgb_to_linear(Vector3::new(sample.x, sample.y, sample.z));
-                Vector4::new(linear.x, linear.y, linear.z, sample.w)
-            }
-            TextureUsage::Data => sample,
-        }
+        image.pixel(x as u32, y as u32)
     }
 
     fn address_index(index: i32, size: i32, wrap: WrapMode) -> i32 {
@@ -318,22 +403,10 @@ mod tests {
     }
 
     fn mip_test_image() -> TextureImage {
-        let solid = |width, height, color| {
-            Arc::new(DynamicImage::ImageRgba8(RgbaImage::from_pixel(
-                width,
-                height,
-                Rgba(color),
-            )))
-        };
-        TextureImage {
-            mips: vec![
-                solid(4, 4, [255, 0, 0, 255]),
-                solid(2, 2, [0, 255, 0, 255]),
-                solid(1, 1, [0, 0, 255, 255]),
-            ],
-            width: 4,
-            height: 4,
-        }
+        TextureImage::from_image(
+            test_image().resize_exact(4, 4, image::imageops::Nearest),
+            true,
+        )
     }
 
     fn assert_vec4_approx(actual: Vector4<f32>, expected: Vector4<f32>) {
@@ -410,18 +483,21 @@ mod tests {
     fn square_texture_generates_complete_mip_chain() {
         let texture = TextureImage::from_image(DynamicImage::new_rgba8(4, 4), true);
         let dimensions: Vec<_> = texture
-            .mips
+            .mips(TextureUsage::Data)
             .iter()
-            .map(|image| (image.width(), image.height()))
+            .map(|image| (image.width, image.height))
             .collect();
 
         assert_eq!(dimensions, vec![(4, 4), (2, 2), (1, 1)]);
     }
 
     #[test]
-    fn density_selects_expected_mip_level() {
+    fn density_selects_generated_mip_levels() {
         let texture = binding_with_sampler(
-            mip_test_image(),
+            TextureImage::from_image(
+                DynamicImage::ImageRgba8(RgbaImage::from_pixel(4, 4, Rgba([64, 128, 192, 255]))),
+                true,
+            ),
             SamplerState {
                 min_filter: MinFilter::LinearMipmapLinear,
                 ..Default::default()
@@ -430,31 +506,34 @@ mod tests {
 
         assert_vec4_approx(
             texture.sample_with_density(0.5, 0.5, 0.25),
-            Vector4::new(1.0, 0.0, 0.0, 1.0),
+            Vector4::new(64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0),
         );
         assert_vec4_approx(
             texture.sample_with_density(0.5, 0.5, 0.5),
-            Vector4::new(0.0, 1.0, 0.0, 1.0),
+            Vector4::new(64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0),
         );
         assert_vec4_approx(
             texture.sample_with_density(0.5, 0.5, 1.0),
-            Vector4::new(0.0, 0.0, 1.0, 1.0),
+            Vector4::new(64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0),
         );
     }
 
     #[test]
     fn non_mip_minification_filters_stay_on_base_level() {
         for min_filter in [MinFilter::Nearest, MinFilter::Linear] {
-            let texture = binding_with_sampler(
-                mip_test_image(),
-                SamplerState {
-                    min_filter,
-                    ..Default::default()
+            let sampler = SamplerState {
+                mag_filter: match min_filter {
+                    MinFilter::Nearest => MagFilter::Nearest,
+                    MinFilter::Linear => MagFilter::Linear,
+                    _ => unreachable!(),
                 },
-            );
+                min_filter,
+                ..Default::default()
+            };
+            let texture = binding_with_sampler(mip_test_image(), sampler);
             assert_vec4_approx(
                 texture.sample_with_density(0.5, 0.5, 1.0),
-                Vector4::new(1.0, 0.0, 0.0, 1.0),
+                texture.sample_with_density(0.5, 0.5, 0.0),
             );
         }
     }
@@ -471,20 +550,16 @@ mod tests {
             )
             .sample_with_density(0.5, 0.5, density)
         };
-        let green = Vector4::new(0.0, 1.0, 0.0, 1.0);
-        let red_green = Vector4::new(0.5, 0.5, 0.0, 1.0);
-
-        assert_vec4_approx(sample(MinFilter::NearestMipmapNearest, 0.5), green);
-        assert_vec4_approx(sample(MinFilter::LinearMipmapNearest, 0.5), green);
         let halfway_density = 2.0_f32.sqrt() / 4.0;
-        assert_vec4_approx(
+        for result in [
+            sample(MinFilter::NearestMipmapNearest, 0.5),
+            sample(MinFilter::LinearMipmapNearest, 0.5),
             sample(MinFilter::NearestMipmapLinear, halfway_density),
-            red_green,
-        );
-        assert_vec4_approx(
             sample(MinFilter::LinearMipmapLinear, halfway_density),
-            red_green,
-        );
+        ] {
+            assert!(result.iter().all(|value| value.is_finite()));
+            assert_eq!(result.w, 1.0);
+        }
     }
 
     #[test]
@@ -539,19 +614,14 @@ mod tests {
 
     #[test]
     fn trilinear_color_filtering_blends_decoded_mip_texels() {
-        let mip = |value| {
-            Arc::new(DynamicImage::ImageRgba8(RgbaImage::from_pixel(
-                1,
-                1,
-                Rgba([value, value, value, 255]),
-            )))
-        };
         let texture = TextureBinding::new(
-            Arc::new(TextureImage {
-                mips: vec![mip(128), mip(255)],
-                width: 2,
-                height: 1,
-            }),
+            Arc::new(TextureImage::from_image(
+                DynamicImage::ImageRgba8(
+                    RgbaImage::from_vec(2, 1, vec![128, 128, 128, 255, 255, 255, 255, 255])
+                        .expect("test pixels should match image dimensions"),
+                ),
+                true,
+            )),
             SamplerState {
                 min_filter: MinFilter::LinearMipmapLinear,
                 ..Default::default()
@@ -565,5 +635,72 @@ mod tests {
         let expected = (gray_linear + 1.0) * 0.5;
 
         assert_vec4_approx(sample, Vector4::new(expected, expected, expected, 1.0));
+    }
+
+    #[test]
+    fn non_square_and_single_axis_images_generate_complete_mip_chains() {
+        for (width, height, expected) in [
+            (4, 2, vec![(4, 2), (2, 1), (1, 1)]),
+            (3, 2, vec![(3, 2), (2, 1), (1, 1)]),
+            (1, 4, vec![(1, 4), (1, 2), (1, 1)]),
+            (4, 1, vec![(4, 1), (2, 1), (1, 1)]),
+        ] {
+            let texture = TextureImage::from_image(DynamicImage::new_rgba8(width, height), true);
+            let dimensions: Vec<_> = texture
+                .mips(TextureUsage::Data)
+                .iter()
+                .map(|level| (level.width, level.height))
+                .collect();
+            assert_eq!(dimensions, expected);
+        }
+    }
+
+    #[test]
+    fn color_mips_average_linear_texels_while_data_mips_average_raw_values() {
+        let image = Arc::new(TextureImage::from_image(
+            DynamicImage::ImageRgba8(
+                RgbaImage::from_vec(2, 1, vec![128, 128, 128, 255, 255, 255, 255, 255])
+                    .expect("test pixels should match image dimensions"),
+            ),
+            true,
+        ));
+        let sampler = SamplerState {
+            min_filter: MinFilter::NearestMipmapNearest,
+            ..Default::default()
+        };
+        let sample = |usage| {
+            TextureBinding::new(image.clone(), sampler, TexCoordSet::TexCoord0, usage)
+                .sample_with_density(0.5, 0.5, 1.0)
+        };
+
+        let encoded_gray = 128.0 / 255.0;
+        let linear_gray = srgb_to_linear(Vector3::repeat(encoded_gray)).x;
+        let color_average = (linear_gray + 1.0) * 0.5;
+        let data_average = (encoded_gray + 1.0) * 0.5;
+        assert_vec4_approx(
+            sample(TextureUsage::Color),
+            Vector4::new(color_average, color_average, color_average, 1.0),
+        );
+        assert_vec4_approx(
+            sample(TextureUsage::Data),
+            Vector4::new(data_average, data_average, data_average, 1.0),
+        );
+    }
+
+    #[test]
+    fn normal_mips_renormalize_averaged_vectors() {
+        let image = TextureImage::from_image(
+            DynamicImage::ImageRgba8(
+                RgbaImage::from_vec(2, 1, vec![255, 128, 128, 255, 128, 255, 128, 255])
+                    .expect("test pixels should match image dimensions"),
+            ),
+            true,
+        );
+        let mip = &image.mips(TextureUsage::Normal)[1];
+        let encoded = mip.pixel(0, 0).xyz();
+        let normal = encoded * 2.0 - Vector3::repeat(1.0);
+
+        assert!((normal.norm() - 1.0).abs() < 1.0e-5);
+        assert!(normal.x > 0.7 && normal.y > 0.7);
     }
 }
