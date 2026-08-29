@@ -9,7 +9,7 @@ use std::process::ExitCode;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, default_value = "scene.toml")]
+    #[arg(short, long, default_value = "car-scene.toml")]
     config: String,
 
     /// Start in GUI mode with real-time rendering

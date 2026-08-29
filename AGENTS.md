@@ -10,15 +10,15 @@ This is a single Rust 2024 package with a library and one binary target. `src/ma
 - `src/io/`: TOML configuration, glTF loading, and PNG output.
 - `src/ui/`: interactive input handling.
 
-Runtime assets live in `assets/`; `scene.toml` is the primary example configuration. Keep generated images in `outputs/` or another ignored output path.
+Runtime assets live in `assets/`; `car-scene.toml` and `city-scene.toml` are the primary example configurations. Keep generated images in `outputs/` or another ignored output path.
 
 ## Build, Test, and Development Commands
 
 Use the repository's current stable Rust toolchain. `Cargo.toml` declares Rust 1.85 as the intended minimum for edition 2024, but routine local and CI validation uses the active stable toolchain; there is currently no separate MSRV verification job.
 
 ```bash
-cargo run --release -- --config scene.toml
-cargo run --release -- --config scene.toml --gui
+cargo run --release -- --config car-scene.toml
+cargo run --release -- --config car-scene.toml --gui
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features
 cargo test --release

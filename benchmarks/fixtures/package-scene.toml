@@ -1,7 +1,7 @@
 [render]
 width = 64
 height = 64
-output = "outputs/package-smoke.png"
+output = "../../outputs/package-smoke.png"
 supersample_scale = 1
 use_shadows = false
 use_aces = false
@@ -14,5 +14,5 @@ target = [0.0, 0.0, 0.0]
 enabled = false
 
 [[objects]]
-path = "benchmarks/fixtures/transparent-triangle.gltf"
+path = "transparent-triangle.gltf"
 normalization = "preserve"

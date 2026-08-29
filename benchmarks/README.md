@@ -5,7 +5,7 @@ Phase 8 benchmarks measure the existing renderer before changing its performance
 Run one configured scene:
 
 ```bash
-cargo run --release -- --config scene.toml --benchmark --benchmark-scenario default-car
+cargo run --release -- --config car-scene.toml --benchmark --benchmark-scenario default-car
 ```
 
 The default run renders 3 warmup frames and records 20 measured frames in `outputs/benchmark.csv`. The CSV contains scene-loading time, shadow preparation and rasterization, main-pass preparation, combined opaque/masked rasterization, transparent rasterization, post-processing, complete frame time, and a stable FNV-1a output hash.

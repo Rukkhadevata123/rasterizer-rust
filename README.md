@@ -6,11 +6,11 @@ A high-performance, multi-threaded software rasterizer built from scratch in Rus
 
 **Real-time Interactive Mode:**
 
-![Real-time PBR](docs/images/minifb-2.png)
+![Real-time PBR](docs/images/car-demo.png)
 *Physically Based Rendering with metallic properties, normal mapping, and contact shadows.*
 
-![Wireframe Mode](docs/images/minifb-3.png)
-*Debug visualization including wireframe overlays and cull mode toggling.*
+![Urban PBR Scene](docs/images/city-demo.png)
+*Textured urban architecture rendered with directional lighting and real-time shadows.*
 
 ## Key Features
 
@@ -83,27 +83,27 @@ src
 Launch the interactive viewer to explore the scene, test lighting, and view PBR materials in real-time.
 
 ```bash
-cargo run --release -- --config scene.toml --gui
+cargo run --release -- --config car-scene.toml --gui
 ```
 
 **2. Offline Rendering (CLI)**  
 Render a single high-quality frame to the path configured by `render.output` (`outputs/output_gltf.png` in the example scene).
 
 ```bash
-cargo run --release -- --config scene.toml
+cargo run --release -- --config car-scene.toml
 ```
 
 The published Cargo source package excludes the large demonstration models. Its self-contained smoke scene can be rendered with:
 
 ```bash
-cargo run --release -- --config package-scene.toml
+cargo run --release -- --config benchmarks/fixtures/package-scene.toml
 ```
 
 **3. Performance Benchmarking**
 Measure a configured scene without saving a PNG, or run the complete Phase 8A scenario matrix documented in `benchmarks/README.md`.
 
 ```bash
-cargo run --release -- --config scene.toml --benchmark --benchmark-scenario default-car
+cargo run --release -- --config car-scene.toml --benchmark --benchmark-scenario default-car
 node scripts/run-benchmarks.mjs
 ```
 
