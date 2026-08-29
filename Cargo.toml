@@ -14,8 +14,8 @@ categories = ["graphics", "rendering", "game-development", "visualization", "ima
 nalgebra = "0.34"
 env_logger = "0.11"
 log = "0.4"
-image = "0.25"
-gltf = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+gltf = { version = "1", default-features = false, features = ["import", "names", "utils"] }
 rayon = "1.11"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.9"

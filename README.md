@@ -103,6 +103,8 @@ node scripts/run-benchmarks.mjs
 
 Color triplets in TOML configuration, including backgrounds, ambient light, ground albedo, and light colors, are linear RGB values. Color images used for base color, emissive, and image backgrounds are decoded from sRGB before filtering and shading. Mip generation averages color in linear space, preserves metallic-roughness and occlusion values as raw data, and renormalizes normal maps.
 
+Image decoding is limited to PNG and JPEG, matching the core glTF 2.0 image formats; rendered frames are written as PNG.
+
 Directional shadows fit orthographic bounds to the camera frustum and scene geometry; `shadow_ortho_size` caps how far the camera frustum contributes to that fit. `shadow_constant_bias` supplies a base depth offset and `shadow_slope_bias` adds an angle-dependent offset. PCF samples outside the shadow map use a lit border.
 
 The renderer implements direct-light metallic-roughness PBR with a configurable ambient-light approximation. Image-based lighting, including irradiance maps, prefiltered environment reflections, and BRDF lookup tables, is intentionally outside the supported scope.

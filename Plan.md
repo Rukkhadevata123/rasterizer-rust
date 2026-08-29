@@ -492,9 +492,13 @@ Status: planned
 
 ### 10A: Dependency Reduction
 
-- Disable unused `image` default formats after supported texture formats are finalized.
-- Re-run `cargo tree --duplicates`.
-- Remove the dependency path that currently includes the yanked `core2 0.4.0` if dependency updates or feature reduction permit it.
+Status: completed
+
+- [x] Limit `image` decoding to PNG and JPEG and make the required glTF features explicit.
+- [x] Re-run `cargo tree --duplicates`.
+- [x] Remove the dependency path that included the yanked `core2 0.4.0`.
+
+Disabling the unused `image` default formats removes 576 lines from `Cargo.lock`, including AVIF, EXR, GIF, HDR, ICO, PNM, QOI, TIFF, WebP, and their encoder/decoder support chains. The AVIF chain through `ravif`, `rav1e`, and `bitstream-io` no longer pulls in `core2 0.4.0`; the TIFF-side older `zune-jpeg` is also gone, and `cargo tree --duplicates` reports no duplicate packages. Release formatting, Clippy with warnings denied, all 129 tests, release checking, and the default-scene smoke render pass. The smoke render retains the Phase 9 SHA-256 `3208a3b9e57553d04a01e82de7fe1378f23287e4f96009bef3abefc8ce86bad3`.
 
 ### 10B: Repository and Package Size
 
@@ -532,7 +536,7 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 9:
+Repository state after Phase 10A:
 
 - branch: `main`;
 - completed commits through Phase 8A cover the benchmark infrastructure and baseline;
@@ -543,9 +547,10 @@ Repository state after Phase 9:
 - Phase 8D retains 8-row horizontal bands after benchmarking three band heights and two safe 2D tile sizes across the full matrix;
 - Phase 8E uses incremental oriented edge equations with periodic rebasing, reuses edge values for barycentrics, and retains Rayon's default task splitting after a fixed-granularity sweep;
 - Phase 9 removes stale commentary and dead APIs, splits rendering integration tests by subsystem, and synchronizes repository documentation with current behavior;
+- Phase 10A limits image support to PNG/JPEG, removes the AVIF/core2 and unused format dependency chains, and leaves no duplicate packages in the active dependency graph;
 - all Phase 8A matrix hashes remain unchanged between the baseline and Phase 8B and across one versus 12 workers;
 - all Phase 8A matrix hashes remain unchanged through Phase 8D; Phase 8E preserves deterministic output across workers while its floating-point reordering changes textured-scene hashes by visually negligible amounts;
 - 129 tests are present after Phase 9; the two removed tests covered the deleted, superseded barycentric API;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 10A dependency reduction.
+Immediate target: Phase 10B repository and package size.
