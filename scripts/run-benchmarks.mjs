@@ -3,6 +3,11 @@ import { availableParallelism, cpus } from "node:os";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  BENCHMARK_V1_COLUMNS,
+  formatCsvRow,
+  parseBenchmarkCsv,
+} from "./benchmark-csv.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outputRoot = join(repository, "outputs", "benchmarks");
@@ -110,8 +115,10 @@ for (const benchmarkCase of cases) {
       { RAYON_NUM_THREADS: String(threads) },
     );
     process.stdout.write(result.stdout);
-    const [, ...rows] = readFileSync(csvPath, "utf8").trimEnd().split(/\r?\n/);
-    const hash = rows[0].split(",").at(-1);
+    const { rows } = parseBenchmarkCsv(readFileSync(csvPath, "utf8"), {
+      sourceLabel: csvPath,
+    });
+    const hash = rows[0].values.output_hash;
     const expectedHash = hashes.get(benchmarkCase.name);
     if (expectedHash !== undefined && hash !== expectedHash) {
       throw new Error(
@@ -123,9 +130,12 @@ for (const benchmarkCase of cases) {
   }
 }
 
-const header = "scenario,frame,width,height,supersample_scale,shadows,rayon_threads,warmup_frames,scene_loading_ms,shadow_preparation_ms,shadow_rasterization_ms,main_preparation_ms,opaque_masked_rasterization_ms,transparent_rasterization_ms,post_processing_ms,complete_frame_ms,output_hash";
+const header = formatCsvRow(BENCHMARK_V1_COLUMNS);
+const mergedCsvRows = mergedRows.map((row) =>
+  formatCsvRow(BENCHMARK_V1_COLUMNS.map((column) => row.values[column])),
+);
 const mergedPath = join(outputRoot, "baseline.csv");
-writeFileSync(mergedPath, `${header}\n${mergedRows.join("\n")}\n`, "utf8");
+writeFileSync(mergedPath, `${header}\n${mergedCsvRows.join("\n")}\n`, "utf8");
 process.stdout.write(`merged benchmark CSV: ${mergedPath}\n`);
 
 const metadata = {
@@ -249,10 +259,9 @@ function nonNegativeInteger(name, fallback) {
 function markdownSummary(metadata, rows) {
   const groups = new Map();
   for (const row of rows) {
-    const columns = row.split(",");
-    const scenario = columns[0];
+    const scenario = row.values.scenario;
     const samples = groups.get(scenario) ?? [];
-    samples.push(columns);
+    samples.push(row.values);
     groups.set(scenario, samples);
   }
   const lines = [
@@ -270,10 +279,10 @@ function markdownSummary(metadata, rows) {
     "|:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|",
   ];
   for (const [scenario, samples] of groups) {
-    const average = (index) => mean(samples.map((sample) => Number(sample[index])));
-    const complete = samples.map((sample) => Number(sample[15]));
+    const average = (column) => mean(samples.map((sample) => Number(sample[column])));
+    const complete = samples.map((sample) => Number(sample.complete_frame_ms));
     lines.push(
-      `| ${scenario} | ${average(8).toFixed(3)} | ${average(9).toFixed(3)} | ${average(10).toFixed(3)} | ${average(11).toFixed(3)} | ${average(12).toFixed(3)} | ${average(13).toFixed(3)} | ${average(14).toFixed(3)} | ${mean(complete).toFixed(3)} | ${percentile(complete, 0.95).toFixed(3)} | \`${samples[0][16]}\` |`,
+      `| ${scenario} | ${average("scene_loading_ms").toFixed(3)} | ${average("shadow_preparation_ms").toFixed(3)} | ${average("shadow_rasterization_ms").toFixed(3)} | ${average("main_preparation_ms").toFixed(3)} | ${average("opaque_masked_rasterization_ms").toFixed(3)} | ${average("transparent_rasterization_ms").toFixed(3)} | ${average("post_processing_ms").toFixed(3)} | ${mean(complete).toFixed(3)} | ${percentile(complete, 0.95).toFixed(3)} | \`${samples[0].output_hash}\` |`,
     );
   }
   lines.push("", "Raw per-frame samples are in `baseline.csv`.", "");
