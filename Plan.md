@@ -440,14 +440,19 @@ The city scene validates the implementation rather than an audit-only close. In 
 
 ### 8D: Horizontal Bands versus 2D Tiles
 
-Benchmark:
+Status: completed
 
-- 8-, 16-, and 32-row bands;
-- 16×16 and 32×16 tiles.
+- [x] Benchmark 8-, 16-, and 32-row bands.
+- [x] Implement and benchmark safe 16×16 and 32×16 tiles without locks, atomics, or `unsafe`.
+- [x] Compare one versus 12 workers across all six benchmark scenes with 5 warmup and 30 measured frames.
+- [x] Verify identical output hashes across every candidate, scene, and worker count.
+- [x] Remove the experimental selector and losing backends, retaining only the winning 8-row band renderer.
 
-Compare load balance, cache locality, binning cost, large-triangle duplication, transparent scenes, and CPU core counts. Replace the band renderer only if a tile renderer wins consistently. Keep only the winning backend; do not retain parallel compatibility implementations.
+The 8-row band won every 12-worker comparison against the original 16-row band, reducing measured rasterization by 10.9% to 26.9% in the shadowed car cases and by 13.1% to 23.1% in the remaining 1× scenarios. Single-worker differences were mostly within 3.2%. The tile candidates improved the two shadow-heavy car cases further, but regressed large-triangle, many-small-triangle, and city complete-frame results relative to 8-row bands, so they did not meet the consistent-win requirement. See `benchmarks/results/2026-08-29-phase-8d-i5-13500h.md`.
 
 ### 8E: Further Experiments
+
+Status: planned
 
 Only after measurement:
 
@@ -526,7 +531,7 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 8C:
+Repository state after Phase 8D:
 
 - branch: `main`;
 - completed commits through Phase 8A cover the benchmark infrastructure and baseline;
@@ -534,9 +539,10 @@ Repository state after Phase 8C:
 - Phase 7E records direct-light PBR plus an ambient approximation as the intended scope, without image-based lighting;
 - Phase 8B caches stable resources and transforms, shares pass data, deduplicates indexed vertex work, removes clipping heap allocations, and reuses band/depth storage;
 - Phase 8C prepares all mesh triangles in a queue group through one ordered parallel domain and removes per-mesh prepared-triangle collections;
+- Phase 8D retains 8-row horizontal bands after benchmarking three band heights and two safe 2D tile sizes across the full matrix;
 - all Phase 8A matrix hashes remain unchanged between the baseline and Phase 8B and across one versus 12 workers;
-- all Phase 8A matrix hashes also remain unchanged after Phase 8C;
-- 131 tests are present after Phase 8C;
+- all Phase 8A matrix hashes also remain unchanged after Phases 8C and 8D;
+- 131 tests are present after Phase 8D;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 8D benchmark of horizontal-band heights against 2D tiles. Replace the band renderer only if a tile design wins consistently across the committed matrix; keep one backend rather than permanent parallel implementations.
+Immediate target: Phase 8E measurement of further rasterization experiments. Retain only changes that improve the representative benchmark matrix without changing deterministic output.

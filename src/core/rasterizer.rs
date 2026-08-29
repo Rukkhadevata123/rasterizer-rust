@@ -7,7 +7,7 @@ use nalgebra::{Point2, Vector4};
 use rayon::prelude::*;
 use std::ops::RangeInclusive;
 
-const RASTER_BAND_HEIGHT: usize = 16;
+const RASTER_BAND_HEIGHT: usize = 8;
 const WIREFRAME_HALF_WIDTH: f32 = 1.0;
 const MAX_CLIPPED_VERTICES: usize = 9;
 pub(crate) const MAX_PREPARED_TRIANGLES: usize = MAX_CLIPPED_VERTICES - 2;
