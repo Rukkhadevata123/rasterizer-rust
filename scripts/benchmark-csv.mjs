@@ -18,9 +18,44 @@ export const BENCHMARK_V1_COLUMNS = Object.freeze([
   "output_hash",
 ]);
 
+export const BENCHMARK_V2_COLUMNS = Object.freeze([
+  "schema_version",
+  "scenario",
+  "frame",
+  "width",
+  "height",
+  "supersample_scale",
+  "shadows",
+  "rayon_threads",
+  "warmup_frames",
+  "scene_loading_ms",
+  "shadow_pass_setup_ms",
+  "shadow_recording_ms",
+  "shadow_attachment_processing_ms",
+  "shadow_backend_preparation_ms",
+  "shadow_rasterization_ms",
+  "shadow_submission_total_ms",
+  "main_pass_setup_ms",
+  "main_recording_ms",
+  "main_attachment_processing_ms",
+  "main_backend_preparation_ms",
+  "main_rasterization_ms",
+  "main_opaque_masked_rasterization_ms",
+  "main_transparent_rasterization_ms",
+  "main_submission_total_ms",
+  "post_processing_ms",
+  "complete_frame_ms",
+  "output_hash",
+]);
+
+const BENCHMARK_COLUMNS_BY_VERSION = new Map([
+  ["1", BENCHMARK_V1_COLUMNS],
+  ["2", BENCHMARK_V2_COLUMNS],
+]);
+
 export function parseBenchmarkCsv(
   source,
-  { sourceLabel = "benchmark CSV", supportedVersions = ["1"] } = {},
+  { sourceLabel = "benchmark CSV", supportedVersions = ["1", "2"] } = {},
 ) {
   const content = source.trimEnd();
   if (content.length === 0) {
@@ -38,12 +73,6 @@ export function parseBenchmarkCsv(
       throw new Error(`${sourceLabel} contains duplicate column '${column}'`);
     }
     columnIndexes.set(column, index);
-  }
-
-  for (const column of BENCHMARK_V1_COLUMNS) {
-    if (!columnIndexes.has(column)) {
-      throw new Error(`${sourceLabel} is missing required column '${column}'`);
-    }
   }
 
   if (lines.length === 1) {
@@ -74,6 +103,18 @@ export function parseBenchmarkCsv(
 
   if (!supportedVersions.includes(schemaVersion)) {
     throw new Error(`${sourceLabel} uses unsupported schema version '${schemaVersion}'`);
+  }
+
+  const requiredColumns = BENCHMARK_COLUMNS_BY_VERSION.get(schemaVersion);
+  if (requiredColumns === undefined) {
+    throw new Error(`${sourceLabel} has no column contract for schema version '${schemaVersion}'`);
+  }
+  for (const column of requiredColumns) {
+    if (!columnIndexes.has(column)) {
+      throw new Error(
+        `${sourceLabel} schema version '${schemaVersion}' is missing required column '${column}'`,
+      );
+    }
   }
 
   return { schemaVersion, columns, columnIndexes, rows };

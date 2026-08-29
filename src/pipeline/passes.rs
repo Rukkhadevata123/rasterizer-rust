@@ -23,15 +23,23 @@ pub struct ShadowPassOutput {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ShadowPassTimings {
-    pub preparation: Duration,
+    pub pass_setup: Duration,
+    pub recording: Duration,
+    pub attachment_processing: Duration,
+    pub backend_preparation: Duration,
     pub rasterization: Duration,
+    pub submission_total: Duration,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct MainPassTimings {
-    pub preparation: Duration,
+    pub pass_setup: Duration,
+    pub recording: Duration,
+    pub attachment_processing: Duration,
+    pub backend_preparation: Duration,
     pub opaque_masked_rasterization: Duration,
     pub transparent_rasterization: Duration,
+    pub submission_total: Duration,
 }
 
 struct ShadowCamera {
@@ -169,7 +177,7 @@ pub fn render_shadow_pass_profiled(
         return (
             ShadowPassOutput::disabled(),
             ShadowPassTimings {
-                preparation: pass_started.elapsed(),
+                pass_setup: pass_started.elapsed(),
                 ..Default::default()
             },
         );
@@ -179,7 +187,7 @@ pub fn render_shadow_pass_profiled(
         return (
             ShadowPassOutput::disabled(),
             ShadowPassTimings {
-                preparation: pass_started.elapsed(),
+                pass_setup: pass_started.elapsed(),
                 ..Default::default()
             },
         );
@@ -199,16 +207,24 @@ pub fn render_shadow_pass_profiled(
     } = shadow_camera(config, context, light_direction);
     let light_space_matrix = light_projection * light_view;
 
+    let initial_setup = pass_started.elapsed();
+    let attachment_started = Instant::now();
     shadow_renderer.clear_with_options(ClearOptions {
         depth: f32::INFINITY,
         ..Default::default()
     });
+    let attachment_processing = attachment_started.elapsed();
+
+    let setup_started = Instant::now();
     let shadow_state = RenderState::default();
     let shaders: Vec<ShadowShader> = context
         .scene_objects
         .iter()
         .map(|object| ShadowShader::new(object.transform(), light_view, light_projection))
         .collect();
+    let pass_setup = initial_setup + setup_started.elapsed();
+
+    let recording_started = Instant::now();
     let mut shadow_queue = RenderQueue::with_capacity(
         context
             .scene_objects
@@ -244,6 +260,7 @@ pub fn render_shadow_pass_profiled(
             );
         }
     }
+    let recording = recording_started.elapsed();
     let draw_timings = shadow_renderer.draw_queue_profiled(&shadow_queue, &shaders);
 
     let output = ShadowPassOutput {
@@ -252,12 +269,15 @@ pub fn render_shadow_pass_profiled(
         light_space_matrix,
         light_index: Some(shadow_light.light_index),
     };
-    let total = pass_started.elapsed();
     (
         output,
         ShadowPassTimings {
-            preparation: total.saturating_sub(draw_timings.rasterization),
+            pass_setup,
+            recording,
+            attachment_processing,
+            backend_preparation: draw_timings.backend_preparation,
             rasterization: draw_timings.rasterization,
+            submission_total: draw_timings.submission_total,
         },
     )
 }
@@ -308,13 +328,17 @@ pub fn render_main_pass_profiled(
         (None, Vector3::zeros())
     };
 
+    let initial_setup = pass_started.elapsed();
+    let attachment_started = Instant::now();
     renderer.clear_with_options(ClearOptions {
         color,
         gradient,
         texture: bg_texture.as_deref(),
         depth: f32::INFINITY,
     });
+    let attachment_processing = attachment_started.elapsed();
 
+    let setup_started = Instant::now();
     let opaque_state = RenderState {
         blend_mode: BlendMode::Opaque,
         depth_write: true,
@@ -368,6 +392,9 @@ pub fn render_main_pass_profiled(
             }
             counts
         });
+    let pass_setup = initial_setup + setup_started.elapsed();
+
+    let recording_started = Instant::now();
     let mut opaque_queue = RenderQueue::with_capacity(queue_counts[0]);
     let mut masked_queue = RenderQueue::with_capacity(queue_counts[1]);
     let mut transparent_queue = RenderQueue::with_capacity(queue_counts[2]);
@@ -451,16 +478,22 @@ pub fn render_main_pass_profiled(
             }
         }
     }
+    let mut recording = recording_started.elapsed();
 
     let opaque_masked = renderer.draw_queues_profiled(&[&opaque_queue, &masked_queue], &shaders);
+    let sorting_started = Instant::now();
     transparent_queue.sort_transparent();
+    recording += sorting_started.elapsed();
     let transparent = renderer.draw_queue_profiled(&transparent_queue, &shaders);
 
-    let rasterization = opaque_masked.rasterization + transparent.rasterization;
     Ok(MainPassTimings {
-        preparation: pass_started.elapsed().saturating_sub(rasterization),
+        pass_setup,
+        recording,
+        attachment_processing,
+        backend_preparation: opaque_masked.backend_preparation + transparent.backend_preparation,
         opaque_masked_rasterization: opaque_masked.rasterization,
         transparent_rasterization: transparent.rasterization,
+        submission_total: opaque_masked.submission_total + transparent.submission_total,
     })
 }
 

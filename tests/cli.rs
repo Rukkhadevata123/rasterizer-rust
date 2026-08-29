@@ -168,8 +168,9 @@ fn benchmark_mode_writes_structured_csv_without_saving_a_png() {
     );
     let csv = std::fs::read_to_string(&csv_path).expect("benchmark CSV should be written");
     assert_eq!(csv.lines().count(), 3);
-    assert!(csv.contains("cli-fixture,0,2,1"));
-    assert!(csv.contains("cli-fixture,1,2,1"));
+    assert!(csv.starts_with("schema_version,scenario,frame,width"));
+    assert!(csv.contains("2,cli-fixture,0,2,1"));
+    assert!(csv.contains("2,cli-fixture,1,2,1"));
     assert!(!png_path.exists());
 }
 

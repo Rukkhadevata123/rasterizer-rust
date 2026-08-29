@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   BENCHMARK_V1_COLUMNS,
+  BENCHMARK_V2_COLUMNS,
   formatCsvRow,
   parseBenchmarkCsv,
 } from "./benchmark-csv.mjs";
@@ -46,10 +47,40 @@ test("benchmark rows must match the declared width", () => {
   assert.throws(() => parseBenchmarkCsv(csv), /has 16 fields; expected 17/);
 });
 
+test("schema v2 columns are validated and read by name", () => {
+  const values = Object.fromEntries(
+    BENCHMARK_V2_COLUMNS.map((column, index) => [column, String(index)]),
+  );
+  values.schema_version = "2";
+  values.scenario = "v2-fixture";
+  const columns = [...BENCHMARK_V2_COLUMNS].reverse();
+  const csv = `${formatCsvRow(columns)}\n${formatCsvRow(
+    columns.map((column) => values[column]),
+  )}\n`;
+
+  const parsed = parseBenchmarkCsv(csv);
+
+  assert.equal(parsed.schemaVersion, "2");
+  assert.equal(parsed.rows[0].values.main_submission_total_ms, values.main_submission_total_ms);
+
+  const missing = BENCHMARK_V2_COLUMNS.filter(
+    (column) => column !== "main_backend_preparation_ms",
+  );
+  assert.throws(
+    () =>
+      parseBenchmarkCsv(
+        `${formatCsvRow(missing)}\n${formatCsvRow(
+          missing.map((column) => values[column]),
+        )}\n`,
+      ),
+    /schema version '2' is missing required column 'main_backend_preparation_ms'/,
+  );
+});
+
 test("unsupported explicit benchmark schema versions are rejected", () => {
   const columns = ["schema_version", ...BENCHMARK_V1_COLUMNS];
-  const fields = ["2", ...BENCHMARK_V1_COLUMNS.map((column) => sampleValues[column])];
+  const fields = ["3", ...BENCHMARK_V1_COLUMNS.map((column) => sampleValues[column])];
   const csv = `${formatCsvRow(columns)}\n${formatCsvRow(fields)}\n`;
 
-  assert.throws(() => parseBenchmarkCsv(csv), /unsupported schema version '2'/);
+  assert.throws(() => parseBenchmarkCsv(csv), /unsupported schema version '3'/);
 });

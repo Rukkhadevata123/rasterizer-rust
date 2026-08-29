@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  BENCHMARK_V1_COLUMNS,
+  BENCHMARK_V2_COLUMNS,
   formatCsvRow,
   parseBenchmarkCsv,
 } from "./benchmark-csv.mjs";
@@ -117,6 +117,7 @@ for (const benchmarkCase of cases) {
     process.stdout.write(result.stdout);
     const { rows } = parseBenchmarkCsv(readFileSync(csvPath, "utf8"), {
       sourceLabel: csvPath,
+      supportedVersions: ["2"],
     });
     const hash = rows[0].values.output_hash;
     const expectedHash = hashes.get(benchmarkCase.name);
@@ -130,15 +131,16 @@ for (const benchmarkCase of cases) {
   }
 }
 
-const header = formatCsvRow(BENCHMARK_V1_COLUMNS);
+const header = formatCsvRow(BENCHMARK_V2_COLUMNS);
 const mergedCsvRows = mergedRows.map((row) =>
-  formatCsvRow(BENCHMARK_V1_COLUMNS.map((column) => row.values[column])),
+  formatCsvRow(BENCHMARK_V2_COLUMNS.map((column) => row.values[column])),
 );
 const mergedPath = join(outputRoot, "baseline.csv");
 writeFileSync(mergedPath, `${header}\n${mergedCsvRows.join("\n")}\n`, "utf8");
 process.stdout.write(`merged benchmark CSV: ${mergedPath}\n`);
 
 const metadata = {
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(),
   platform: process.platform,
   architecture: process.arch,
@@ -265,7 +267,7 @@ function markdownSummary(metadata, rows) {
     groups.set(scenario, samples);
   }
   const lines = [
-    "# Phase 8A Benchmark Baseline",
+    "# Renderer Benchmark Baseline",
     "",
     `Generated: ${metadata.generatedAt}`,
     "",
@@ -275,14 +277,18 @@ function markdownSummary(metadata, rows) {
     "",
     `Sampling: ${metadata.warmupFrames} warmup frames, ${metadata.measuredFrames} measured frames`,
     "",
-    "| Scenario | Load ms | Shadow prep ms | Shadow raster ms | Main prep ms | Opaque/masked ms | Transparent ms | Post ms | Frame mean ms | Frame p95 ms | Hash |",
-    "|:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|",
+    `CSV schema: v${metadata.schemaVersion}`,
+    "",
+    "All durations are milliseconds. Submission columns include their backend and rasterization columns.",
+    "",
+    "| Scenario | Load | Shadow setup | Shadow record | Shadow attach | Shadow backend | Shadow raster | Shadow submit | Main setup | Main record | Main attach/bg | Main backend | Main raster | Main submit | Post | Frame mean | Frame p95 | Hash |",
+    "|:--|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|:--|",
   ];
   for (const [scenario, samples] of groups) {
     const average = (column) => mean(samples.map((sample) => Number(sample[column])));
     const complete = samples.map((sample) => Number(sample.complete_frame_ms));
     lines.push(
-      `| ${scenario} | ${average("scene_loading_ms").toFixed(3)} | ${average("shadow_preparation_ms").toFixed(3)} | ${average("shadow_rasterization_ms").toFixed(3)} | ${average("main_preparation_ms").toFixed(3)} | ${average("opaque_masked_rasterization_ms").toFixed(3)} | ${average("transparent_rasterization_ms").toFixed(3)} | ${average("post_processing_ms").toFixed(3)} | ${mean(complete).toFixed(3)} | ${percentile(complete, 0.95).toFixed(3)} | \`${samples[0].output_hash}\` |`,
+      `| ${scenario} | ${average("scene_loading_ms").toFixed(3)} | ${average("shadow_pass_setup_ms").toFixed(3)} | ${average("shadow_recording_ms").toFixed(3)} | ${average("shadow_attachment_processing_ms").toFixed(3)} | ${average("shadow_backend_preparation_ms").toFixed(3)} | ${average("shadow_rasterization_ms").toFixed(3)} | ${average("shadow_submission_total_ms").toFixed(3)} | ${average("main_pass_setup_ms").toFixed(3)} | ${average("main_recording_ms").toFixed(3)} | ${average("main_attachment_processing_ms").toFixed(3)} | ${average("main_backend_preparation_ms").toFixed(3)} | ${average("main_rasterization_ms").toFixed(3)} | ${average("main_submission_total_ms").toFixed(3)} | ${average("post_processing_ms").toFixed(3)} | ${mean(complete).toFixed(3)} | ${percentile(complete, 0.95).toFixed(3)} | \`${samples[0].output_hash}\` |`,
     );
   }
   lines.push("", "Raw per-frame samples are in `baseline.csv`.", "");

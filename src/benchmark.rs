@@ -36,11 +36,19 @@ impl BenchmarkOptions {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct FrameTimings {
-    pub shadow_preparation: Duration,
+    pub shadow_pass_setup: Duration,
+    pub shadow_recording: Duration,
+    pub shadow_attachment_processing: Duration,
+    pub shadow_backend_preparation: Duration,
     pub shadow_rasterization: Duration,
-    pub main_preparation: Duration,
+    pub shadow_submission_total: Duration,
+    pub main_pass_setup: Duration,
+    pub main_recording: Duration,
+    pub main_attachment_processing: Duration,
+    pub main_backend_preparation: Duration,
     pub opaque_masked_rasterization: Duration,
     pub transparent_rasterization: Duration,
+    pub main_submission_total: Duration,
     pub post_processing: Duration,
     pub complete_frame: Duration,
 }
@@ -62,30 +70,42 @@ pub struct BenchmarkReport {
 impl BenchmarkReport {
     pub fn csv(&self) -> String {
         let mut csv = String::from(
-            "scenario,frame,width,height,supersample_scale,shadows,rayon_threads,warmup_frames,scene_loading_ms,shadow_preparation_ms,shadow_rasterization_ms,main_preparation_ms,opaque_masked_rasterization_ms,transparent_rasterization_ms,post_processing_ms,complete_frame_ms,output_hash\n",
+            "schema_version,scenario,frame,width,height,supersample_scale,shadows,rayon_threads,warmup_frames,scene_loading_ms,shadow_pass_setup_ms,shadow_recording_ms,shadow_attachment_processing_ms,shadow_backend_preparation_ms,shadow_rasterization_ms,shadow_submission_total_ms,main_pass_setup_ms,main_recording_ms,main_attachment_processing_ms,main_backend_preparation_ms,main_rasterization_ms,main_opaque_masked_rasterization_ms,main_transparent_rasterization_ms,main_submission_total_ms,post_processing_ms,complete_frame_ms,output_hash\n",
         );
         let scenario = csv_field(&self.scenario);
         for (frame_index, frame) in self.frames.iter().enumerate() {
-            writeln!(
-                csv,
-                "{scenario},{frame_index},{},{},{},{},{},{},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{:016x}",
-                self.width,
-                self.height,
-                self.supersample_scale,
-                self.shadows,
-                self.rayon_threads,
-                self.warmup_frames,
-                milliseconds(self.scene_loading),
-                milliseconds(frame.shadow_preparation),
-                milliseconds(frame.shadow_rasterization),
-                milliseconds(frame.main_preparation),
-                milliseconds(frame.opaque_masked_rasterization),
-                milliseconds(frame.transparent_rasterization),
-                milliseconds(frame.post_processing),
-                milliseconds(frame.complete_frame),
-                self.output_hash,
-            )
-            .expect("writing to a String cannot fail");
+            let main_rasterization =
+                frame.opaque_masked_rasterization + frame.transparent_rasterization;
+            let fields = [
+                "2".to_string(),
+                scenario.clone(),
+                frame_index.to_string(),
+                self.width.to_string(),
+                self.height.to_string(),
+                self.supersample_scale.to_string(),
+                self.shadows.to_string(),
+                self.rayon_threads.to_string(),
+                self.warmup_frames.to_string(),
+                format!("{:.6}", milliseconds(self.scene_loading)),
+                format!("{:.6}", milliseconds(frame.shadow_pass_setup)),
+                format!("{:.6}", milliseconds(frame.shadow_recording)),
+                format!("{:.6}", milliseconds(frame.shadow_attachment_processing)),
+                format!("{:.6}", milliseconds(frame.shadow_backend_preparation)),
+                format!("{:.6}", milliseconds(frame.shadow_rasterization)),
+                format!("{:.6}", milliseconds(frame.shadow_submission_total)),
+                format!("{:.6}", milliseconds(frame.main_pass_setup)),
+                format!("{:.6}", milliseconds(frame.main_recording)),
+                format!("{:.6}", milliseconds(frame.main_attachment_processing)),
+                format!("{:.6}", milliseconds(frame.main_backend_preparation)),
+                format!("{:.6}", milliseconds(main_rasterization)),
+                format!("{:.6}", milliseconds(frame.opaque_masked_rasterization)),
+                format!("{:.6}", milliseconds(frame.transparent_rasterization)),
+                format!("{:.6}", milliseconds(frame.main_submission_total)),
+                format!("{:.6}", milliseconds(frame.post_processing)),
+                format!("{:.6}", milliseconds(frame.complete_frame)),
+                format!("{:016x}", self.output_hash),
+            ];
+            writeln!(csv, "{}", fields.join(",")).expect("writing to a String cannot fail");
         }
         csv
     }
@@ -98,8 +118,22 @@ impl BenchmarkReport {
             .collect();
         let mean = mean_duration(&complete_frames);
         let p95 = percentile_duration(&complete_frames, 0.95);
+        let shadow_submission = mean_duration(
+            &self
+                .frames
+                .iter()
+                .map(|frame| frame.shadow_submission_total)
+                .collect::<Vec<_>>(),
+        );
+        let main_submission = mean_duration(
+            &self
+                .frames
+                .iter()
+                .map(|frame| frame.main_submission_total)
+                .collect::<Vec<_>>(),
+        );
         format!(
-            "benchmark '{}' | {}x{} | {}x SSAA | shadows={} | Rayon threads={} | scene load={:.3} ms | frame mean={:.3} ms | frame p95={:.3} ms | hash={:016x}",
+            "benchmark '{}' | schema v2 | {}x{} | {}x SSAA | shadows={} | Rayon threads={} | scene load={:.3} ms | shadow submit mean={:.3} ms | main submit mean={:.3} ms | frame mean={:.3} ms | frame p95={:.3} ms | hash={:016x}",
             self.scenario,
             self.width,
             self.height,
@@ -107,6 +141,8 @@ impl BenchmarkReport {
             self.shadows,
             self.rayon_threads,
             milliseconds(self.scene_loading),
+            milliseconds(shadow_submission),
+            milliseconds(main_submission),
             milliseconds(mean),
             milliseconds(p95),
             self.output_hash,
@@ -237,11 +273,19 @@ fn render_profiled_frame(
     let post_processing = post_started.elapsed();
 
     Ok(FrameTimings {
-        shadow_preparation: shadow_timings.preparation,
+        shadow_pass_setup: shadow_timings.pass_setup,
+        shadow_recording: shadow_timings.recording,
+        shadow_attachment_processing: shadow_timings.attachment_processing,
+        shadow_backend_preparation: shadow_timings.backend_preparation,
         shadow_rasterization: shadow_timings.rasterization,
-        main_preparation: main_timings.preparation,
+        shadow_submission_total: shadow_timings.submission_total,
+        main_pass_setup: main_timings.pass_setup,
+        main_recording: main_timings.recording,
+        main_attachment_processing: main_timings.attachment_processing,
+        main_backend_preparation: main_timings.backend_preparation,
         opaque_masked_rasterization: main_timings.opaque_masked_rasterization,
         transparent_rasterization: main_timings.transparent_rasterization,
+        main_submission_total: main_timings.submission_total,
         post_processing,
         complete_frame: frame_started.elapsed(),
     })
@@ -339,9 +383,42 @@ mod tests {
         };
 
         let csv = report.csv();
-        assert!(csv.starts_with("scenario,frame,width"));
-        assert!(csv.contains("\"small,fixture\",0,64,32,2,false,1,3"));
+        assert!(csv.starts_with("schema_version,scenario,frame,width"));
+        assert!(csv.contains("2,\"small,fixture\",0,64,32,2,false,1,3"));
         assert!(csv.contains("0000000000001234"));
+    }
+
+    #[test]
+    fn benchmark_csv_v2_reports_inclusive_and_nested_main_timings() {
+        let report = BenchmarkReport {
+            scenario: "timing-fixture".to_string(),
+            width: 1,
+            height: 1,
+            supersample_scale: 1,
+            shadows: false,
+            rayon_threads: 1,
+            warmup_frames: 0,
+            scene_loading: Duration::ZERO,
+            output_hash: 0,
+            frames: vec![FrameTimings {
+                main_backend_preparation: Duration::from_millis(3),
+                opaque_masked_rasterization: Duration::from_millis(5),
+                transparent_rasterization: Duration::from_millis(7),
+                main_submission_total: Duration::from_millis(20),
+                ..Default::default()
+            }],
+        };
+
+        let csv = report.csv();
+        let mut lines = csv.lines();
+        let columns = lines.next().unwrap().split(',');
+        let values = lines.next().unwrap().split(',');
+        let row: std::collections::HashMap<_, _> = columns.zip(values).collect();
+
+        assert_eq!(row["schema_version"], "2");
+        assert_eq!(row["main_backend_preparation_ms"], "3.000000");
+        assert_eq!(row["main_rasterization_ms"], "12.000000");
+        assert_eq!(row["main_submission_total_ms"], "20.000000");
     }
 
     #[test]

@@ -41,8 +41,11 @@ type PreparedBatch<'a, V, S> =
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DrawTimings {
-    pub preparation: Duration,
+    pub backend_preparation: Duration,
     pub rasterization: Duration,
+    /// Inclusive synchronous draw duration. Backend preparation and rasterization are nested
+    /// within this value and must not be added to it when computing a total.
+    pub submission_total: Duration,
 }
 
 pub struct RenderCommand<'a> {
@@ -231,6 +234,7 @@ impl Renderer {
     where
         S: Shader<Option<&'a Material>>,
     {
+        let submission_started = Instant::now();
         let preparation_started = Instant::now();
         let width = self.framebuffer.buffer_width;
         let height = self.framebuffer.buffer_height;
@@ -401,14 +405,16 @@ impl Renderer {
                 .flat_map(|command| prepare_command_triangle(command, 0).into_iter().flatten())
                 .collect()
         };
-        let preparation = preparation_started.elapsed();
+        let backend_preparation = preparation_started.elapsed();
 
         let rasterization_started = Instant::now();
         self.rasterizer
             .rasterize_prepared(&mut self.framebuffer, &prepared);
+        let rasterization = rasterization_started.elapsed();
         DrawTimings {
-            preparation,
-            rasterization: rasterization_started.elapsed(),
+            backend_preparation,
+            rasterization,
+            submission_total: submission_started.elapsed(),
         }
     }
 
