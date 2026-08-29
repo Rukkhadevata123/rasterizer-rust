@@ -242,6 +242,8 @@ impl Rasterizer {
             band.clear();
         }
 
+        // Append primitive indexes in submission order. Workers own disjoint pixel bands, but
+        // every band walks its bin sequentially so order-dependent blending remains global.
         for (triangle_index, triangle) in triangles.iter().enumerate() {
             let first_band = triangle.start_y / RASTER_BAND_HEIGHT;
             let last_band = triangle.end_y / RASTER_BAND_HEIGHT;

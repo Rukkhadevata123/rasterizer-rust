@@ -188,6 +188,21 @@ This is a public capability limitation, not a built-in-pipeline limitation:
 - a frame-wide heterogeneous stream is optional future work;
 - heterogeneous recording must not be achieved by exposing backend enums or forcing `dyn Shader` without a separate decision and measurements.
 
+## Transparent Ordering Contract
+
+Transparent alpha blending has one observable total-order contract across the public command model and private software backend:
+
+- the high-level pass builder computes a view-space depth key for each transparent primitive;
+- visible geometry uses negative view-space Z, so ascending Z is back-to-front;
+- equal depth keys retain submission order through a monotonically increasing insertion ID;
+- command expansion retains mesh triangle/index order;
+- clipping retains the generated triangle-fan order for each source primitive;
+- parallel preparation and collection retain the complete encoded primitive order;
+- each framebuffer band appends primitive indexes in that order and visits them sequentially;
+- Rayon workers partition disjoint pixel bands only and never define blend order.
+
+This order must remain identical across worker counts. Pipeline/material sorting is not permitted for transparent phases unless it provably preserves the same depth and insertion order. The contract applies to built-in and user-defined pipelines that use order-dependent blending.
+
 ## Compatibility and Migration
 
 - The change targets 5.0.0; it is not compatible with the 4.x module layout.

@@ -1,4 +1,5 @@
 use super::*;
+use rayon::ThreadPoolBuilder;
 
 #[test]
 fn alpha_mask_discards_fragments_below_cutoff() {
@@ -222,6 +223,72 @@ fn transparent_queue_uses_insertion_id_to_break_depth_ties() {
         .map(|command| (command.sort_depth, command.insertion_id))
         .collect();
     assert_eq!(ordering, vec![(-1.0, 1), (1.0, 0), (1.0, 2)]);
+}
+
+#[test]
+fn transparent_rendering_is_deterministic_across_worker_counts() {
+    let render = |thread_count| {
+        ThreadPoolBuilder::new()
+            .num_threads(thread_count)
+            .build()
+            .expect("test thread pool should build")
+            .install(|| {
+                let shader = ClipSpaceShader;
+                let material = Material::Pbr(PbrMaterial {
+                    alpha_mode: AlphaMode::Blend,
+                    ..Default::default()
+                });
+                let state = RenderState {
+                    blend_mode: BlendMode::Alpha,
+                    depth_write: false,
+                    ..test_render_state()
+                };
+                let mut layers = [
+                    (triangle(0.6, Vector4::new(1.0, 0.0, 0.0, 0.35)), -0.8),
+                    (triangle(0.2, Vector4::new(0.0, 1.0, 0.0, 0.45)), 0.0),
+                    (triangle(-0.2, Vector4::new(0.0, 0.0, 1.0, 0.55)), 0.0),
+                    (triangle(-0.6, Vector4::new(1.0, 1.0, 0.0, 0.25)), 0.6),
+                ];
+                for (mesh, _) in &mut layers {
+                    mesh.vertices[0].position.x = -1.4;
+                    mesh.vertices[1].position.x = 1.4;
+                    mesh.vertices[0].position.y = -0.95;
+                    mesh.vertices[1].position.y = -0.95;
+                    mesh.vertices[2].position.y = 0.95;
+                }
+
+                let mut queue = RenderQueue::with_capacity(layers.len());
+                for (mesh, sort_depth) in &layers {
+                    queue.push(
+                        0,
+                        RenderGeometry::Mesh(mesh),
+                        Some(&material),
+                        state,
+                        *sort_depth,
+                    );
+                }
+                queue.sort_transparent();
+
+                let (width, height) = (96, 80);
+                let mut renderer =
+                    Renderer::new(width, height, 1).expect("test dimensions should be valid");
+                renderer.draw_queue(&queue, std::slice::from_ref(&shader));
+
+                let mut config = rasterizer_rust::io::config::Config::default();
+                config.render.width = width;
+                config.render.height = height;
+                config.render.exposure = 1.0;
+                config.render.use_aces = false;
+                let mut output = vec![0; width * height];
+                post_process_to_buffer(&renderer.framebuffer, &mut output, &config);
+                (output, renderer.framebuffer.depth_values())
+            })
+    };
+
+    let single_worker = render(1);
+    let four_workers = render(4);
+    assert_eq!(single_worker.0, four_workers.0);
+    assert_eq!(single_worker.1, four_workers.1);
 }
 
 #[test]

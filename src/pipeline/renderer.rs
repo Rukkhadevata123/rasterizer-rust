@@ -88,6 +88,11 @@ impl<'a> RenderQueue<'a> {
         });
     }
 
+    /// Sorts transparent work back-to-front for the renderer's view-space convention.
+    ///
+    /// Visible view-space Z values are negative, so ascending Z visits farther draws first.
+    /// Insertion IDs make equal-depth draws deterministic. Later preparation, clipping, and
+    /// band binning must preserve this resulting order for alpha blending to remain correct.
     pub fn sort_transparent(&mut self) {
         self.commands.sort_by(|a, b| {
             a.sort_depth
@@ -372,6 +377,9 @@ impl Renderer {
                 };
                 triangle_ends.push(triangle_count);
             }
+            // This indexed parallel traversal and collection preserve source triangle order.
+            // Each clipped fan is emitted in order as well, so transparent blending observes
+            // the command order established before preparation regardless of worker count.
             (0..triangle_count)
                 .into_par_iter()
                 .flat_map_iter(|triangle_index| {
