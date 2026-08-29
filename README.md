@@ -93,6 +93,12 @@ Render a single high-quality frame to the path configured by `render.output` (`o
 cargo run --release -- --config scene.toml
 ```
 
+The published Cargo source package excludes the large demonstration models. Its self-contained smoke scene can be rendered with:
+
+```bash
+cargo run --release -- --config package-scene.toml
+```
+
 **3. Performance Benchmarking**
 Measure a configured scene without saving a PNG, or run the complete Phase 8A scenario matrix documented in `benchmarks/README.md`.
 
