@@ -502,12 +502,18 @@ Disabling the unused `image` default formats removes 576 lines from `Cargo.lock`
 
 ### 10B: Repository and Package Size
 
-- Exclude generated `outputs/` from Cargo packages.
-- Keep only required README images in a dedicated documentation directory.
-- Avoid storing packed and unpacked copies of the same model unless both are required fixtures.
-- Consider Git LFS or release downloads for large demonstration assets.
-- Add explicit Cargo package include/exclude rules.
-- Verify licenses for all distributed third-party models and textures.
+Status: completed
+
+- [x] Exclude generated `outputs/` from Cargo packages and Git tracking.
+- [x] Keep only required README images in `docs/images/`.
+- [x] Remove unpacked duplicates of the retained GLB models.
+- [x] Evaluate Git LFS or release downloads for the remaining demonstration assets.
+- [x] Add an explicit Cargo package include list.
+- [x] Verify and document licenses for all retained third-party models and textures.
+
+Repository assets shrink from 97 MiB to 25 MiB by retaining only the old-car default scene and city benchmark GLBs, removing three unreferenced GLBs, and removing all three unpacked duplicate model trees. Their sidecar licenses now live under `assets/licenses/`; README records the old car's CC-BY-NC-4.0 restriction and the city's CC-BY-4.0 attribution. The unused Blue Archive model is no longer distributed, but its attribution record remains. Historical rendered outputs are removed from tracking, while the two README screenshots move to `docs/images/`; ignored local benchmark data is untouched.
+
+The explicit package list excludes large models, generated outputs, benchmark results, and repository-only planning files. `cargo package --no-verify` produces 74 files totaling 1.7 MiB uncompressed and 1.2 MiB compressed. `package-scene.toml` plus the existing embedded-data triangle fixture provide a package-local smoke render, which succeeds from an unpacked crate. The two retained GLBs remain in ordinary Git for offline default-scene and benchmark reproducibility; moving them to LFS or release downloads would require distribution and workflow changes, while the existing 195 MiB Git object history would require a separate coordinated history rewrite to shrink.
 
 ### 10C: Release Verification
 
@@ -536,7 +542,7 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 10A:
+Repository state after Phase 10B:
 
 - branch: `main`;
 - completed commits through Phase 8A cover the benchmark infrastructure and baseline;
@@ -548,9 +554,10 @@ Repository state after Phase 10A:
 - Phase 8E uses incremental oriented edge equations with periodic rebasing, reuses edge values for barycentrics, and retains Rayon's default task splitting after a fixed-granularity sweep;
 - Phase 9 removes stale commentary and dead APIs, splits rendering integration tests by subsystem, and synchronizes repository documentation with current behavior;
 - Phase 10A limits image support to PNG/JPEG, removes the AVIF/core2 and unused format dependency chains, and leaves no duplicate packages in the active dependency graph;
+- Phase 10B reduces checked-out assets from 97 MiB to 25 MiB, moves documentation images and asset licenses into dedicated directories, removes tracked render outputs, and limits the Cargo package to a 1.2 MiB compressed archive with a self-contained smoke scene;
 - all Phase 8A matrix hashes remain unchanged between the baseline and Phase 8B and across one versus 12 workers;
 - all Phase 8A matrix hashes remain unchanged through Phase 8D; Phase 8E preserves deterministic output across workers while its floating-point reordering changes textured-scene hashes by visually negligible amounts;
 - 129 tests are present after Phase 9; the two removed tests covered the deleted, superseded barycentric API;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 10B repository and package size.
+Immediate target: Phase 10C release verification.

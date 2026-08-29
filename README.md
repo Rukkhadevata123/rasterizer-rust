@@ -6,10 +6,10 @@ A high-performance, multi-threaded software rasterizer built from scratch in Rus
 
 **Real-time Interactive Mode:**
 
-![Real-time PBR](outputs/minifb-2.png)
+![Real-time PBR](docs/images/minifb-2.png)
 *Physically Based Rendering with metallic properties, normal mapping, and contact shadows.*
 
-![Wireframe Mode](outputs/minifb-3.png)
+![Wireframe Mode](docs/images/minifb-3.png)
 *Debug visualization including wireframe overlays and cull mode toggling.*
 
 ## Key Features
@@ -104,6 +104,17 @@ node scripts/run-benchmarks.mjs
 Color triplets in TOML configuration, including backgrounds, ambient light, ground albedo, and light colors, are linear RGB values. Color images used for base color, emissive, and image backgrounds are decoded from sRGB before filtering and shading. Mip generation averages color in linear space, preserves metallic-roughness and occlusion values as raw data, and renormalizes normal maps.
 
 Image decoding is limited to PNG and JPEG, matching the core glTF 2.0 image formats; rendered frames are written as PNG.
+
+## Third-Party Assets
+
+The repository checkout retains two large Sketchfab models for the default scene and benchmark matrix. They are excluded from the Cargo package; their attribution files remain beside the repository assets.
+
+| Asset | Author | License | Use |
+|:------|:-------|:--------|:----|
+| [Old Rusty Car](https://sketchfab.com/3d-models/old-rusty-car-95baa20ebc5d4d2e869f0b549be838fe) | [Renafox](https://sketchfab.com/kryik1023) | [CC-BY-NC-4.0](assets/licenses/old_rusty_car.txt) | Default scene and car benchmarks; commercial use is prohibited. |
+| [CCity Building Set 1](https://sketchfab.com/3d-models/ccity-building-set-1-a2d5c7bfcc2148fb8994864c43dfcc97) | [Neberkenezer](https://sketchfab.com/neberkenezer) | [CC-BY-4.0](assets/licenses/ccity_building_set_1.txt) | City benchmarks. |
+
+The retained [Blue Archive attribution record](assets/licenses/blue_archivekasumizawa_miyu.txt) documents an asset used during development but no longer distributed in the repository.
 
 Directional shadows fit orthographic bounds to the camera frustum and scene geometry; `shadow_ortho_size` caps how far the camera frustum contributes to that fit. `shadow_constant_bias` supplies a base depth offset and `shadow_slope_bias` adds an angle-dependent offset. PCF samples outside the shadow map use a lit border.
 

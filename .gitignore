@@ -1,4 +1,5 @@
 target
+outputs/
 obj_not_upload
 python_files/
 output_*/
@@ -6,4 +7,3 @@ output_*/
 TESTS.md
 test_output
 legacy
-outputs/benchmarks/

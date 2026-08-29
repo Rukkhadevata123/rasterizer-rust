@@ -9,6 +9,17 @@ license = "MIT"
 repository = "https://github.com/Rukkhadevata123/rasterizer-rust"
 keywords = ["graphics", "rasterizer", "rendering", "software-renderer", "pbr", "shadow-mapping", "ssaa", "multithreaded", "rayon"]
 categories = ["graphics", "rendering", "game-development", "visualization", "image-processing"]
+include = [
+    "/assets/licenses/**",
+    "/benchmarks/fixtures/transparent-triangle.gltf",
+    "/docs/images/**",
+    "/src/**",
+    "/tests/**",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/README.md",
+    "/package-scene.toml",
+]
 
 [dependencies]
 nalgebra = "0.34"
