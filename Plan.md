@@ -427,9 +427,16 @@ The generic prepared-triangle vector remains one whole-queue allocation per draw
 
 ### 8C: Whole-Pass Binning
 
-Move from per-mesh preparation/binning to complete render-queue preparation so overlapping work and allocations are amortized across the pass.
+Status: completed
 
-Audit note from 8A: `Renderer::draw_queues` already prepares and bins complete queue groups. Confirm whether any per-command collection or transparent-path work remains before treating 8C as an implementation task.
+- [x] Confirm that rasterization already bins each complete queue group once.
+- [x] Flatten all mesh triangles across the submitted queues into one ordered preparation domain.
+- [x] Prepare mesh work with one whole-pass Rayon traversal instead of one traversal and temporary vector per mesh command.
+- [x] Preserve command and triangle order through clipping and final collection.
+- [x] Keep pure transparent queues on the lower-overhead sequential preparation path while retaining global back-to-front ordering.
+- [x] Cover empty commands across queue boundaries and retain deterministic output hashes.
+
+The city scene validates the implementation rather than an audit-only close. In a 30-frame before/after run with 12 workers, shadow preparation changed from 34.161 to 5.965 ms, main preparation from 38.524 to 7.003 ms, and complete frame time from 80.797 to 19.477 ms. The standard matrix reproduced the city improvement while preserving every Phase 8A/8B hash. Pure transparency and small-triangle preparation moved by less than 0.1 ms and varied in both directions across repeated runs, so no extra parallelism is used for pure transparent queues. See `benchmarks/results/2026-08-29-phase-8c-i5-13500h.md`.
 
 ### 8D: Horizontal Bands versus 2D Tiles
 
@@ -519,15 +526,17 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 8B:
+Repository state after Phase 8C:
 
 - branch: `main`;
 - completed commits through Phase 8A cover the benchmark infrastructure and baseline;
 - Phase 7D separates shadow bias terms, defines lit PCF borders, and fits directional shadow bounds;
 - Phase 7E records direct-light PBR plus an ambient approximation as the intended scope, without image-based lighting;
 - Phase 8B caches stable resources and transforms, shares pass data, deduplicates indexed vertex work, removes clipping heap allocations, and reuses band/depth storage;
+- Phase 8C prepares all mesh triangles in a queue group through one ordered parallel domain and removes per-mesh prepared-triangle collections;
 - all Phase 8A matrix hashes remain unchanged between the baseline and Phase 8B and across one versus 12 workers;
-- 130 tests are present after Phase 8B;
+- all Phase 8A matrix hashes also remain unchanged after Phase 8C;
+- 131 tests are present after Phase 8C;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 8C audit. Whole queue groups are already prepared and binned together; measure the remaining per-command collection and transparent submission work before deciding whether 8C needs code. Do not replace horizontal bands or begin the tile renderer before Phase 8D measurements justify it.
+Immediate target: Phase 8D benchmark of horizontal-band heights against 2D tiles. Replace the band renderer only if a tile design wins consistently across the committed matrix; keep one backend rather than permanent parallel implementations.

@@ -293,6 +293,37 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
     assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len());
 }
 
+#[test]
+fn whole_pass_preparation_skips_empty_mesh_commands_across_queues() {
+    let empty = Mesh::new(Vec::new(), Vec::new(), 0);
+    let visible = triangle(0.0, Vector4::new(0.0, 1.0, 0.0, 1.0));
+    let shaders = [ClipSpaceShader];
+    let mut empty_queue = RenderQueue::default();
+    empty_queue.push(
+        0,
+        RenderGeometry::Mesh(&empty),
+        None,
+        test_render_state(),
+        0.0,
+    );
+    let mut visible_queue = RenderQueue::default();
+    visible_queue.push(
+        0,
+        RenderGeometry::Mesh(&visible),
+        None,
+        test_render_state(),
+        0.0,
+    );
+    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+
+    renderer.draw_queues(&[&empty_queue, &visible_queue], &shaders);
+
+    assert_vec3_approx(
+        renderer.framebuffer.sample(16, 16).unwrap().color,
+        Vector3::y(),
+    );
+}
+
 fn test_render_state() -> RenderState {
     RenderState {
         cull_mode: CullMode::None,

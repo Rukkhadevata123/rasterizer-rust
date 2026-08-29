@@ -229,8 +229,9 @@ impl Renderer {
         let preparation_started = Instant::now();
         let width = self.framebuffer.buffer_width;
         let height = self.framebuffer.buffer_height;
+        let commands: Vec<_> = queues.iter().flat_map(|queue| queue.commands()).collect();
         let mut vertex_sources = HashMap::new();
-        for command in queues.iter().flat_map(|queue| queue.commands()) {
+        for command in &commands {
             let source = match &command.geometry {
                 RenderGeometry::Mesh(mesh) if mesh.reuses_vertices() => Some((
                     VertexSourceKey::Mesh(*mesh as *const Mesh as usize),
@@ -269,106 +270,129 @@ impl Renderer {
             })
             .collect();
 
-        let mut prepared: Vec<PreparedTriangle<'_, S::Varying, S, Option<&Material>>> = Vec::new();
-        for command in queues.iter().flat_map(|queue| queue.commands()) {
-            let shader = &shaders[command.shader_index];
-            match &command.geometry {
-                RenderGeometry::Mesh(mesh) => {
-                    let command_triangles: Vec<_> = mesh
-                        .indices
-                        .par_chunks(3)
-                        .flat_map_iter(|indices| {
-                            let triangles = if indices.len() < 3 {
-                                std::array::from_fn(|_| None)
-                            } else if let Some(transformed) = vertex_cache.get(&(
-                                command.shader_index,
-                                VertexSourceKey::Mesh(*mesh as *const Mesh as usize),
-                            )) {
-                                self.prepare_shaded_vertices(
-                                    width,
-                                    height,
-                                    [
-                                        transformed[indices[0] as usize],
-                                        transformed[indices[1] as usize],
-                                        transformed[indices[2] as usize],
-                                    ],
-                                    shader,
-                                    command.material,
-                                    command.state,
-                                )
-                            } else {
-                                self.prepare_vertices(
-                                    width,
-                                    height,
-                                    [
-                                        &mesh.vertices[indices[0] as usize],
-                                        &mesh.vertices[indices[1] as usize],
-                                        &mesh.vertices[indices[2] as usize],
-                                    ],
-                                    shader,
-                                    command.material,
-                                    command.state,
-                                )
-                            };
-                            triangles.into_iter().flatten()
-                        })
-                        .collect();
-                    prepared.extend(command_triangles);
-                }
-                RenderGeometry::IndexedTriangle {
-                    vertices,
-                    indices,
-                    cache_vertices,
-                } => {
-                    let triangles = if *cache_vertices {
-                        let transformed = &vertex_cache[&(
+        let prepare_command_triangle =
+            |command: &RenderCommand<'a>, local_triangle_index: usize| {
+                let shader = &shaders[command.shader_index];
+                match &command.geometry {
+                    RenderGeometry::Mesh(mesh) => {
+                        let index_offset = local_triangle_index * 3;
+                        let indices =
+                            &mesh.indices[index_offset..(index_offset + 3).min(mesh.indices.len())];
+                        if indices.len() < 3 {
+                            std::array::from_fn(|_| None)
+                        } else if let Some(transformed) = vertex_cache.get(&(
                             command.shader_index,
-                            VertexSourceKey::Vertices(vertices.as_ptr() as usize),
-                        )];
-                        self.prepare_shaded_vertices(
-                            width,
-                            height,
-                            [
-                                transformed[indices[0] as usize],
-                                transformed[indices[1] as usize],
-                                transformed[indices[2] as usize],
-                            ],
-                            shader,
-                            command.material,
-                            command.state,
-                        )
-                    } else {
-                        self.prepare_vertices(
-                            width,
-                            height,
-                            [
-                                &vertices[indices[0] as usize],
-                                &vertices[indices[1] as usize],
-                                &vertices[indices[2] as usize],
-                            ],
-                            shader,
-                            command.material,
-                            command.state,
-                        )
-                    };
-                    prepared.extend(triangles.into_iter().flatten());
+                            VertexSourceKey::Mesh(*mesh as *const Mesh as usize),
+                        )) {
+                            self.prepare_shaded_vertices(
+                                width,
+                                height,
+                                [
+                                    transformed[indices[0] as usize],
+                                    transformed[indices[1] as usize],
+                                    transformed[indices[2] as usize],
+                                ],
+                                shader,
+                                command.material,
+                                command.state,
+                            )
+                        } else {
+                            self.prepare_vertices(
+                                width,
+                                height,
+                                [
+                                    &mesh.vertices[indices[0] as usize],
+                                    &mesh.vertices[indices[1] as usize],
+                                    &mesh.vertices[indices[2] as usize],
+                                ],
+                                shader,
+                                command.material,
+                                command.state,
+                            )
+                        }
+                    }
+                    RenderGeometry::IndexedTriangle {
+                        vertices,
+                        indices,
+                        cache_vertices,
+                    } => {
+                        if *cache_vertices {
+                            let transformed = &vertex_cache[&(
+                                command.shader_index,
+                                VertexSourceKey::Vertices(vertices.as_ptr() as usize),
+                            )];
+                            self.prepare_shaded_vertices(
+                                width,
+                                height,
+                                [
+                                    transformed[indices[0] as usize],
+                                    transformed[indices[1] as usize],
+                                    transformed[indices[2] as usize],
+                                ],
+                                shader,
+                                command.material,
+                                command.state,
+                            )
+                        } else {
+                            self.prepare_vertices(
+                                width,
+                                height,
+                                [
+                                    &vertices[indices[0] as usize],
+                                    &vertices[indices[1] as usize],
+                                    &vertices[indices[2] as usize],
+                                ],
+                                shader,
+                                command.material,
+                                command.state,
+                            )
+                        }
+                    }
+                    RenderGeometry::Triangle(vertices) => self.prepare_vertices(
+                        width,
+                        height,
+                        [&vertices[0], &vertices[1], &vertices[2]],
+                        shader,
+                        command.material,
+                        command.state,
+                    ),
                 }
-                RenderGeometry::Triangle(vertices) => {
-                    prepared.extend(
-                        self.prepare_vertices(
-                            width,
-                            height,
-                            [&vertices[0], &vertices[1], &vertices[2]],
-                            shader,
-                            command.material,
-                            command.state,
-                        )
-                        .into_iter()
-                        .flatten(),
-                    );
-                }
+            };
+        let contains_mesh = commands
+            .iter()
+            .any(|command| matches!(command.geometry, RenderGeometry::Mesh(_)));
+        let prepared: Vec<PreparedTriangle<'_, S::Varying, S, Option<&Material>>> = if contains_mesh
+        {
+            let mut triangle_ends = Vec::with_capacity(commands.len());
+            let mut triangle_count = 0;
+            for command in &commands {
+                triangle_count += match &command.geometry {
+                    RenderGeometry::Mesh(mesh) => mesh.indices.len().div_ceil(3),
+                    RenderGeometry::IndexedTriangle { .. } | RenderGeometry::Triangle(_) => 1,
+                };
+                triangle_ends.push(triangle_count);
             }
-        }
+            (0..triangle_count)
+                .into_par_iter()
+                .flat_map_iter(|triangle_index| {
+                    let command_index = triangle_ends.partition_point(|&end| end <= triangle_index);
+                    let command_start = command_index
+                        .checked_sub(1)
+                        .map_or(0, |previous| triangle_ends[previous]);
+                    prepare_command_triangle(
+                        commands[command_index],
+                        triangle_index - command_start,
+                    )
+                    .into_iter()
+                    .flatten()
+                })
+                .collect()
+        } else {
+            commands
+                .iter()
+                .flat_map(|command| prepare_command_triangle(command, 0).into_iter().flatten())
+                .collect()
+        };
         let preparation = preparation_started.elapsed();
 
         let rasterization_started = Instant::now();
