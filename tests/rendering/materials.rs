@@ -68,6 +68,95 @@ fn headless_pbr_triangle_produces_visible_output() {
 }
 
 #[test]
+fn main_pass_combines_opaque_masked_and_transparent_phases() {
+    let make_object = |config_index, mesh, emissive, alpha, alpha_mode| {
+        SceneObject::new(
+            SceneObjectKind::Model { config_index },
+            Model::new(
+                vec![mesh],
+                vec![Material::Pbr(PbrMaterial {
+                    albedo: Vector3::zeros(),
+                    emissive,
+                    alpha,
+                    alpha_mode,
+                    double_sided: true,
+                    ..Default::default()
+                })],
+            ),
+            Matrix4::identity(),
+        )
+    };
+
+    let opaque = triangle(0.0, Vector4::zeros());
+    let discarded_mask = triangle(0.6, Vector4::zeros());
+    let mut visible_mask = triangle(0.4, Vector4::zeros());
+    visible_mask.vertices[0].position.x = -0.65;
+    visible_mask.vertices[1].position.x = -0.05;
+    visible_mask.vertices[2].position.x = -0.35;
+    visible_mask.vertices[0].position.y = -0.45;
+    visible_mask.vertices[1].position.y = -0.45;
+    visible_mask.vertices[2].position.y = 0.45;
+    let transparent = triangle(0.8, Vector4::zeros());
+
+    let camera = shadow_test_camera();
+    let context = RenderContext {
+        camera: camera.clone(),
+        lights: Vec::new(),
+        scene_objects: vec![
+            make_object(0, opaque, Vector3::x(), 1.0, AlphaMode::Opaque),
+            make_object(1, discarded_mask, Vector3::y(), 0.25, AlphaMode::Mask(0.5)),
+            make_object(2, visible_mask, Vector3::y(), 0.75, AlphaMode::Mask(0.5)),
+            make_object(3, transparent, Vector3::z(), 0.5, AlphaMode::Blend),
+        ],
+        shadow_light: None,
+    };
+    let mut config = rasterizer_rust::io::config::Config::default();
+    config.render.width = 64;
+    config.render.height = 64;
+    config.render.supersample_scale = 1;
+    config.render.ambient_light = [0.0, 0.0, 0.0];
+    config.render.background_color = Some([0.0, 0.0, 0.0]);
+    config.render.background_gradient_top = None;
+    config.render.background_gradient_bottom = None;
+    config.render.background_image = None;
+    config.render.use_shadows = false;
+
+    let shadow = ShadowPassOutput {
+        depth: None,
+        size: 0,
+        light_space_matrix: Matrix4::identity(),
+        light_index: None,
+    };
+    let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
+    render_main_pass(
+        &config,
+        &context,
+        &mut renderer,
+        &shadow,
+        RenderState {
+            cull_mode: CullMode::None,
+            ..Default::default()
+        },
+    )
+    .expect("mixed-phase scene should render");
+
+    let center = renderer.framebuffer.sample(32, 32).unwrap();
+    assert_vec3_approx(center.color, Vector3::new(0.5, 0.0, 0.5));
+
+    let masked = renderer.framebuffer.sample(22, 32).unwrap();
+    assert_vec3_approx(masked.color, Vector3::new(0.0, 0.5, 0.5));
+
+    let expected_depth = |world_z| {
+        let clip = camera.projection_matrix()
+            * camera.view_matrix()
+            * Point3::new(0.0, 0.0, world_z).to_homogeneous();
+        clip.z / clip.w * 0.5 + 0.5
+    };
+    assert!((center.depth - expected_depth(0.0)).abs() < 1.0e-6);
+    assert!((masked.depth - expected_depth(0.4)).abs() < 1.0e-6);
+}
+
+#[test]
 fn masked_pbr_fragments_respect_material_alpha() {
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
     let shader = PbrShader::new(
