@@ -1,58 +1,6 @@
-use nalgebra::{Point2, Vector3};
+use nalgebra::Vector3;
 
 const EPSILON: f32 = 1e-5;
-
-/// Calculates the barycentric coordinates (alpha, beta, gamma) of point p
-/// with respect to triangle (v1, v2, v3).
-///
-/// Returns `None` if the triangle is degenerate (area is near zero).
-///
-/// # Returns
-/// A Vector3 where:
-/// - x: alpha (weight for v1)
-/// - y: beta  (weight for v2)
-/// - z: gamma (weight for v3)
-pub fn barycentric_coordinates(
-    p: Point2<f32>,
-    v1: Point2<f32>,
-    v2: Point2<f32>,
-    v3: Point2<f32>,
-) -> Option<Vector3<f32>> {
-    let e1 = v2 - v1;
-    let e2 = v3 - v1;
-    let p_v1 = p - v1;
-
-    // Calculate the determinant (2x area of the triangle)
-    let total_area_x2 = e1.x * e2.y - e1.y * e2.x;
-
-    if total_area_x2.abs() < EPSILON {
-        return None; // Degenerate triangle
-    }
-
-    let inv_total_area_x2 = 1.0 / total_area_x2;
-
-    // Calculate weight for v2 (beta)
-    // Area of sub-triangle (p, v3, v1)
-    let area2_x2 = p_v1.x * e2.y - p_v1.y * e2.x;
-    let beta = area2_x2 * inv_total_area_x2;
-
-    // Calculate weight for v3 (gamma)
-    // Area of sub-triangle (p, v1, v2)
-    let area3_x2 = e1.x * p_v1.y - e1.y * p_v1.x;
-    let gamma = area3_x2 * inv_total_area_x2;
-
-    // Calculate weight for v1 (alpha)
-    let alpha = 1.0 - beta - gamma;
-
-    Some(Vector3::new(alpha, beta, gamma))
-}
-
-/// Checks if the barycentric coordinates represent a point inside the triangle.
-/// Returns true if alpha, beta, and gamma are all >= 0.
-#[inline(always)]
-pub fn is_inside_triangle(bary: Vector3<f32>) -> bool {
-    bary.x >= -EPSILON && bary.y >= -EPSILON && bary.z >= -EPSILON
-}
 
 /// Compute perspective-correct barycentric coordinates (alpha', beta', gamma').
 ///
@@ -94,34 +42,6 @@ mod tests {
             (actual - expected).abs() < 1e-5,
             "expected {expected}, got {actual}"
         );
-    }
-
-    #[test]
-    fn returns_expected_barycentric_coordinates() {
-        let bary = barycentric_coordinates(
-            Point2::new(0.25, 0.25),
-            Point2::new(0.0, 0.0),
-            Point2::new(1.0, 0.0),
-            Point2::new(0.0, 1.0),
-        )
-        .expect("triangle is not degenerate");
-
-        assert_approx(bary.x, 0.5);
-        assert_approx(bary.y, 0.25);
-        assert_approx(bary.z, 0.25);
-        assert!(is_inside_triangle(bary));
-    }
-
-    #[test]
-    fn rejects_degenerate_triangle() {
-        let bary = barycentric_coordinates(
-            Point2::new(0.5, 0.0),
-            Point2::new(0.0, 0.0),
-            Point2::new(1.0, 0.0),
-            Point2::new(2.0, 0.0),
-        );
-
-        assert!(bary.is_none());
     }
 
     #[test]

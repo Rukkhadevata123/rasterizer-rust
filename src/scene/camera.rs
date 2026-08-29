@@ -10,17 +10,12 @@ pub enum ProjectionType {
 /// Manages the View and Projection matrices.
 #[derive(Debug, Clone)]
 pub struct Camera {
-    // --- Common Parameters ---
     pub position: Point3<f32>,
     pub target: Point3<f32>,
     pub up: Vector3<f32>,
     pub near: f32,
     pub far: f32,
-
-    // --- Projection Specifics ---
     pub projection_type: ProjectionType,
-
-    // --- Cached Matrices ---
     view_matrix: Matrix4<f32>,
     projection_matrix: Matrix4<f32>,
 }
@@ -56,7 +51,7 @@ impl Camera {
         position: Point3<f32>,
         target: Point3<f32>,
         up: Vector3<f32>,
-        height: f32, // View height
+        height: f32,
         aspect_ratio: f32,
         near: f32,
         far: f32,
@@ -78,12 +73,9 @@ impl Camera {
         cam
     }
 
-    /// Recalculates View and Projection matrices based on current parameters.
+    /// Recalculates the view and projection matrices from the current parameters.
     pub fn update_matrices(&mut self) {
-        // 1. View Matrix (Same for both)
         self.view_matrix = TransformFactory::view(&self.position, &self.target, &self.up);
-
-        // 2. Projection Matrix (Depends on type)
         self.projection_matrix = match self.projection_type {
             ProjectionType::Perspective {
                 fov_y_rad,
@@ -99,9 +91,9 @@ impl Camera {
 
                 TransformFactory::orthographic(
                     -half_width,
-                    half_width, // Left, Right
+                    half_width,
                     -half_height,
-                    half_height, // Bottom, Top
+                    half_height,
                     self.near,
                     self.far,
                 )

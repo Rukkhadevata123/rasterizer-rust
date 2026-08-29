@@ -13,7 +13,7 @@ use crate::scene::utils::{center_model, normalize_and_center_model};
 use log::info;
 use nalgebra::{Point3, Vector3};
 
-/// Helper to rebuild light list from config (used in Init and Hot Reload)
+/// Rebuilds the light list and selects the first directional shadow caster.
 pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Option<ShadowLight>) {
     let mut lights = Vec::new();
     let mut shadow_light = None;
@@ -95,9 +95,8 @@ pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) 
     }
 }
 
-/// Initial resource loading (Heavy I/O). Returns a RenderContext.
+/// Loads the configured camera and scene resources.
 pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError> {
-    // 1. Camera
     let cam_pos = Point3::from(config.camera.position);
     let cam_target = Point3::from(config.camera.target);
     let cam_up = Vector3::from(config.camera.up);
@@ -125,13 +124,9 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
         )
     };
 
-    // 2. Lights
     let (lights, shadow_light) = build_lights_from_config(config);
-
-    // 3. Objects
     let mut scene_objects: Vec<SceneObject> = Vec::new();
 
-    // 3.1 Ground
     if config.ground.enabled {
         let ground_mesh = Mesh::create_plane(config.ground.size, 0);
         let mut ground_material = PbrMaterial {
@@ -155,9 +150,7 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
         ));
     }
 
-    // 3.2 Loaded Objects
     for (object_index, obj_conf) in config.objects.iter().enumerate() {
-        // Direct GLTF Loading
         let model_path = config.resolve_path(&obj_conf.path);
         let mut model = load_gltf(&model_path, config.render.use_mipmap).map_err(|source| {
             AssetError::Model {
@@ -168,7 +161,6 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
         })?;
         apply_model_normalization(&mut model, obj_conf.normalization);
 
-        // Ensure material fallback
         if model.materials.is_empty() {
             model.materials.push(Material::default());
         }

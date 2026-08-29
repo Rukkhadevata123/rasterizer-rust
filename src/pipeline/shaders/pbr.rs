@@ -63,8 +63,7 @@ impl Add for PbrVarying {
             world_pos: Point3::from(self.world_pos.coords + other.world_pos.coords),
             normal: self.normal + other.normal,
             uvs: std::array::from_fn(|set| self.uvs[set] + other.uvs[set]),
-            // Linear interpolate sign? Usually sign is constant per triangle,
-            // but lerping is fine as long as we don't normalize W.
+            // Preserve the interpolated handedness sign in W; only XYZ is normalized later.
             tangent: self.tangent + other.tangent,
         }
     }
@@ -82,14 +81,12 @@ impl Mul<f32> for PbrVarying {
     }
 }
 
-// Implement Interpolatable and expose UV for LOD estimation.
 impl Interpolatable for PbrVarying {
     fn get_uv(&self, set: usize) -> Option<Vector2<f32>> {
         self.uvs.get(set).copied()
     }
 }
 
-// --- PBR Shader ---
 pub struct PbrShader<'resources> {
     pub model_matrix: Matrix4<f32>,
     pub view_matrix: Matrix4<f32>,
@@ -99,10 +96,8 @@ pub struct PbrShader<'resources> {
     pub camera_pos: Point3<f32>,
     pub lights: &'resources [Light],
 
-    // Added: Ambient Light Control
     pub ambient_light: Vector3<f32>,
 
-    // Shadow Mapping Fields
     pub shadow_map: Option<&'resources [f32]>,
     pub shadow_map_size: usize,
     pub shadow_light_index: Option<usize>,
@@ -112,7 +107,6 @@ pub struct PbrShader<'resources> {
     pub use_pcf: bool,
     pub pcf_kernel_size: i32,
 
-    // Fallback if material is missing or wrong type
     pub fallback_material: PbrMaterial,
 }
 
@@ -147,7 +141,7 @@ impl PbrShader<'_> {
             tangent_frame_transform,
             camera_pos,
             lights: &[],
-            ambient_light: Vector3::new(0.03, 0.03, 0.03), // Default low ambient
+            ambient_light: Vector3::new(0.03, 0.03, 0.03),
             shadow_map: None,
             shadow_map_size: 0,
             shadow_light_index: None,
@@ -160,7 +154,6 @@ impl PbrShader<'_> {
         }
     }
 
-    // --- Shadow Calculation ---
     fn calculate_shadow(&self, world_pos: &Point3<f32>, n_dot_l: f32) -> f32 {
         let Some(shadow_map) = self.shadow_map.as_ref() else {
             return 1.0;
@@ -172,20 +165,13 @@ impl PbrShader<'_> {
             return 1.0;
         }
 
-        // 1. Transform world position to light space
         let light_space_pos = self.light_space_matrix * world_pos.to_homogeneous();
-
-        // 2. Perspective divide
         let proj_coords = light_space_pos.xyz() / light_space_pos.w;
-
-        // 3. Transform to [0, 1] range
         let u = proj_coords.x * 0.5 + 0.5;
-        let v = 1.0 - (proj_coords.y * 0.5 + 0.5); // Flip Y
-
-        // FIX: Remap Z from [-1, 1] to [0, 1] to match depth buffer
+        let v = 1.0 - (proj_coords.y * 0.5 + 0.5);
+        // Clip-space Z uses [-1, 1], while the shadow depth buffer uses [0, 1].
         let current_depth = proj_coords.z * 0.5 + 0.5;
 
-        // Check if outside shadow map
         if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) || current_depth > 1.0 {
             return 1.0;
         }
@@ -205,7 +191,6 @@ impl PbrShader<'_> {
             };
         }
 
-        // PCF (Percentage Closer Filtering) for soft shadows
         let mut shadow = 0.0;
         let texel_size = 1.0 / self.shadow_map_size as f32;
         let kernel_size = self.pcf_kernel_size;
@@ -225,7 +210,6 @@ impl PbrShader<'_> {
                 let index = map_y * self.shadow_map_size + map_x;
 
                 let pcf_depth = shadow_map[index];
-                // Use the remapped current_depth here
                 shadow += if current_depth - bias > pcf_depth {
                     0.0
                 } else {
@@ -241,8 +225,6 @@ impl PbrShader<'_> {
         self.shadow_constant_bias + self.shadow_slope_bias * (1.0 - n_dot_l.clamp(0.0, 1.0))
     }
 
-    // --- PBR Helper Functions ---
-    // Normal Distribution Function (GGX)
     fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
         let a = roughness * roughness;
         let a2 = a * a;
@@ -255,10 +237,9 @@ impl PbrShader<'_> {
         num / denom.max(0.0001)
     }
 
-    // Geometry Function (Smith's Schlick-GGX)
     fn geometry_schlick_ggx(n_dot_v: f32, roughness: f32) -> f32 {
         let r = roughness + 1.0;
-        let k = (r * r) / 8.0; // Direct light
+        let k = (r * r) / 8.0;
 
         let num = n_dot_v;
         let denom = n_dot_v * (1.0 - k) + k;
@@ -275,7 +256,6 @@ impl PbrShader<'_> {
         ggx1 * ggx2
     }
 
-    // Fresnel Equation (Fresnel-Schlick)
     fn fresnel_schlick(cos_theta: f32, f0: Vector3<f32>) -> Vector3<f32> {
         let val = (1.0 - cos_theta).clamp(0.0, 1.0).powi(5);
         f0 + (Vector3::new(1.0, 1.0, 1.0) - f0) * val
@@ -302,7 +282,7 @@ impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
                 world_pos,
                 normal: world_normal,
                 uvs: vertex.texcoords,
-                tangent: world_tangent, // Pass Vec4
+                tangent: world_tangent,
             },
         )
     }
@@ -313,7 +293,6 @@ impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
         material: Option<&'material Material>,
     ) -> FragmentOutput {
         let varying = input.varying;
-        // 1. Retrieve Material Properties
         let mat = if let Some(Material::Pbr(m)) = material {
             m
         } else {
@@ -340,25 +319,18 @@ impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
 
         let emissive_color = emissive(mat, mat.emissive_texture.as_ref().map(sample_texture));
 
-        // 2. Calculate Normal (Normal Mapping)
         let geom_normal = if input.front_facing {
             varying.normal.normalize()
         } else {
             -varying.normal.normalize()
         };
 
-        // Use normal map if available, otherwise fallback to geometry normal
         let n = if let Some(normal_map) = &mat.normal_texture {
-            // Check valid tangent (xyz length)
             if varying.tangent.xyz().norm_squared() > 1e-6 {
                 let geom_tangent = varying.tangent.xyz().normalize();
-                let tangent_sign = varying.tangent.w; // Get Sign
-
-                // 2.1 Gram-Schmidt
+                let tangent_sign = varying.tangent.w;
                 let t = (geom_tangent - geom_normal * geom_normal.dot(&geom_tangent)).normalize();
-
-                // 2.2 Calculate Bitangent using SIGN
-                // B = (N x T) * Sign
+                // glTF stores the bitangent handedness in tangent.w.
                 let b = geom_normal.cross(&t) * tangent_sign;
 
                 let tbn = Matrix3::from_columns(&[t, b, geom_normal]);
@@ -376,21 +348,15 @@ impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
 
         let v = (self.camera_pos - varying.world_pos).normalize();
 
-        // F0: Surface reflection at zero incidence
-        // 0.04 for dielectrics, albedo for metals
+        // Dielectrics use F0=0.04; metals derive F0 from their base color.
         let f0 = Vector3::new(0.04, 0.04, 0.04).lerp(&albedo, metallic);
-
-        // 3. Lighting Loop
         let mut lo = Vector3::zeros();
 
         for (i, light) in self.lights.iter().enumerate() {
             let l = light.get_direction_to_light(&varying.world_pos);
             let h = (v + l).normalize();
 
-            // Radiance (Light Color * Intensity)
             let radiance = light.get_intensity(&varying.world_pos);
-
-            // Cook-Torrance BRDF
             let n_dot_v = n.dot(&v).max(0.0);
             let n_dot_l = n.dot(&l).max(0.0);
             let n_dot_h = n.dot(&h).max(0.0);
@@ -405,29 +371,20 @@ impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
             let g = Self::geometry_smith(&n, &v, &l, roughness);
             let f = Self::fresnel_schlick(h_dot_v, f0);
 
-            let numerator = f * d * g; // f is Vector3, d and g are f32
+            let numerator = f * d * g;
             let denominator = 4.0 * n_dot_v * n_dot_l + 0.0001;
             let specular = numerator / denominator;
 
-            // kS is Fresnel (F)
             let k_s = f;
-            // kD is the remaining energy (1 - kS), multiplied by (1 - metallic)
-            // because metals absorb all refracted light.
+            // Metals have no diffuse term; dielectrics retain non-reflected energy.
             let k_d = (Vector3::new(1.0, 1.0, 1.0) - k_s) * (1.0 - metallic);
-
-            // Lambertian Diffuse
             let diffuse = k_d.component_mul(&albedo) / PI;
-
-            // Add to outgoing radiance Lo,
-            // Lo += (kD * albedo / PI + specular) * radiance * NdotL
             let brdf = diffuse + specular;
             let light_contribution = brdf.component_mul(&radiance) * n_dot_l * shadow;
 
             lo += light_contribution;
         }
 
-        // 4. Ambient (Using configurable ambient_light)
-        // TODO: Future: Implement IBL for better ambient lighting
         let ambient = self.ambient_light.component_mul(&albedo) * ao;
 
         let final_color = ambient + lo + emissive_color;

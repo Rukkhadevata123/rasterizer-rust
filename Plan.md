@@ -463,19 +463,19 @@ In three alternating 30-frame rounds with 12 workers, incremental edges improved
 
 ## Phase 9: Code, Comment, and Documentation Cleanup
 
-Status: planned
+Status: completed
 
 Perform local cleanup in every earlier phase, then run one global pass.
 
-- Remove decorative separators such as `=====`, `-----`, and numbered step banners.
-- Remove comments that merely restate the next line.
-- Remove commented-out code and historical wording such as “added”, “removed”, “fix”, or “now”.
-- Replace vague TODOs with tracked work or delete them.
-- Preserve comments explaining coordinate systems, matrix order, glTF packing, transparent ordering, numerical stability, and genuine safety invariants.
-- Split oversized test files by subsystem.
-- Delete dead APIs, unused modules, temporary aliases, and superseded backends.
-- Correct terminology such as MSAA versus SSAA and `shadow apnea` versus `shadow acne`.
-- Ensure README, `AGENTS.md`, `scene.toml`, and implementation behavior agree.
+- [x] Remove decorative separators such as `=====`, `-----`, and numbered step banners.
+- [x] Remove comments that merely restate the next line.
+- [x] Remove commented-out code and historical wording such as “added”, “removed”, “fix”, or “now”.
+- [x] Replace vague TODOs with tracked work or delete them.
+- [x] Preserve comments explaining coordinate systems, matrix order, glTF packing, transparent ordering, numerical stability, and genuine safety invariants.
+- [x] Split oversized test files by subsystem.
+- [x] Delete dead APIs, unused modules, temporary aliases, and superseded backends.
+- [x] Correct terminology such as MSAA versus SSAA and `shadow apnea` versus `shadow acne`.
+- [x] Ensure README, `AGENTS.md`, `scene.toml`, and implementation behavior agree.
 
 Required scans:
 
@@ -483,6 +483,8 @@ Required scans:
 rg -n '={3,}|-{3,}|^\s*//\s*[0-9]+\.' src scene.toml
 rg -n 'TODO|FIXME|HACK|Added|Removed|FIX:|Now' src
 ```
+
+The cleanup removes the superseded standalone barycentric and arbitrary-axis rotation APIs, limits the synthetic triangle constructor to unit-test builds, and drops an unused glTF material lookup. The former 1,400-line rendering integration test now keeps shared fixtures in `tests/rendering.rs` and groups its 33 tests under rasterization, materials, and shadows modules. README, repository guidance, and example configuration now match the package targets, release test workflow, GUI controls, output path, retained band renderer, and direct-light PBR scope. Both required scans are clean. Release formatting, Clippy with warnings denied, all 129 tests, release checking, and an example-scene smoke render pass; the smoke-render PNG SHA-256 is `3208a3b9e57553d04a01e82de7fe1378f23287e4f96009bef3abefc8ce86bad3`.
 
 ## Phase 10: Dependencies, Repository Weight, and Release Hygiene
 
@@ -530,7 +532,7 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 8E:
+Repository state after Phase 9:
 
 - branch: `main`;
 - completed commits through Phase 8A cover the benchmark infrastructure and baseline;
@@ -540,9 +542,10 @@ Repository state after Phase 8E:
 - Phase 8C prepares all mesh triangles in a queue group through one ordered parallel domain and removes per-mesh prepared-triangle collections;
 - Phase 8D retains 8-row horizontal bands after benchmarking three band heights and two safe 2D tile sizes across the full matrix;
 - Phase 8E uses incremental oriented edge equations with periodic rebasing, reuses edge values for barycentrics, and retains Rayon's default task splitting after a fixed-granularity sweep;
+- Phase 9 removes stale commentary and dead APIs, splits rendering integration tests by subsystem, and synchronizes repository documentation with current behavior;
 - all Phase 8A matrix hashes remain unchanged between the baseline and Phase 8B and across one versus 12 workers;
 - all Phase 8A matrix hashes remain unchanged through Phase 8D; Phase 8E preserves deterministic output across workers while its floating-point reordering changes textured-scene hashes by visually negligible amounts;
-- 131 tests are present after Phase 8E;
+- 129 tests are present after Phase 9; the two removed tests covered the deleted, superseded barycentric API;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 9 code, comment, and documentation cleanup.
+Immediate target: Phase 10A dependency reduction.

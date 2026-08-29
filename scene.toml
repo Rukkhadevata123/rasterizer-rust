@@ -1,17 +1,15 @@
-# ==========================================
 # Rasterizer Configuration File
-# ==========================================
 
 [render]
 # TOML color triplets are linear RGB values.
-# --- Output & Quality ---
+# Output and quality
 width = 1280
 height = 720
 output = "outputs/output_gltf.png"
 supersample_scale = 2 # SSAA scale: 2 renders a 2x2 sample grid per output pixel
 exposure = 1.0        # Tone mapping exposure
 
-# --- Lighting & Environment ---
+# Lighting and environment
 ambient_light = [0.1, 0.1, 0.15]
 
 # Background modes (Choose one set)
@@ -23,7 +21,7 @@ background_gradient_bottom = [0.02, 0.02, 0.05]
 # 3. Image Background
 # background_image = "assets/skybox_hdri.jpg"
 
-# --- Shadow Mapping ---
+# Shadow mapping
 use_shadows = true
 shadow_map_size = 1024
 shadow_ortho_size = 10.0  # Size of the orthographic projection for directional light shadows
@@ -32,10 +30,10 @@ shadow_slope_bias = 0.01     # Additional offset for surfaces facing away from t
 use_pcf = true            # Percentage Closer Filtering for soft shadows
 pcf_kernel_size = 1       # Radius of PCF sampling (1 = 3x3 kernel, 2 = 5x5)
 
-# --- Post Processing ---
+# Post-processing
 use_aces = true           # ACES Filmic Tone Mapping
 
-# --- Pipeline Settings ---
+# Pipeline settings
 cull_mode = "none"        # Options: "back", "front", "none"
 use_mipmap = false         # Generate and use mipmaps for textures
 # wireframe = true        # Draw wireframe on top of mesh (Debug)
@@ -70,7 +68,7 @@ albedo = [0.3, 0.3, 0.35]
 metallic = 0.1
 roughness = 0.8
 
-# --- Lights ---
+# Lights
 # Supported types: "directional", "point"
 
 [[lights]]
@@ -87,7 +85,7 @@ color = [0.2, 0.4, 0.8]
 intensity = 5.0
 # attenuation = [1.0, 0.09, 0.032] # Constant, Linear, Quadratic factors (Optional override)
 
-# --- Objects ---
+# Objects
 # Supports .gltf and .glb files
 
 [[objects]]

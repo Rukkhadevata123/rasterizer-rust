@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This is a single Rust 2024 binary crate. `src/main.rs` parses CLI arguments and delegates to `src/app.rs`. Code is grouped by responsibility:
+This is a single Rust 2024 package with a library and one binary target. `src/main.rs` parses CLI arguments and delegates to `src/app.rs`. Code is grouped by responsibility:
 
 - `src/core/`: rasterization, framebuffer, geometry, math, and pipeline traits.
 - `src/pipeline/`: render passes, renderer orchestration, and PBR/shadow shaders.
@@ -21,7 +21,7 @@ cargo run --release -- --config scene.toml
 cargo run --release -- --config scene.toml --gui
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features
-cargo test
+cargo test --release
 ```
 
 Always render with `--release`; debug rasterization is impractically slow. The first command renders one PNG, while the second opens the `minifb` viewer. In GUI mode, `R` reloads configuration, including model and texture resources. Supersampling scale and shadow-map size changes rebuild their buffers; window-size changes require a restart.
@@ -36,7 +36,7 @@ Unit tests live in nearby `#[cfg(test)]` modules, and cross-module rendering tes
 
 ## Concurrency & Safety
 
-Rayon drives parallel rendering through exclusive horizontal framebuffer bands. `FrameBuffer` stores ordinary color/depth samples without locks, atomics, `UnsafeCell`, or manual `Sync`; keep rasterization writes inside disjoint mutable bands. Transparent triangles are globally sorted back-to-front and must retain that order within every band. A future 2D tile renderer remains a Phase 8 benchmark-driven option.
+Rayon drives parallel rendering through exclusive horizontal framebuffer bands. `FrameBuffer` stores ordinary color/depth samples without locks, atomics, `UnsafeCell`, or manual `Sync`; keep rasterization writes inside disjoint mutable bands. Transparent triangles are globally sorted back-to-front and must retain that order within every band. Phase 8 benchmarks retained 8-row bands because the tested 2D tile variants did not improve the full scenario matrix consistently.
 
 ## Commit & Pull Request Guidelines
 

@@ -79,6 +79,7 @@ impl Mesh {
         Self::new(vertices, indices, material_id)
     }
 
+    #[cfg(test)]
     pub fn create_test_triangle(material_id: usize) -> Self {
         let vertices = vec![
             Vertex::new(

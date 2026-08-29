@@ -51,7 +51,7 @@ The project follows a clean, modular architecture separating core engine logic f
 ```text
 src
 ├── core               # The Engine Kernel
-│   ├── rasterizer.rs  # Scanline rasterization & clipping logic
+│   ├── rasterizer.rs  # Banded rasterization & clipping logic
 │   ├── framebuffer.rs # Safe color/depth sample storage and resolve
 │   ├── geometry.rs    # Vertex layout & geometric primitives
 │   └── math           # Transform factories & interpolation helpers
@@ -87,7 +87,7 @@ cargo run --release -- --config scene.toml --gui
 ```
 
 **2. Offline Rendering (CLI)**  
-Render a single high-quality frame to an output image file (default: `output.png`).
+Render a single high-quality frame to the path configured by `render.output` (`outputs/output_gltf.png` in the example scene).
 
 ```bash
 cargo run --release -- --config scene.toml
@@ -112,7 +112,7 @@ The renderer implements direct-light metallic-roughness PBR with a configurable 
 | Input                  | Action                                  |
 |:-----------------------|:----------------------------------------|
 | **W / A / S / D**      | Move Camera                             |
-| **Mouse**              | Look Around                             |
+| **Left Click + Mouse** | Look Around                             |
 | **Space / L-Shift**    | Move Up / Down                          |
 | **Scroll Wheel**       | Adjust FOV (Zoom)                       |
 | **R**                  | Reload Configuration (Hot Reload)       |

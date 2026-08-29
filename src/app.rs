@@ -138,7 +138,6 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         "Controls: WASD=Move, Space/LeftShift=Up/Down, LeftClick=Look, Scroll=FOV, R=Reload Config"
     );
 
-    // 1. Initialize Window
     let mut window = Window::new(
         "Rust PBR Rasterizer",
         width,
@@ -150,12 +149,8 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
     )
     .map_err(|source| WindowError::Create { source })?;
 
-    // window.set_target_fps(60);
-
-    // 2. Initialize Resources
     let mut context = init_scene_resources(&config)?;
 
-    // Renderers
     let mut renderer =
         Renderer::new(width, height, config.render.supersample_scale).map_err(|reason| {
             ApplicationError::RenderInitialization {
@@ -173,7 +168,6 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         reason,
     })?;
 
-    // Camera Controller
     let mut cam_controller = CameraController::new(
         config.camera.speed,
         config.camera.sensitivity,
@@ -194,13 +188,11 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
 
     let mut buffer = vec![0u32; width * height];
 
-    // 3. Main Loop
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let now = Instant::now();
         let dt = (now - last_frame_time).as_secs_f32();
         last_frame_time = now;
 
-        // --- Hot Reloading ---
         if window.is_key_pressed(Key::R, minifb::KeyRepeat::No) {
             info!("Reloading configuration...");
             {
@@ -256,7 +248,6 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
             }
         }
 
-        // --- Input ---
         cam_controller.update(&window, &mut context.camera, dt);
 
         let right_click = window.get_mouse_down(MouseButton::Right);
@@ -275,11 +266,9 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         }
         last_middle_click = middle_click;
 
-        // --- Render ---
         let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
         render_main_pass(&config, &context, &mut renderer, &shadow, render_state)?;
 
-        // --- Display ---
         post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
         window
             .update_with_buffer(&buffer, width, height)
@@ -339,7 +328,6 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         ..Default::default()
     };
 
-    // Render
     let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
     if shadow.depth.is_some() {
         debug!("Shadow pass completed.");
@@ -348,7 +336,6 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
 
     info!("Render completed in {:.2?}", start_time.elapsed());
 
-    // Save
     let output_path = config.resolve_path(&config.render.output);
     info!("Saving output to '{}'...", output_path.display());
     let mut buffer = vec![0u32; config.render.width * config.render.height];

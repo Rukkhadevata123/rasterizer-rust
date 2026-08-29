@@ -22,7 +22,6 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
     let path = path.as_ref();
     info!("Loading GLTF/GLB: {:?}", path);
 
-    // 1. Import (This auto-detects .gltf or .glb)
     let gltf = gltf::Gltf::open(path).map_err(|source| GltfError::Import {
         path: path.to_path_buf(),
         source: Box::new(source),
@@ -68,16 +67,12 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
         image_resources.push(Arc::new(image));
     }
 
-    // 3. Prepare Accumulators
     let mut final_meshes: Vec<Mesh> = Vec::new();
     let mut final_materials: Vec<Material> = Vec::new();
 
-    // Cache: Map (GLTF Material Index) -> (Local Material Index)
-    // To avoid duplicating materials if multiple primitives use the same one.
+    // Reuse materials shared by multiple primitives.
     let mut material_cache: HashMap<usize, usize> = HashMap::new();
 
-    // 4. Traverse Scene Graph
-    // If no scene is selected, use the default or the first one.
     let scene = document
         .default_scene()
         .or_else(|| document.scenes().next())
@@ -95,10 +90,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
         material_cache: &mut material_cache,
     };
     for node in scene.nodes() {
-        importer.process_node(
-            &node,
-            &Matrix4::identity(), // Root transform is Identity
-        )?;
+        importer.process_node(&node, &Matrix4::identity())?;
     }
 
     if final_meshes.is_empty() {
@@ -116,7 +108,7 @@ pub fn load_gltf<P: AsRef<Path>>(path: P, use_mipmap: bool) -> Result<Model, Glt
     Ok(Model::new(final_meshes, final_materials))
 }
 
-/// Recursive function to bake transforms
+/// Recursively bakes node transforms into mesh vertices.
 struct SceneImporter<'a> {
     path: &'a Path,
     scene_index: usize,
@@ -133,20 +125,17 @@ impl SceneImporter<'_> {
         node: &gltf::Node,
         parent_transform: &Matrix4<f32>,
     ) -> Result<(), GltfError> {
-        // 1. Calculate Global Transform for this node
         let (t, r, s) = node.transform().decomposed();
         let translation = Matrix4::new_translation(&Vector3::from(t));
         let rotation = UnitQuaternion::from_quaternion(Quaternion::new(r[3], r[0], r[1], r[2]))
             .to_homogeneous();
         let scale = Matrix4::new_nonuniform_scaling(&Vector3::from(s));
 
-        // Parent * Local = Global
         let global_transform = parent_transform * translation * rotation * scale;
 
         let global_rotation_scale = global_transform.fixed_view::<3, 3>(0, 0).into_owned();
         let tangent_frame_transform = TangentFrameTransform::new(global_rotation_scale);
 
-        // 2. Process Mesh
         if let Some(mesh) = node.mesh() {
             for primitive in mesh.primitives() {
                 let primitive_index = primitive.index();
@@ -172,11 +161,7 @@ impl SceneImporter<'_> {
                         ),
                     });
                 }
-                let _mat = primitive.material();
-                // Removed skipping of AlphaMode::Blend
-
                 let reader = primitive.reader(|buffer| Some(&self.buffers[buffer.index()]));
-                // --- Indices ---
                 let indices: Vec<u32> = if let Some(iter) = reader.read_indices() {
                     iter.into_u32().collect()
                 } else {
@@ -184,7 +169,6 @@ impl SceneImporter<'_> {
                     (0..count as u32).collect()
                 };
 
-                // --- Attributes ---
                 let positions: Vec<[f32; 3]> = reader
                     .read_positions()
                     .map(|iter| iter.collect())
@@ -411,10 +395,8 @@ impl SceneImporter<'_> {
                     }
                 }
 
-                // --- Bake Vertices ---
                 let mut vertices = Vec::with_capacity(vertex_indices.len());
                 for (vertex_index, &i) in vertex_indices.iter().enumerate() {
-                    // Position: Apply full Global Transform
                     let pos_local = Point3::from(positions[i]);
                     let pos_world = global_transform.transform_point(&pos_local);
 
@@ -451,17 +433,14 @@ impl SceneImporter<'_> {
                         position: pos_world,
                         normal: normal_world,
                         texcoords,
-                        tangent: tangent_world, // Now Vector4
+                        tangent: tangent_world,
                     });
                 }
 
-                // --- Material Handling ---
                 let mat_idx = if let Some(gltf_idx) = prim_mat.index() {
-                    // Check cache
                     if let Some(&local_idx) = self.material_cache.get(&gltf_idx) {
                         local_idx
                     } else {
-                        // Create new material
                         let new_mat = convert_material(self.path, &prim_mat, self.image_resources)?;
                         let local_idx = self.materials.len();
                         self.materials.push(new_mat);
@@ -469,20 +448,16 @@ impl SceneImporter<'_> {
                         local_idx
                     }
                 } else {
-                    // Default material handling
-                    // We don't cache "None" materials essentially, or make a default "Geometry" material
                     let new_mat = convert_material(self.path, &prim_mat, self.image_resources)?;
                     let local_idx = self.materials.len();
                     self.materials.push(new_mat);
                     local_idx
                 };
 
-                // Push the processed sub-mesh
                 self.meshes.push(Mesh::new(vertices, mesh_indices, mat_idx));
             }
         }
 
-        // 3. Recursion
         for child in node.children() {
             self.process_node(&child, &global_transform)?;
         }
@@ -688,7 +663,7 @@ fn normalize_transformed_vector(
     Ok(value / length_squared.sqrt())
 }
 
-/// Converts glTF material to Engine PbrMaterial
+/// Converts a glTF material into the renderer's PBR material.
 fn convert_material(
     path: &Path,
     mat: &gltf::Material,
@@ -696,7 +671,6 @@ fn convert_material(
 ) -> Result<Material, GltfError> {
     let pbr = mat.pbr_metallic_roughness();
 
-    // Factors
     let albedo_factor = pbr.base_color_factor();
     let albedo = Vector3::new(albedo_factor[0], albedo_factor[1], albedo_factor[2]);
     let alpha = albedo_factor[3];
@@ -757,7 +731,7 @@ fn convert_material(
 
     let albedo_texture = get_tex(pbr.base_color_texture(), TextureUsage::Color)?;
 
-    // GLTF packs Metallic (B) and Roughness (G). Our shader supports this.
+    // glTF packs roughness in G and metallic in B.
     let metallic_roughness_texture = get_tex(pbr.metallic_roughness_texture(), TextureUsage::Data)?;
 
     let normal_texture = get_normal_tex(mat.normal_texture())?;

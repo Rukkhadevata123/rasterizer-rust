@@ -1,35 +1,11 @@
 use nalgebra::{Matrix3, Matrix4, Point2, Point3, Vector3, Vector4};
 
-//=================================
-// Transform Matrix Factory
-//=================================
-
 /// Factory for creating various transformation matrices.
-/// Manually implemented to ensure control over the coordinate system (Right-Handed).
-/// And more educational than using nalgebra's built-in functions directly.
+/// These explicit matrices keep the renderer's right-handed coordinate conventions visible.
 pub struct TransformFactory;
 
 #[rustfmt::skip]
 impl TransformFactory {
-    /// Creates a rotation matrix around an arbitrary axis using Rodrigues' rotation formula.
-    #[allow(dead_code)]
-    pub fn rotation(axis: &Vector3<f32>, angle_rad: f32) -> Matrix4<f32> {
-        let axis_unit = axis.normalize();
-        let x = axis_unit.x;
-        let y = axis_unit.y;
-        let z = axis_unit.z;
-        let c = angle_rad.cos();
-        let s = angle_rad.sin();
-        let t = 1.0 - c;
-
-        Matrix4::new(
-            t * x * x + c,     t * x * y - z * s, t * x * z + y * s, 0.0,
-            t * x * y + z * s, t * y * y + c,     t * y * z - x * s, 0.0,
-            t * x * z - y * s, t * y * z + x * s, t * z * z + c,     0.0,
-            0.0,               0.0,               0.0,               1.0,
-        )
-    }
-
     /// Creates a rotation matrix around the X-axis.
     pub fn rotation_x(angle_rad: f32) -> Matrix4<f32> {
         let c = angle_rad.cos();
@@ -144,11 +120,7 @@ impl TransformFactory {
     }
 }
 
-//=================================
-// Core Transformation Functions
-//=================================
-
-/// Performs perspective division: Clip Space -> NDC.
+/// Performs perspective division from clip space to NDC.
 #[inline]
 pub fn apply_perspective_division(clip: &Vector4<f32>) -> Point3<f32> {
     let w = clip.w;
@@ -159,8 +131,7 @@ pub fn apply_perspective_division(clip: &Vector4<f32>) -> Point3<f32> {
     }
 }
 
-/// Converts NDC coordinates to Screen coordinates (Viewport Transform).
-/// Note: Y-axis is flipped (NDC +Y is up, Screen +Y is down).
+/// Converts NDC coordinates to screen coordinates, flipping NDC +Y into screen -Y.
 #[inline]
 pub fn ndc_to_screen(ndc_x: f32, ndc_y: f32, width: f32, height: f32) -> Point2<f32> {
     Point2::new(
