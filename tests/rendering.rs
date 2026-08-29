@@ -691,6 +691,7 @@ fn triangle_rasterization_crosses_band_boundaries() {
 fn top_left_rule_covers_shared_edge_once_without_cracks() {
     let shader = AdditiveCoverageShader;
     let color = Vector4::new(1.0, 0.0, 0.0, 0.5);
+    let size = 257;
     let mut vertices = vec![
         Vertex::new(Point3::new(-1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
         Vertex::new(Point3::new(1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
@@ -701,7 +702,7 @@ fn top_left_rule_covers_shared_edge_once_without_cracks() {
         vertex.tangent = color;
     }
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
-    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let mut renderer = Renderer::new(size, size, 1).expect("test dimensions should be valid");
     draw_mesh(
         &mut renderer,
         &mesh,
@@ -715,7 +716,7 @@ fn top_left_rule_covers_shared_edge_once_without_cracks() {
         },
     );
 
-    for coordinate in 0..32 {
+    for coordinate in 0..size {
         assert_vec3_approx(
             renderer
                 .framebuffer

@@ -394,7 +394,7 @@ Status: completed
 
 ## Phase 8: Profile-Guided Performance Work
 
-Status: in progress
+Status: completed
 
 This is the reordered version of the original Phase 6. Correctness and stable submission/resource models must land first.
 
@@ -452,15 +452,14 @@ The 8-row band won every 12-worker comparison against the original 16-row band, 
 
 ### 8E: Further Experiments
 
-Status: planned
+Status: completed
 
-Only after measurement:
+- [x] Increment screen-space edge equations across each scanline, rebasing every 32 pixels to bound floating-point drift.
+- [x] Reuse the oriented edge values as barycentric coordinates instead of recomputing triangle areas per covered sample.
+- [x] Benchmark Rayon maximum band-task lengths of 1, 2, 4, and 8; retain the default scheduler because no fixed limit wins consistently.
+- [x] Close hierarchical Z, explicit SIMD, and compact sample layouts without implementation by scope decision.
 
-- incremental edge equations;
-- hierarchical Z;
-- SIMD;
-- compact sample layouts;
-- tuned Rayon task granularity.
+In three alternating 30-frame rounds with 12 workers, incremental edges improved the default car complete frame by 8.4%, its 2× SSAA variant by 3.6%, the large triangle by 2.0%, and high transparency by 0.8%. The city raster stages improved by 4.3% to 5.9% while its complete frame varied by 1.9%, and 400 small triangles regressed by 2.6%. The main scene remained deterministic across worker counts; compared with direct evaluation, only 76 of 921,600 output pixels differed after 8-bit conversion, with a mean absolute channel delta of 0.000095. See `benchmarks/results/2026-08-29-phase-8e-i5-13500h.md`.
 
 ## Phase 9: Code, Comment, and Documentation Cleanup
 
@@ -531,7 +530,7 @@ Rendering changes must additionally compare deterministic output between one and
 
 ## Next-Agent Handoff
 
-Repository state after Phase 8D:
+Repository state after Phase 8E:
 
 - branch: `main`;
 - completed commits through Phase 8A cover the benchmark infrastructure and baseline;
@@ -540,9 +539,10 @@ Repository state after Phase 8D:
 - Phase 8B caches stable resources and transforms, shares pass data, deduplicates indexed vertex work, removes clipping heap allocations, and reuses band/depth storage;
 - Phase 8C prepares all mesh triangles in a queue group through one ordered parallel domain and removes per-mesh prepared-triangle collections;
 - Phase 8D retains 8-row horizontal bands after benchmarking three band heights and two safe 2D tile sizes across the full matrix;
+- Phase 8E uses incremental oriented edge equations with periodic rebasing, reuses edge values for barycentrics, and retains Rayon's default task splitting after a fixed-granularity sweep;
 - all Phase 8A matrix hashes remain unchanged between the baseline and Phase 8B and across one versus 12 workers;
-- all Phase 8A matrix hashes also remain unchanged after Phases 8C and 8D;
-- 131 tests are present after Phase 8D;
+- all Phase 8A matrix hashes remain unchanged through Phase 8D; Phase 8E preserves deterministic output across workers while its floating-point reordering changes textured-scene hashes by visually negligible amounts;
+- 131 tests are present after Phase 8E;
 - no `unsafe` remains in `src/` or `tests/`.
 
-Immediate target: Phase 8E measurement of further rasterization experiments. Retain only changes that improve the representative benchmark matrix without changing deterministic output.
+Immediate target: Phase 9 code, comment, and documentation cleanup.

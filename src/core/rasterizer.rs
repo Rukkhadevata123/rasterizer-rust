@@ -1,13 +1,14 @@
 use crate::core::framebuffer::{FrameBuffer, Sample};
 use crate::core::geometry::SUPPORTED_TEXCOORD_SETS;
-use crate::core::math::interpolation::{barycentric_coordinates, perspective_correct_barycentric};
+use crate::core::math::interpolation::perspective_correct_barycentric;
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
 use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
-use nalgebra::{Point2, Vector4};
+use nalgebra::{Point2, Vector3, Vector4};
 use rayon::prelude::*;
 use std::ops::RangeInclusive;
 
 const RASTER_BAND_HEIGHT: usize = 8;
+const EDGE_REBASE_PIXELS: usize = 32;
 const WIREFRAME_HALF_WIDTH: f32 = 1.0;
 const MAX_CLIPPED_VERTICES: usize = 9;
 pub(crate) const MAX_PREPARED_TRIANGLES: usize = MAX_CLIPPED_VERTICES - 2;
@@ -126,6 +127,8 @@ pub(crate) struct PreparedTriangle<'a, V, S, C> {
     edge_is_top_left: [bool; 3],
     edge_inverse_lengths: [f32; 3],
     orientation: f32,
+    inverse_area: f32,
+    oriented_edge_steps_x: [f32; 3],
     start_x: usize,
     end_x: usize,
     start_y: usize,
@@ -411,6 +414,8 @@ impl Rasterizer {
         {
             return None;
         }
+        let inverse_area = 1.0 / signed_area.abs();
+        let oriented_edge_steps_x = edges.map(|(start, end)| -(end.y - start.y) * orientation);
 
         let front_facing = (signed_area < 0.0) != state.front_face_inverted;
 
@@ -479,6 +484,8 @@ impl Rasterizer {
             edge_is_top_left,
             edge_inverse_lengths,
             orientation,
+            inverse_area,
+            oriented_edge_steps_x,
             start_x: min_x.max(0) as usize,
             end_x: max_x.min(framebuffer_width as i32 - 1) as usize,
             start_y: min_y.max(0) as usize,
@@ -519,108 +526,121 @@ impl Rasterizer {
 
         for y in start_y..=end_y {
             let row_offset = (y - band_start_y) * framebuffer_width;
-            for x in triangle.start_x..=triangle.end_x {
-                let pixel_center = Point2::new(x as f32 + 0.5, y as f32 + 0.5);
-                let edge_values = [
-                    Self::edge_function(
-                        triangle.screen_coords[1],
-                        triangle.screen_coords[2],
-                        pixel_center,
-                    ),
-                    Self::edge_function(
-                        triangle.screen_coords[2],
-                        triangle.screen_coords[0],
-                        pixel_center,
-                    ),
-                    Self::edge_function(
-                        triangle.screen_coords[0],
-                        triangle.screen_coords[1],
-                        pixel_center,
-                    ),
-                ];
-                let covered = edge_values.iter().enumerate().all(|(index, value)| {
-                    let oriented_value = value * triangle.orientation;
-                    oriented_value > 0.0
-                        || (oriented_value == 0.0 && triangle.edge_is_top_left[index])
-                });
-                if !covered {
-                    continue;
-                }
-
-                let Some(barycentric) = barycentric_coordinates(
-                    pixel_center,
-                    triangle.screen_coords[0],
+            let row_start = Point2::new(triangle.start_x as f32 + 0.5, y as f32 + 0.5);
+            let row_edge_values = [
+                Self::edge_function(
                     triangle.screen_coords[1],
                     triangle.screen_coords[2],
-                ) else {
-                    continue;
-                };
-
-                if triangle.state.wireframe
-                    && edge_values.iter().zip(triangle.edge_inverse_lengths).all(
-                        |(edge, inverse_length)| edge.abs() * inverse_length > WIREFRAME_HALF_WIDTH,
-                    )
-                {
-                    continue;
-                }
-
-                let z_ndc = barycentric.x * triangle.clip_z[0] / triangle.w_values[0]
-                    + barycentric.y * triangle.clip_z[1] / triangle.w_values[1]
-                    + barycentric.z * triangle.clip_z[2] / triangle.w_values[2];
-                let depth = z_ndc * 0.5 + 0.5;
-                if !depth.is_finite() {
-                    continue;
-                }
-
-                let sample = &mut samples[row_offset + x];
-                if triangle.state.depth_test
-                    && !triangle.state.depth_compare.test(depth, sample.depth)
-                {
-                    continue;
-                }
-
-                let varying = perspective_correct_barycentric(
-                    barycentric,
-                    triangle.w_values[0],
-                    triangle.w_values[1],
-                    triangle.w_values[2],
-                )
-                .map(|weights| {
-                    triangle.varyings[0] * weights.x
-                        + triangle.varyings[1] * weights.y
-                        + triangle.varyings[2] * weights.z
-                })
-                .unwrap_or_else(|| {
-                    triangle.varyings[0] * barycentric.x
-                        + triangle.varyings[1] * barycentric.y
-                        + triangle.varyings[2] * barycentric.z
-                });
-
-                let input = FragmentInput {
-                    varying,
-                    front_facing: triangle.front_facing,
-                    uv_densities: triangle.uv_densities,
-                };
-                let FragmentOutput::Color(color) =
-                    triangle.shader.fragment(input, triangle.fragment_context)
-                else {
-                    continue;
-                };
-
-                match triangle.state.blend_mode {
-                    BlendMode::Opaque => {
-                        if triangle.state.depth_write {
-                            sample.depth = depth;
+                    row_start,
+                ) * triangle.orientation,
+                Self::edge_function(
+                    triangle.screen_coords[2],
+                    triangle.screen_coords[0],
+                    row_start,
+                ) * triangle.orientation,
+                Self::edge_function(
+                    triangle.screen_coords[0],
+                    triangle.screen_coords[1],
+                    row_start,
+                ) * triangle.orientation,
+            ];
+            // Periodic direct evaluation bounds drift while the inner loop uses cheap additions.
+            for chunk_start in (triangle.start_x..=triangle.end_x).step_by(EDGE_REBASE_PIXELS) {
+                let x_offset = (chunk_start - triangle.start_x) as f32;
+                let mut edge_values = [
+                    row_edge_values[0] + triangle.oriented_edge_steps_x[0] * x_offset,
+                    row_edge_values[1] + triangle.oriented_edge_steps_x[1] * x_offset,
+                    row_edge_values[2] + triangle.oriented_edge_steps_x[2] * x_offset,
+                ];
+                let chunk_end = (chunk_start + EDGE_REBASE_PIXELS - 1).min(triangle.end_x);
+                for x in chunk_start..=chunk_end {
+                    'fragment: {
+                        let covered = edge_values.iter().enumerate().all(|(index, value)| {
+                            *value > 0.0 || (*value == 0.0 && triangle.edge_is_top_left[index])
+                        });
+                        if !covered {
+                            break 'fragment;
                         }
-                        sample.color = color.xyz();
-                    }
-                    BlendMode::Alpha if color.w > 0.001 => {
-                        if triangle.state.depth_write {
-                            sample.depth = depth;
+
+                        let barycentric = Vector3::new(
+                            edge_values[0] * triangle.inverse_area,
+                            edge_values[1] * triangle.inverse_area,
+                            edge_values[2] * triangle.inverse_area,
+                        );
+
+                        if triangle.state.wireframe
+                            && edge_values.iter().zip(triangle.edge_inverse_lengths).all(
+                                |(edge, inverse_length)| {
+                                    edge.abs() * inverse_length > WIREFRAME_HALF_WIDTH
+                                },
+                            )
+                        {
+                            break 'fragment;
                         }
-                        sample.color = color.xyz() * color.w + sample.color * (1.0 - color.w);
+
+                        let z_ndc = barycentric.x * triangle.clip_z[0] / triangle.w_values[0]
+                            + barycentric.y * triangle.clip_z[1] / triangle.w_values[1]
+                            + barycentric.z * triangle.clip_z[2] / triangle.w_values[2];
+                        let depth = z_ndc * 0.5 + 0.5;
+                        if !depth.is_finite() {
+                            break 'fragment;
+                        }
+
+                        let sample = &mut samples[row_offset + x];
+                        if triangle.state.depth_test
+                            && !triangle.state.depth_compare.test(depth, sample.depth)
+                        {
+                            break 'fragment;
+                        }
+
+                        let varying = perspective_correct_barycentric(
+                            barycentric,
+                            triangle.w_values[0],
+                            triangle.w_values[1],
+                            triangle.w_values[2],
+                        )
+                        .map(|weights| {
+                            triangle.varyings[0] * weights.x
+                                + triangle.varyings[1] * weights.y
+                                + triangle.varyings[2] * weights.z
+                        })
+                        .unwrap_or_else(|| {
+                            triangle.varyings[0] * barycentric.x
+                                + triangle.varyings[1] * barycentric.y
+                                + triangle.varyings[2] * barycentric.z
+                        });
+
+                        let input = FragmentInput {
+                            varying,
+                            front_facing: triangle.front_facing,
+                            uv_densities: triangle.uv_densities,
+                        };
+                        let FragmentOutput::Color(color) =
+                            triangle.shader.fragment(input, triangle.fragment_context)
+                        else {
+                            break 'fragment;
+                        };
+
+                        match triangle.state.blend_mode {
+                            BlendMode::Opaque => {
+                                if triangle.state.depth_write {
+                                    sample.depth = depth;
+                                }
+                                sample.color = color.xyz();
+                            }
+                            BlendMode::Alpha if color.w > 0.001 => {
+                                if triangle.state.depth_write {
+                                    sample.depth = depth;
+                                }
+                                sample.color =
+                                    color.xyz() * color.w + sample.color * (1.0 - color.w);
+                            }
+                            BlendMode::Alpha => {}
+                        }
                     }
-                    BlendMode::Alpha => {}
+                    edge_values[0] += triangle.oriented_edge_steps_x[0];
+                    edge_values[1] += triangle.oriented_edge_steps_x[1];
+                    edge_values[2] += triangle.oriented_edge_steps_x[2];
                 }
             }
         }
