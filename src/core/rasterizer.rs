@@ -646,3 +646,45 @@ impl Rasterizer {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_state_defaults_match_the_existing_pipeline_contract() {
+        let state = RenderState::default();
+
+        assert_eq!(state.cull_mode, CullMode::Back);
+        assert!(!state.front_face_inverted);
+        assert!(state.depth_test);
+        assert_eq!(state.depth_compare, DepthCompare::Less);
+        assert!(state.depth_write);
+        assert_eq!(state.blend_mode, BlendMode::Opaque);
+        assert!(!state.wireframe);
+    }
+
+    #[test]
+    fn depth_compare_functions_match_their_ordering_contract() {
+        let stored = 0.5;
+        let incoming = [0.25, 0.5, 0.75];
+        let cases = [
+            (DepthCompare::Never, [false, false, false]),
+            (DepthCompare::Less, [true, false, false]),
+            (DepthCompare::LessEqual, [true, true, false]),
+            (DepthCompare::Equal, [false, true, false]),
+            (DepthCompare::NotEqual, [true, false, true]),
+            (DepthCompare::GreaterEqual, [false, true, true]),
+            (DepthCompare::Greater, [false, false, true]),
+            (DepthCompare::Always, [true, true, true]),
+        ];
+
+        for (compare, expected) in cases {
+            assert_eq!(
+                incoming.map(|value| compare.test(value, stored)),
+                expected,
+                "unexpected {compare:?} comparison results"
+            );
+        }
+    }
+}
