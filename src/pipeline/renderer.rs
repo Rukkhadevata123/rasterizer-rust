@@ -1,7 +1,7 @@
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::geometry::Vertex;
-use crate::core::pipeline::Shader;
 use crate::core::rasterizer::{MAX_PREPARED_TRIANGLES, PreparedTriangle, Rasterizer, RenderState};
+use crate::core::shader::Shader;
 use crate::scene::material::Material;
 use crate::scene::mesh::Mesh;
 use crate::scene::texture::{

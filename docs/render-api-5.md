@@ -26,7 +26,7 @@ The final 5.0 library will not expose `core`, the current high-level `pipeline` 
 
 The 4.0 crate exports almost its entire source tree through `lib.rs`. Integration tests currently import all of these layers:
 
-- programmable types from `core::pipeline`;
+- programmable types from `core::shader`;
 - `Vertex` and `FrameBuffer` from `core`;
 - raster state and `Rasterizer` from `core::rasterizer`;
 - immediate draw lists and `Renderer` from `pipeline::renderer`;

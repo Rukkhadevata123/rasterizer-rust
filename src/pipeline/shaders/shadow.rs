@@ -1,5 +1,5 @@
 use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
-use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
+use crate::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use crate::scene::material::{AlphaMode, Material};
 use nalgebra::{Matrix4, Vector2, Vector4};
 use std::ops::{Add, Mul};

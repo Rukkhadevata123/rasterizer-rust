@@ -2,10 +2,10 @@ use image::{DynamicImage, RgbaImage};
 use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
 use rasterizer_rust::core::framebuffer::FrameBuffer;
 use rasterizer_rust::core::geometry::Vertex;
-use rasterizer_rust::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use rasterizer_rust::core::rasterizer::{
     BlendMode, CullMode, DepthCompare, Rasterizer, RenderState,
 };
+use rasterizer_rust::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use rasterizer_rust::pipeline::passes::{
     ShadowPassOutput, post_process_to_buffer, render_main_pass, render_shadow_pass,
 };

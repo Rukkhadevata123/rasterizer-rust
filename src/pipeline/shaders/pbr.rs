@@ -1,6 +1,6 @@
 use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
 use crate::core::math::transform::TangentFrameTransform;
-use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
+use crate::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use crate::scene::light::Light;
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use crate::scene::texture::TextureBinding;

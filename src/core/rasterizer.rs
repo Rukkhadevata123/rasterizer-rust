@@ -2,7 +2,7 @@ use crate::core::framebuffer::{FrameBuffer, Sample};
 use crate::core::geometry::SUPPORTED_TEXCOORD_SETS;
 use crate::core::math::interpolation::perspective_correct_barycentric;
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
-use crate::core::pipeline::{FragmentInput, FragmentOutput, Interpolatable, Shader};
+use crate::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use nalgebra::{Point2, Vector3, Vector4};
 use rayon::prelude::*;
 use std::ops::RangeInclusive;
