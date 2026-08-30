@@ -1,5 +1,6 @@
 use crate::core::geometry::Vertex;
 use crate::core::math::transform::TangentFrameTransform;
+use crate::core::pipeline_state::FrontFace;
 use crate::scene::material::{AlphaMode, Material};
 use crate::scene::model::Model;
 use nalgebra::Matrix4;
@@ -16,7 +17,7 @@ pub struct SceneObject {
     pub model: Model,
     transform: Matrix4<f32>,
     tangent_frame_transform: TangentFrameTransform,
-    front_face_inverted: bool,
+    front_face: FrontFace,
     transparent_world_vertices: Vec<Option<Vec<Vertex>>>,
 }
 
@@ -29,7 +30,7 @@ impl SceneObject {
             tangent_frame_transform: TangentFrameTransform::new(
                 transform.fixed_view::<3, 3>(0, 0).into_owned(),
             ),
-            front_face_inverted: false,
+            front_face: FrontFace::CounterClockwise,
             transparent_world_vertices: Vec::new(),
         };
         object.refresh_transform_cache();
@@ -49,8 +50,8 @@ impl SceneObject {
         self.tangent_frame_transform
     }
 
-    pub fn front_face_inverted(&self) -> bool {
-        self.front_face_inverted
+    pub fn front_face(&self) -> FrontFace {
+        self.front_face
     }
 
     pub fn transparent_world_vertices(&self, mesh_index: usize) -> Option<&[Vertex]> {
@@ -62,7 +63,11 @@ impl SceneObject {
     fn refresh_transform_cache(&mut self) {
         let linear = self.transform.fixed_view::<3, 3>(0, 0).into_owned();
         self.tangent_frame_transform = TangentFrameTransform::new(linear);
-        self.front_face_inverted = linear.determinant() < 0.0;
+        self.front_face = if linear.determinant() < 0.0 {
+            FrontFace::Clockwise
+        } else {
+            FrontFace::CounterClockwise
+        };
         self.transparent_world_vertices = self
             .model
             .meshes
@@ -91,5 +96,28 @@ impl SceneObject {
                 })
             })
             .collect();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::Vector3;
+
+    #[test]
+    fn mirrored_transform_selects_clockwise_front_face() {
+        let mut object = SceneObject::new(
+            SceneObjectKind::Model { config_index: 0 },
+            Model::new(Vec::new(), Vec::new()),
+            Matrix4::identity(),
+        );
+
+        assert_eq!(object.front_face(), FrontFace::CounterClockwise);
+
+        object.set_transform(Matrix4::new_nonuniform_scaling(&Vector3::new(
+            -1.0, 1.0, 1.0,
+        )));
+
+        assert_eq!(object.front_face(), FrontFace::Clockwise);
     }
 }

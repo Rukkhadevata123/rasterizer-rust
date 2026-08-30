@@ -1,7 +1,8 @@
 use crate::core::color::{aces_tone_mapping, linear_to_srgb};
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::math::transform::{TangentFrameTransform, TransformFactory};
-use crate::core::rasterizer::{BlendMode, CullMode, RenderState};
+use crate::core::pipeline_state::{CullMode, PrimitiveState};
+use crate::core::rasterizer::{BlendMode, RenderState};
 use crate::error::AssetError;
 use crate::io::config::Config;
 use crate::pipeline::renderer::{ClearOptions, RenderGeometry, RenderPhase, Renderer};
@@ -243,12 +244,15 @@ pub fn render_shadow_pass_profiled(
                 continue;
             }
             let command_state = RenderState {
-                cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
-                    CullMode::None
-                } else {
-                    shadow_state.cull_mode
+                primitive: PrimitiveState {
+                    cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
+                        CullMode::None
+                    } else {
+                        shadow_state.primitive.cull_mode
+                    },
+                    front_face: object.front_face(),
+                    ..shadow_state.primitive
                 },
-                front_face_inverted: object.front_face_inverted(),
                 ..shadow_state
             };
             shadow_phase.push(
@@ -412,12 +416,15 @@ pub fn render_main_pass_profiled(
             });
             let alpha_mode = pbr_material.map_or(AlphaMode::Opaque, |material| material.alpha_mode);
             let command_state = |state: RenderState| RenderState {
-                cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
-                    CullMode::None
-                } else {
-                    state.cull_mode
+                primitive: PrimitiveState {
+                    cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
+                        CullMode::None
+                    } else {
+                        state.primitive.cull_mode
+                    },
+                    front_face: obj.front_face(),
+                    ..state.primitive
                 },
-                front_face_inverted: obj.front_face_inverted(),
                 ..state
             };
 

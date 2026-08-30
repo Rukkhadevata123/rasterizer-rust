@@ -2,9 +2,8 @@ use image::{DynamicImage, RgbaImage};
 use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
 use rasterizer_rust::core::framebuffer::FrameBuffer;
 use rasterizer_rust::core::geometry::Vertex;
-use rasterizer_rust::core::rasterizer::{
-    BlendMode, CullMode, DepthCompare, Rasterizer, RenderState,
-};
+use rasterizer_rust::core::pipeline_state::{CullMode, FrontFace, PolygonMode, PrimitiveState};
+use rasterizer_rust::core::rasterizer::{BlendMode, DepthCompare, Rasterizer, RenderState};
 use rasterizer_rust::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use rasterizer_rust::pipeline::passes::{
     ShadowPassOutput, post_process_to_buffer, render_main_pass, render_shadow_pass,
@@ -267,7 +266,10 @@ fn assert_vec3_approx(actual: Vector3<f32>, expected: Vector3<f32>) {
 
 fn test_render_state() -> RenderState {
     RenderState {
-        cull_mode: CullMode::None,
+        primitive: PrimitiveState {
+            cull_mode: CullMode::None,
+            ..Default::default()
+        },
         ..Default::default()
     }
 }

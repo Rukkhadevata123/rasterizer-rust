@@ -174,7 +174,10 @@ fn cull_mode_can_reject_one_winding() {
         let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
         renderer.rasterizer = Rasterizer::new();
         let state = RenderState {
-            cull_mode: mode,
+            primitive: PrimitiveState {
+                cull_mode: mode,
+                ..Default::default()
+            },
             ..Default::default()
         };
         draw_mesh(&mut renderer, &mesh, &shader, None, state);
@@ -205,21 +208,33 @@ fn fragment_input_reports_triangle_facing() {
 #[test]
 fn mirrored_render_state_inverts_culling_and_fragment_facing() {
     let mesh = triangle(0.0, Vector4::zeros());
-    let render = |cull_mode, front_face_inverted| {
+    let render = |cull_mode, front_face| {
         let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
         let state = RenderState {
-            cull_mode,
-            front_face_inverted,
+            primitive: PrimitiveState {
+                cull_mode,
+                front_face,
+                ..Default::default()
+            },
             ..Default::default()
         };
         draw_mesh(&mut renderer, &mesh, &FacingShader, None, state);
         renderer.framebuffer.get_pixel(16, 16).unwrap()
     };
 
-    assert_vec3_approx(render(CullMode::None, false), Vector3::new(0.0, 1.0, 0.0));
-    assert_vec3_approx(render(CullMode::None, true), Vector3::new(1.0, 0.0, 0.0));
-    assert!(render(CullMode::Back, false).norm_squared() > 0.0);
-    assert_eq!(render(CullMode::Back, true), Vector3::zeros());
+    assert_vec3_approx(
+        render(CullMode::None, FrontFace::CounterClockwise),
+        Vector3::new(0.0, 1.0, 0.0),
+    );
+    assert_vec3_approx(
+        render(CullMode::None, FrontFace::Clockwise),
+        Vector3::new(1.0, 0.0, 0.0),
+    );
+    assert!(render(CullMode::Back, FrontFace::CounterClockwise).norm_squared() > 0.0);
+    assert_eq!(
+        render(CullMode::Back, FrontFace::Clockwise),
+        Vector3::zeros()
+    );
 }
 
 #[test]
@@ -297,7 +312,10 @@ fn wireframe_width_is_stable_in_pixel_space() {
             &shader,
             None,
             RenderState {
-                wireframe: true,
+                primitive: PrimitiveState {
+                    polygon_mode: PolygonMode::Line,
+                    ..test_render_state().primitive
+                },
                 ..test_render_state()
             },
         );

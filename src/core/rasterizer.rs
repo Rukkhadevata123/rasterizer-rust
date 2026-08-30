@@ -2,6 +2,7 @@ use crate::core::framebuffer::{FrameBuffer, Sample};
 use crate::core::geometry::SUPPORTED_TEXCOORD_SETS;
 use crate::core::math::interpolation::perspective_correct_barycentric;
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
+use crate::core::pipeline_state::{CullMode, FrontFace, PolygonMode, PrimitiveState};
 use crate::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use nalgebra::{Point2, Vector3, Vector4};
 use rayon::prelude::*;
@@ -50,13 +51,6 @@ impl<V: Copy> ClippedPolygon<V> {
 }
 
 #[derive(PartialEq, Copy, Clone, Debug)]
-pub enum CullMode {
-    Back,
-    Front,
-    None,
-}
-
-#[derive(PartialEq, Copy, Clone, Debug)]
 pub enum BlendMode {
     Opaque,
     Alpha,
@@ -91,25 +85,21 @@ impl DepthCompare {
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub struct RenderState {
-    pub cull_mode: CullMode,
-    pub front_face_inverted: bool,
+    pub primitive: PrimitiveState,
     pub depth_test: bool,
     pub depth_compare: DepthCompare,
     pub depth_write: bool,
     pub blend_mode: BlendMode,
-    pub wireframe: bool,
 }
 
 impl Default for RenderState {
     fn default() -> Self {
         Self {
-            cull_mode: CullMode::Back,
-            front_face_inverted: false,
+            primitive: PrimitiveState::default(),
             depth_test: true,
             depth_compare: DepthCompare::Less,
             depth_write: true,
             blend_mode: BlendMode::Opaque,
-            wireframe: false,
         }
     }
 }
@@ -419,9 +409,10 @@ impl Rasterizer {
         let inverse_area = 1.0 / signed_area.abs();
         let oriented_edge_steps_x = edges.map(|(start, end)| -(end.y - start.y) * orientation);
 
-        let front_facing = (signed_area < 0.0) != state.front_face_inverted;
+        let front_facing = (signed_area < 0.0)
+            == matches!(state.primitive.front_face, FrontFace::CounterClockwise);
 
-        match state.cull_mode {
+        match state.primitive.cull_mode {
             CullMode::Back if !front_facing => return None,
             CullMode::Front if front_facing => return None,
             _ => {}
@@ -570,7 +561,7 @@ impl Rasterizer {
                             edge_values[2] * triangle.inverse_area,
                         );
 
-                        if triangle.state.wireframe
+                        if triangle.state.primitive.polygon_mode == PolygonMode::Line
                             && edge_values.iter().zip(triangle.edge_inverse_lengths).all(
                                 |(edge, inverse_length)| {
                                     edge.abs() * inverse_length > WIREFRAME_HALF_WIDTH
@@ -657,13 +648,11 @@ mod tests {
     fn render_state_defaults_match_the_existing_pipeline_contract() {
         let state = RenderState::default();
 
-        assert_eq!(state.cull_mode, CullMode::Back);
-        assert!(!state.front_face_inverted);
+        assert_eq!(state.primitive, PrimitiveState::default());
         assert!(state.depth_test);
         assert_eq!(state.depth_compare, DepthCompare::Less);
         assert!(state.depth_write);
         assert_eq!(state.blend_mode, BlendMode::Opaque);
-        assert!(!state.wireframe);
     }
 
     #[test]

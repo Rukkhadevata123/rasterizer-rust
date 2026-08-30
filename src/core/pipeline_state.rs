@@ -1,4 +1,11 @@
-use super::rasterizer::{BlendMode, CullMode, DepthCompare, RenderState};
+use super::rasterizer::{BlendMode, DepthCompare, RenderState};
+
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+pub enum CullMode {
+    Back,
+    Front,
+    None,
+}
 
 #[derive(PartialEq, Eq, Copy, Clone, Debug, Default)]
 pub enum PrimitiveTopology {
@@ -111,20 +118,7 @@ impl Default for GraphicsPipelineState {
 impl From<RenderState> for GraphicsPipelineState {
     fn from(value: RenderState) -> Self {
         Self {
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                front_face: if value.front_face_inverted {
-                    FrontFace::Clockwise
-                } else {
-                    FrontFace::CounterClockwise
-                },
-                cull_mode: value.cull_mode,
-                polygon_mode: if value.wireframe {
-                    PolygonMode::Line
-                } else {
-                    PolygonMode::Fill
-                },
-            },
+            primitive: value.primitive,
             depth_stencil: Some(DepthStencilState {
                 depth_compare: if value.depth_test {
                     value.depth_compare.into()
@@ -167,13 +161,16 @@ mod tests {
     #[test]
     fn legacy_state_maps_to_the_new_pipeline_vocabulary() {
         let state = GraphicsPipelineState::from(RenderState {
-            cull_mode: CullMode::Front,
-            front_face_inverted: true,
+            primitive: PrimitiveState {
+                front_face: FrontFace::Clockwise,
+                cull_mode: CullMode::Front,
+                polygon_mode: PolygonMode::Line,
+                ..Default::default()
+            },
             depth_test: false,
             depth_compare: DepthCompare::Greater,
             depth_write: true,
             blend_mode: BlendMode::Alpha,
-            wireframe: true,
         });
 
         assert_eq!(state.primitive.topology, PrimitiveTopology::TriangleList);

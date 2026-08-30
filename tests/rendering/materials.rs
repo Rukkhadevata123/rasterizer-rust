@@ -134,7 +134,10 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
         &mut renderer,
         &shadow,
         RenderState {
-            cull_mode: CullMode::None,
+            primitive: PrimitiveState {
+                cull_mode: CullMode::None,
+                ..Default::default()
+            },
             ..Default::default()
         },
     )

@@ -1,5 +1,6 @@
 use crate::core::framebuffer::FrameBuffer;
-use crate::core::rasterizer::{CullMode, RenderState};
+use crate::core::pipeline_state::{CullMode, PolygonMode, PrimitiveState};
+use crate::core::rasterizer::RenderState;
 use crate::error::{ApplicationError, WindowError};
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
@@ -24,6 +25,18 @@ fn cull_mode_from_index(index: usize) -> CullMode {
         0 => CullMode::None,
         1 => CullMode::Front,
         _ => CullMode::Back,
+    }
+}
+
+fn primitive_state(cull_mode: CullMode, wireframe: bool) -> PrimitiveState {
+    PrimitiveState {
+        cull_mode,
+        polygon_mode: if wireframe {
+            PolygonMode::Line
+        } else {
+            PolygonMode::Fill
+        },
+        ..Default::default()
     }
 }
 
@@ -181,8 +194,7 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
     let mut last_middle_click = false;
     let mut cull_mode_idx = cull_mode_index(config.render.cull_mode);
     let mut render_state = RenderState {
-        cull_mode: cull_mode_from_index(cull_mode_idx),
-        wireframe: config.render.wireframe,
+        primitive: primitive_state(cull_mode_from_index(cull_mode_idx), config.render.wireframe),
         ..Default::default()
     };
 
@@ -235,9 +247,13 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
                 cam_controller.sensitivity = new_config.camera.sensitivity;
                 cam_controller.zoom_speed = new_config.camera.zoom_speed;
 
-                render_state.wireframe = new_config.render.wireframe;
+                render_state.primitive.polygon_mode = if new_config.render.wireframe {
+                    PolygonMode::Line
+                } else {
+                    PolygonMode::Fill
+                };
                 cull_mode_idx = cull_mode_index(new_config.render.cull_mode);
-                render_state.cull_mode = cull_mode_from_index(cull_mode_idx);
+                render_state.primitive.cull_mode = cull_mode_from_index(cull_mode_idx);
                 config = new_config;
 
                 if reload_plan.is_live_update() {
@@ -254,15 +270,21 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         if right_click && !last_right_click {
             cull_mode_idx = (cull_mode_idx + 1) % 3;
             let new_mode = cull_mode_from_index(cull_mode_idx);
-            render_state.cull_mode = new_mode;
+            render_state.primitive.cull_mode = new_mode;
             info!("Cull mode changed to: {:?}", new_mode);
         }
         last_right_click = right_click;
 
         let middle_click = window.get_mouse_down(MouseButton::Middle);
         if middle_click && !last_middle_click {
-            render_state.wireframe = !render_state.wireframe;
-            info!("Wireframe mode: {}", render_state.wireframe);
+            render_state.primitive.polygon_mode = match render_state.primitive.polygon_mode {
+                PolygonMode::Fill => PolygonMode::Line,
+                PolygonMode::Line => PolygonMode::Fill,
+            };
+            info!(
+                "Wireframe mode: {}",
+                render_state.primitive.polygon_mode == PolygonMode::Line
+            );
         }
         last_middle_click = middle_click;
 
@@ -323,8 +345,10 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     })?;
 
     let render_state = RenderState {
-        cull_mode: cull_mode_from_index(cull_mode_index(config.render.cull_mode)),
-        wireframe: config.render.wireframe,
+        primitive: primitive_state(
+            cull_mode_from_index(cull_mode_index(config.render.cull_mode)),
+            config.render.wireframe,
+        ),
         ..Default::default()
     };
 

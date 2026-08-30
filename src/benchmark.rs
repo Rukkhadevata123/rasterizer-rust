@@ -1,4 +1,5 @@
-use crate::core::rasterizer::{CullMode, RenderState};
+use crate::core::pipeline_state::{CullMode, PolygonMode, PrimitiveState};
+use crate::core::rasterizer::RenderState;
 use crate::error::{ApplicationError, BenchmarkError};
 use crate::io::config::{Config, CullModeConfig};
 use crate::pipeline::passes::{
@@ -198,12 +199,19 @@ pub fn run_benchmark(
     })?;
     let mut buffer = vec![0u32; config.render.width * config.render.height];
     let render_state = RenderState {
-        cull_mode: match config.render.cull_mode {
-            CullModeConfig::None => CullMode::None,
-            CullModeConfig::Front => CullMode::Front,
-            CullModeConfig::Back => CullMode::Back,
+        primitive: PrimitiveState {
+            cull_mode: match config.render.cull_mode {
+                CullModeConfig::None => CullMode::None,
+                CullModeConfig::Front => CullMode::Front,
+                CullModeConfig::Back => CullMode::Back,
+            },
+            polygon_mode: if config.render.wireframe {
+                PolygonMode::Line
+            } else {
+                PolygonMode::Fill
+            },
+            ..Default::default()
         },
-        wireframe: config.render.wireframe,
         ..Default::default()
     };
 
