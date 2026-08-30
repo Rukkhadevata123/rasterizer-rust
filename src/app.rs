@@ -1,6 +1,5 @@
 use crate::core::framebuffer::FrameBuffer;
-use crate::core::pipeline_state::{CullMode, PolygonMode, PrimitiveState};
-use crate::core::rasterizer::RenderState;
+use crate::core::pipeline_state::{CullMode, GraphicsPipelineState, PolygonMode, PrimitiveState};
 use crate::error::{ApplicationError, WindowError};
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
@@ -193,7 +192,7 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
     let mut last_right_click = false;
     let mut last_middle_click = false;
     let mut cull_mode_idx = cull_mode_index(config.render.cull_mode);
-    let mut render_state = RenderState {
+    let mut pipeline_state = GraphicsPipelineState {
         primitive: primitive_state(cull_mode_from_index(cull_mode_idx), config.render.wireframe),
         ..Default::default()
     };
@@ -247,13 +246,13 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
                 cam_controller.sensitivity = new_config.camera.sensitivity;
                 cam_controller.zoom_speed = new_config.camera.zoom_speed;
 
-                render_state.primitive.polygon_mode = if new_config.render.wireframe {
+                pipeline_state.primitive.polygon_mode = if new_config.render.wireframe {
                     PolygonMode::Line
                 } else {
                     PolygonMode::Fill
                 };
                 cull_mode_idx = cull_mode_index(new_config.render.cull_mode);
-                render_state.primitive.cull_mode = cull_mode_from_index(cull_mode_idx);
+                pipeline_state.primitive.cull_mode = cull_mode_from_index(cull_mode_idx);
                 config = new_config;
 
                 if reload_plan.is_live_update() {
@@ -270,26 +269,26 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         if right_click && !last_right_click {
             cull_mode_idx = (cull_mode_idx + 1) % 3;
             let new_mode = cull_mode_from_index(cull_mode_idx);
-            render_state.primitive.cull_mode = new_mode;
+            pipeline_state.primitive.cull_mode = new_mode;
             info!("Cull mode changed to: {:?}", new_mode);
         }
         last_right_click = right_click;
 
         let middle_click = window.get_mouse_down(MouseButton::Middle);
         if middle_click && !last_middle_click {
-            render_state.primitive.polygon_mode = match render_state.primitive.polygon_mode {
+            pipeline_state.primitive.polygon_mode = match pipeline_state.primitive.polygon_mode {
                 PolygonMode::Fill => PolygonMode::Line,
                 PolygonMode::Line => PolygonMode::Fill,
             };
             info!(
                 "Wireframe mode: {}",
-                render_state.primitive.polygon_mode == PolygonMode::Line
+                pipeline_state.primitive.polygon_mode == PolygonMode::Line
             );
         }
         last_middle_click = middle_click;
 
         let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
-        render_main_pass(&config, &context, &mut renderer, &shadow, render_state)?;
+        render_main_pass(&config, &context, &mut renderer, &shadow, pipeline_state)?;
 
         post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
         window
@@ -344,7 +343,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         reason,
     })?;
 
-    let render_state = RenderState {
+    let pipeline_state = GraphicsPipelineState {
         primitive: primitive_state(
             cull_mode_from_index(cull_mode_index(config.render.cull_mode)),
             config.render.wireframe,
@@ -356,7 +355,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     if shadow.depth.is_some() {
         debug!("Shadow pass completed.");
     }
-    render_main_pass(&config, &context, &mut renderer, &shadow, render_state)?;
+    render_main_pass(&config, &context, &mut renderer, &shadow, pipeline_state)?;
 
     info!("Render completed in {:.2?}", start_time.elapsed());
 

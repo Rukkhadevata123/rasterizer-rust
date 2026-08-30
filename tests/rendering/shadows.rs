@@ -1,5 +1,12 @@
 use super::*;
 
+fn depth_only_pipeline_state() -> GraphicsPipelineState {
+    GraphicsPipelineState {
+        color_target: None,
+        ..test_pipeline_state()
+    }
+}
+
 #[test]
 fn masked_shadow_fragments_respect_material_alpha() {
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
@@ -20,7 +27,7 @@ fn masked_shadow_fragments_respect_material_alpha() {
         &mesh,
         &shader,
         Some(&discarded),
-        test_render_state(),
+        depth_only_pipeline_state(),
     );
     assert!(
         renderer
@@ -41,7 +48,7 @@ fn masked_shadow_fragments_respect_material_alpha() {
         &mesh,
         &shader,
         Some(&visible),
-        test_render_state(),
+        depth_only_pipeline_state(),
     );
     assert!((renderer.framebuffer.sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
@@ -88,7 +95,7 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
         &mesh,
         &shader,
         Some(&material),
-        test_render_state(),
+        depth_only_pipeline_state(),
     );
 
     assert!(

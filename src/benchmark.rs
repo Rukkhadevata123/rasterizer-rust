@@ -1,5 +1,4 @@
-use crate::core::pipeline_state::{CullMode, PolygonMode, PrimitiveState};
-use crate::core::rasterizer::RenderState;
+use crate::core::pipeline_state::{CullMode, GraphicsPipelineState, PolygonMode, PrimitiveState};
 use crate::error::{ApplicationError, BenchmarkError};
 use crate::io::config::{Config, CullModeConfig};
 use crate::pipeline::passes::{
@@ -198,7 +197,7 @@ pub fn run_benchmark(
         reason,
     })?;
     let mut buffer = vec![0u32; config.render.width * config.render.height];
-    let render_state = RenderState {
+    let pipeline_state = GraphicsPipelineState {
         primitive: PrimitiveState {
             cull_mode: match config.render.cull_mode {
                 CullModeConfig::None => CullMode::None,
@@ -222,7 +221,7 @@ pub fn run_benchmark(
             &mut renderer,
             &mut shadow_renderer,
             &mut buffer,
-            render_state,
+            pipeline_state,
         )?;
     }
 
@@ -235,7 +234,7 @@ pub fn run_benchmark(
             &mut renderer,
             &mut shadow_renderer,
             &mut buffer,
-            render_state,
+            pipeline_state,
         )?);
         let hash = fnv1a_hash(&buffer);
         if let Some(expected) = output_hash
@@ -271,11 +270,12 @@ fn render_profiled_frame(
     renderer: &mut Renderer,
     shadow_renderer: &mut Renderer,
     buffer: &mut [u32],
-    render_state: RenderState,
+    pipeline_state: GraphicsPipelineState,
 ) -> Result<FrameTimings, ApplicationError> {
     let frame_started = Instant::now();
     let (shadow, shadow_timings) = render_shadow_pass_profiled(config, context, shadow_renderer);
-    let main_timings = render_main_pass_profiled(config, context, renderer, &shadow, render_state)?;
+    let main_timings =
+        render_main_pass_profiled(config, context, renderer, &shadow, pipeline_state)?;
     let post_started = Instant::now();
     post_process_to_buffer(&renderer.framebuffer, buffer, config);
     let post_processing = post_started.elapsed();

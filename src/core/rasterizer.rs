@@ -3,7 +3,7 @@ use crate::core::geometry::SUPPORTED_TEXCOORD_SETS;
 use crate::core::math::interpolation::perspective_correct_barycentric;
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
 use crate::core::pipeline_state::{
-    CullMode, DepthStencilState, FrontFace, PolygonMode, PrimitiveState,
+    BlendState, ColorTargetState, CullMode, FrontFace, GraphicsPipelineState, PolygonMode,
 };
 use crate::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use nalgebra::{Point2, Vector3, Vector4};
@@ -52,36 +52,13 @@ impl<V: Copy> ClippedPolygon<V> {
     }
 }
 
-#[derive(PartialEq, Copy, Clone, Debug)]
-pub enum BlendMode {
-    Opaque,
-    Alpha,
-}
-
-#[derive(PartialEq, Copy, Clone, Debug)]
-pub struct RenderState {
-    pub primitive: PrimitiveState,
-    pub depth_stencil: Option<DepthStencilState>,
-    pub blend_mode: BlendMode,
-}
-
-impl Default for RenderState {
-    fn default() -> Self {
-        Self {
-            primitive: PrimitiveState::default(),
-            depth_stencil: Some(DepthStencilState::default()),
-            blend_mode: BlendMode::Opaque,
-        }
-    }
-}
-
 pub(crate) struct PreparedTriangle<'a, V, S, C> {
     screen_coords: [Point2<f32>; 3],
     clip_z: [f32; 3],
     w_values: [f32; 3],
     varyings: [V; 3],
     shader: &'a S,
-    state: RenderState,
+    state: GraphicsPipelineState,
     fragment_context: C,
     front_facing: bool,
     uv_densities: [f32; SUPPORTED_TEXCOORD_SETS],
@@ -115,7 +92,7 @@ impl Rasterizer {
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[S::Varying; 3],
         shader: &'a S,
-        state: RenderState,
+        state: GraphicsPipelineState,
         fragment_context: C,
     ) -> [Option<PreparedTriangle<'a, S::Varying, S, C>>; MAX_PREPARED_TRIANGLES]
     where
@@ -309,7 +286,7 @@ impl Rasterizer {
         clip_coords: &[Vector4<f32>; 3],
         varyings: &[V; 3],
         shader: &'a S,
-        state: RenderState,
+        state: GraphicsPipelineState,
         fragment_context: C,
     ) -> Option<PreparedTriangle<'a, V, S, C>>
     where
@@ -586,21 +563,32 @@ impl Rasterizer {
                             break 'fragment;
                         };
 
-                        match triangle.state.blend_mode {
-                            BlendMode::Opaque => {
-                                if depth_stencil.is_some_and(|state| state.depth_write_enabled) {
-                                    sample.depth = depth;
-                                }
+                        let color_target = triangle.state.color_target;
+                        if matches!(
+                            color_target,
+                            Some(ColorTargetState {
+                                blend: Some(BlendState::Alpha)
+                            })
+                        ) && color.w <= 0.001
+                        {
+                            break 'fragment;
+                        }
+
+                        if depth_stencil.is_some_and(|state| state.depth_write_enabled) {
+                            sample.depth = depth;
+                        }
+
+                        match color_target {
+                            None => {}
+                            Some(ColorTargetState { blend: None }) => {
                                 sample.color = color.xyz();
                             }
-                            BlendMode::Alpha if color.w > 0.001 => {
-                                if depth_stencil.is_some_and(|state| state.depth_write_enabled) {
-                                    sample.depth = depth;
-                                }
+                            Some(ColorTargetState {
+                                blend: Some(BlendState::Alpha),
+                            }) => {
                                 sample.color =
                                     color.xyz() * color.w + sample.color * (1.0 - color.w);
                             }
-                            BlendMode::Alpha => {}
                         }
                     }
                     edge_values[0] += triangle.oriented_edge_steps_x[0];
@@ -609,19 +597,5 @@ impl Rasterizer {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn render_state_defaults_match_the_existing_pipeline_contract() {
-        let state = RenderState::default();
-
-        assert_eq!(state.primitive, PrimitiveState::default());
-        assert_eq!(state.depth_stencil, Some(DepthStencilState::default()));
-        assert_eq!(state.blend_mode, BlendMode::Opaque);
     }
 }

@@ -1,8 +1,10 @@
 use crate::core::color::{aces_tone_mapping, linear_to_srgb};
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::math::transform::{TangentFrameTransform, TransformFactory};
-use crate::core::pipeline_state::{CullMode, DepthStencilState, PrimitiveState};
-use crate::core::rasterizer::{BlendMode, RenderState};
+use crate::core::pipeline_state::{
+    BlendState, ColorTargetState, CullMode, DepthStencilState, GraphicsPipelineState,
+    PrimitiveState,
+};
 use crate::error::AssetError;
 use crate::io::config::Config;
 use crate::pipeline::renderer::{ClearOptions, RenderGeometry, RenderPhase, Renderer};
@@ -217,7 +219,10 @@ pub fn render_shadow_pass_profiled(
     let attachment_processing = attachment_started.elapsed();
 
     let setup_started = Instant::now();
-    let shadow_state = RenderState::default();
+    let shadow_state = GraphicsPipelineState {
+        color_target: None,
+        ..Default::default()
+    };
     let shaders: Vec<ShadowShader> = context
         .scene_objects
         .iter()
@@ -243,7 +248,7 @@ pub fn render_shadow_pass_profiled(
             if matches!(pbr_material, Some(material) if material.alpha_mode == AlphaMode::Blend) {
                 continue;
             }
-            let command_state = RenderState {
+            let command_state = GraphicsPipelineState {
                 primitive: PrimitiveState {
                     cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
                         CullMode::None
@@ -291,7 +296,7 @@ pub fn render_main_pass(
     context: &RenderScene,
     renderer: &mut Renderer,
     shadow: &ShadowPassOutput,
-    state: RenderState,
+    state: GraphicsPipelineState,
 ) -> Result<(), AssetError> {
     render_main_pass_profiled(config, context, renderer, shadow, state).map(|_| ())
 }
@@ -301,7 +306,7 @@ pub fn render_main_pass_profiled(
     context: &RenderScene,
     renderer: &mut Renderer,
     shadow: &ShadowPassOutput,
-    state: RenderState,
+    state: GraphicsPipelineState,
 ) -> Result<MainPassTimings, AssetError> {
     let pass_started = Instant::now();
     let bg_texture = if let Some(path) = &config.render.background_image {
@@ -343,16 +348,18 @@ pub fn render_main_pass_profiled(
     let attachment_processing = attachment_started.elapsed();
 
     let setup_started = Instant::now();
-    let opaque_state = RenderState {
-        blend_mode: BlendMode::Opaque,
+    let opaque_state = GraphicsPipelineState {
+        color_target: Some(ColorTargetState { blend: None }),
         depth_stencil: state.depth_stencil.map(|depth_stencil| DepthStencilState {
             depth_write_enabled: true,
             ..depth_stencil
         }),
         ..state
     };
-    let transparent_state = RenderState {
-        blend_mode: BlendMode::Alpha,
+    let transparent_state = GraphicsPipelineState {
+        color_target: Some(ColorTargetState {
+            blend: Some(BlendState::Alpha),
+        }),
         depth_stencil: state.depth_stencil.map(|depth_stencil| DepthStencilState {
             depth_write_enabled: false,
             ..depth_stencil
@@ -421,7 +428,7 @@ pub fn render_main_pass_profiled(
                 Material::Pbr(material) => material,
             });
             let alpha_mode = pbr_material.map_or(AlphaMode::Opaque, |material| material.alpha_mode);
-            let command_state = |state: RenderState| RenderState {
+            let command_state = |state: GraphicsPipelineState| GraphicsPipelineState {
                 primitive: PrimitiveState {
                     cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
                         CullMode::None

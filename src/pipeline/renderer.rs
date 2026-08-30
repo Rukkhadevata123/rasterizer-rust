@@ -1,6 +1,7 @@
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::geometry::Vertex;
-use crate::core::rasterizer::{MAX_PREPARED_TRIANGLES, PreparedTriangle, Rasterizer, RenderState};
+use crate::core::pipeline_state::GraphicsPipelineState;
+use crate::core::rasterizer::{MAX_PREPARED_TRIANGLES, PreparedTriangle, Rasterizer};
 use crate::core::shader::Shader;
 use crate::scene::material::Material;
 use crate::scene::mesh::Mesh;
@@ -53,7 +54,7 @@ pub struct DrawPacket<'a> {
     pub shader_index: usize,
     pub geometry: RenderGeometry<'a>,
     pub material: Option<&'a Material>,
-    pub state: RenderState,
+    pub state: GraphicsPipelineState,
     pub sort_depth: f32,
 }
 
@@ -76,7 +77,7 @@ impl<'a> RenderPhase<'a> {
         shader_index: usize,
         geometry: RenderGeometry<'a>,
         material: Option<&'a Material>,
-        state: RenderState,
+        state: GraphicsPipelineState,
         sort_depth: f32,
     ) {
         let insertion_id = self.next_insertion_id;
@@ -429,7 +430,7 @@ impl Renderer {
         vertices: [&Vertex; 3],
         shader: &'a S,
         material: Option<&'a Material>,
-        state: RenderState,
+        state: GraphicsPipelineState,
     ) -> PreparedBatch<'a, S::Varying, S>
     where
         S: Shader<Option<&'a Material>>,
@@ -454,7 +455,7 @@ impl Renderer {
         vertices: [(Vector4<f32>, S::Varying); 3],
         shader: &'a S,
         material: Option<&'a Material>,
-        state: RenderState,
+        state: GraphicsPipelineState,
     ) -> PreparedBatch<'a, S::Varying, S>
     where
         S: Shader<Option<&'a Material>>,

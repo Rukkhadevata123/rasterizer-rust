@@ -19,7 +19,7 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
         0,
         RenderGeometry::Mesh(&mesh),
         None,
-        test_render_state(),
+        test_pipeline_state(),
         0.0,
     );
 
@@ -38,7 +38,7 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
         0,
         RenderGeometry::Mesh(&empty),
         None,
-        test_render_state(),
+        test_pipeline_state(),
         0.0,
     );
     let mut visible_phase = RenderPhase::default();
@@ -46,7 +46,7 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
         0,
         RenderGeometry::Mesh(&visible),
         None,
-        test_render_state(),
+        test_pipeline_state(),
         0.0,
     );
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
@@ -66,8 +66,8 @@ fn nearer_triangle_wins_depth_test() {
 
     let far = triangle(0.5, Vector4::new(1.0, 0.0, 0.0, 1.0));
     let near = triangle(-0.5, Vector4::new(0.0, 1.0, 0.0, 1.0));
-    draw_mesh(&mut renderer, &far, &shader, None, test_render_state());
-    draw_mesh(&mut renderer, &near, &shader, None, test_render_state());
+    draw_mesh(&mut renderer, &far, &shader, None, test_pipeline_state());
+    draw_mesh(&mut renderer, &near, &shader, None, test_pipeline_state());
 
     assert_vec3_approx(
         renderer.framebuffer.get_pixel(16, 16).unwrap(),
@@ -87,12 +87,12 @@ fn depth_state_is_explicit_per_draw() {
         &red,
         &shader,
         None,
-        RenderState {
+        GraphicsPipelineState {
             depth_stencil: Some(DepthStencilState {
                 depth_write_enabled: false,
                 ..Default::default()
             }),
-            ..test_render_state()
+            ..test_pipeline_state()
         },
     );
     assert!(
@@ -109,12 +109,12 @@ fn depth_state_is_explicit_per_draw() {
         &blue,
         &shader,
         None,
-        RenderState {
+        GraphicsPipelineState {
             depth_stencil: Some(DepthStencilState {
                 depth_compare: CompareFunction::Greater,
                 ..Default::default()
             }),
-            ..test_render_state()
+            ..test_pipeline_state()
         },
     );
     assert_vec3_approx(
@@ -127,12 +127,12 @@ fn depth_state_is_explicit_per_draw() {
         &blue,
         &shader,
         None,
-        RenderState {
+        GraphicsPipelineState {
             depth_stencil: Some(DepthStencilState {
                 depth_compare: CompareFunction::Always,
                 ..Default::default()
             }),
-            ..test_render_state()
+            ..test_pipeline_state()
         },
     );
     assert_vec3_approx(
@@ -146,9 +146,9 @@ fn depth_state_is_explicit_per_draw() {
         &red,
         &shader,
         None,
-        RenderState {
+        GraphicsPipelineState {
             depth_stencil: None,
-            ..test_render_state()
+            ..test_pipeline_state()
         },
     );
     assert_vec3_approx(
@@ -162,13 +162,38 @@ fn depth_state_is_explicit_per_draw() {
 }
 
 #[test]
+fn depth_only_color_target_runs_fragments_without_storing_color() {
+    let shader = ClipSpaceShader;
+    let mesh = triangle(0.0, Vector4::new(1.0, 0.0, 0.0, 0.25));
+    let masked = Material::Pbr(PbrMaterial {
+        alpha_mode: AlphaMode::Mask(0.5),
+        ..Default::default()
+    });
+    let pipeline = GraphicsPipelineState {
+        color_target: None,
+        ..test_pipeline_state()
+    };
+    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+
+    draw_mesh(&mut renderer, &mesh, &shader, Some(&masked), pipeline);
+    let discarded = renderer.framebuffer.sample(16, 16).unwrap();
+    assert!(discarded.depth.is_infinite());
+    assert_eq!(discarded.color, Vector3::zeros());
+
+    draw_mesh(&mut renderer, &mesh, &shader, None, pipeline);
+    let stored = renderer.framebuffer.sample(16, 16).unwrap();
+    assert!(stored.depth.is_finite());
+    assert_eq!(stored.color, Vector3::zeros());
+}
+
+#[test]
 fn triangle_crossing_near_plane_is_clipped_and_rendered() {
     let shader = ClipSpaceShader;
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
 
     let mut mesh = triangle(0.0, Vector4::new(1.0, 0.0, 1.0, 1.0));
     mesh.vertices[0].position.z = -2.0;
-    draw_mesh(&mut renderer, &mesh, &shader, None, test_render_state());
+    draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
 
     let colored_pixels = (0..32)
         .flat_map(|y| (0..32).map(move |x| (x, y)))
@@ -202,7 +227,7 @@ fn cull_mode_can_reject_one_winding() {
     let render = |mode| {
         let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
         renderer.rasterizer = Rasterizer::new();
-        let state = RenderState {
+        let state = GraphicsPipelineState {
             primitive: PrimitiveState {
                 cull_mode: mode,
                 ..Default::default()
@@ -226,7 +251,7 @@ fn fragment_input_reports_triangle_facing() {
     back_mesh.indices = vec![0, 2, 1];
     let render = |mesh: &Mesh| {
         let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-        draw_mesh(&mut renderer, mesh, &shader, None, test_render_state());
+        draw_mesh(&mut renderer, mesh, &shader, None, test_pipeline_state());
         renderer.framebuffer.get_pixel(16, 16).unwrap()
     };
 
@@ -235,11 +260,11 @@ fn fragment_input_reports_triangle_facing() {
 }
 
 #[test]
-fn mirrored_render_state_inverts_culling_and_fragment_facing() {
+fn mirrored_front_face_inverts_culling_and_fragment_facing() {
     let mesh = triangle(0.0, Vector4::zeros());
     let render = |cull_mode, front_face| {
         let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-        let state = RenderState {
+        let state = GraphicsPipelineState {
             primitive: PrimitiveState {
                 cull_mode,
                 front_face,
@@ -282,7 +307,7 @@ fn triangle_rasterization_crosses_band_boundaries() {
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
     let mut renderer = Renderer::new(48, 70, 1).expect("test dimensions should be valid");
 
-    draw_mesh(&mut renderer, &mesh, &shader, None, test_render_state());
+    draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
 
     for y in [0, 15, 16, 31, 32, 47, 48, 63, 64, 69] {
         assert_vec3_approx(renderer.framebuffer.get_pixel(24, y).unwrap(), color.xyz());
@@ -310,13 +335,15 @@ fn top_left_rule_covers_shared_edge_once_without_cracks() {
         &mesh,
         &shader,
         None,
-        RenderState {
-            blend_mode: BlendMode::Alpha,
+        GraphicsPipelineState {
+            color_target: Some(ColorTargetState {
+                blend: Some(BlendState::Alpha),
+            }),
             depth_stencil: Some(DepthStencilState {
                 depth_compare: CompareFunction::Always,
                 depth_write_enabled: false,
             }),
-            ..test_render_state()
+            ..test_pipeline_state()
         },
     );
 
@@ -342,12 +369,12 @@ fn wireframe_width_is_stable_in_pixel_space() {
             &triangle(0.0, color),
             &shader,
             None,
-            RenderState {
+            GraphicsPipelineState {
                 primitive: PrimitiveState {
                     polygon_mode: PolygonMode::Line,
-                    ..test_render_state().primitive
+                    ..test_pipeline_state().primitive
                 },
-                ..test_render_state()
+                ..test_pipeline_state()
             },
         );
         (0..width)
@@ -376,7 +403,7 @@ fn non_finite_clip_coordinates_are_rejected() {
             clip: Vector4::new(invalid, 0.0, 0.0, 1.0),
         };
         let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-        draw_mesh(&mut renderer, &mesh, &shader, None, test_render_state());
+        draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
         for y in 0..32 {
             for x in 0..32 {
                 let sample = renderer.framebuffer.sample(x, y).unwrap();
@@ -400,7 +427,7 @@ fn rasterizer_tracks_uv_density_per_texture_coordinate_set() {
         &mesh,
         &DualUvDensityShader,
         None,
-        test_render_state(),
+        test_pipeline_state(),
     );
 
     let density = renderer.framebuffer.get_pixel(16, 16).unwrap();
@@ -435,7 +462,7 @@ fn overlapping_triangles_produce_deterministic_depth_and_color() {
 
     for _ in 0..16 {
         let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
-        draw_mesh(&mut renderer, &mesh, &shader, None, test_render_state());
+        draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
 
         let sample = renderer.framebuffer.sample(32, 32).unwrap();
         assert_vec3_approx(sample.color, Vector3::new(0.0, 1.0, 0.0));

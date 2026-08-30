@@ -16,7 +16,7 @@ fn alpha_mask_discards_fragments_below_cutoff() {
         &mesh,
         &shader,
         Some(&material),
-        test_render_state(),
+        test_pipeline_state(),
     );
 
     assert_eq!(
@@ -54,7 +54,7 @@ fn headless_pbr_triangle_produces_visible_output() {
         &mesh,
         &shader,
         Some(&material),
-        test_render_state(),
+        test_pipeline_state(),
     );
 
     let mut config = rasterizer_rust::io::config::Config::default();
@@ -133,7 +133,7 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
         &context,
         &mut renderer,
         &shadow,
-        RenderState {
+        GraphicsPipelineState {
             primitive: PrimitiveState {
                 cull_mode: CullMode::None,
                 ..Default::default()
@@ -180,7 +180,7 @@ fn masked_pbr_fragments_respect_material_alpha() {
         &mesh,
         &shader,
         Some(&discarded),
-        test_render_state(),
+        test_pipeline_state(),
     );
     assert!(
         renderer
@@ -201,7 +201,7 @@ fn masked_pbr_fragments_respect_material_alpha() {
         &mesh,
         &shader,
         Some(&visible),
-        test_render_state(),
+        test_pipeline_state(),
     );
     assert!((renderer.framebuffer.sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
@@ -240,7 +240,7 @@ fn double_sided_material_disables_culling_per_command() {
             &context,
             &mut renderer,
             &shadow,
-            RenderState::default(),
+            GraphicsPipelineState::default(),
         )
         .expect("test scene should render");
         renderer.framebuffer.sample(16, 16).unwrap().depth
@@ -260,13 +260,15 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
         ..Default::default()
     });
     let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
-    let state = RenderState {
-        blend_mode: BlendMode::Alpha,
+    let state = GraphicsPipelineState {
+        color_target: Some(ColorTargetState {
+            blend: Some(BlendState::Alpha),
+        }),
         depth_stencil: Some(DepthStencilState {
             depth_write_enabled: false,
             ..Default::default()
         }),
-        ..test_render_state()
+        ..test_pipeline_state()
     };
     let mut phase = RenderPhase::default();
     phase.push(0, RenderGeometry::Mesh(&near), Some(&material), state, 0.5);
@@ -292,21 +294,21 @@ fn transparent_phase_uses_insertion_id_to_break_depth_ties() {
         0,
         RenderGeometry::Mesh(&first),
         None,
-        test_render_state(),
+        test_pipeline_state(),
         1.0,
     );
     phase.push(
         0,
         RenderGeometry::Mesh(&second),
         None,
-        test_render_state(),
+        test_pipeline_state(),
         -1.0,
     );
     phase.push(
         0,
         RenderGeometry::Mesh(&third),
         None,
-        test_render_state(),
+        test_pipeline_state(),
         1.0,
     );
 
@@ -333,13 +335,15 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                     alpha_mode: AlphaMode::Blend,
                     ..Default::default()
                 });
-                let state = RenderState {
-                    blend_mode: BlendMode::Alpha,
+                let state = GraphicsPipelineState {
+                    color_target: Some(ColorTargetState {
+                        blend: Some(BlendState::Alpha),
+                    }),
                     depth_stencil: Some(DepthStencilState {
                         depth_write_enabled: false,
                         ..Default::default()
                     }),
-                    ..test_render_state()
+                    ..test_pipeline_state()
                 };
                 let mut layers = [
                     (triangle(0.6, Vector4::new(1.0, 0.0, 0.0, 0.35)), -0.8),

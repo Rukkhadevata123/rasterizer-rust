@@ -1,5 +1,3 @@
-use super::rasterizer::{BlendMode, RenderState};
-
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum CullMode {
     Back,
@@ -115,21 +113,6 @@ impl Default for GraphicsPipelineState {
     }
 }
 
-impl From<RenderState> for GraphicsPipelineState {
-    fn from(value: RenderState) -> Self {
-        Self {
-            primitive: value.primitive,
-            depth_stencil: value.depth_stencil,
-            color_target: Some(ColorTargetState {
-                blend: match value.blend_mode {
-                    BlendMode::Opaque => None,
-                    BlendMode::Alpha => Some(BlendState::Alpha),
-                },
-            }),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,8 +135,8 @@ mod tests {
     }
 
     #[test]
-    fn render_state_maps_to_the_complete_pipeline_vocabulary() {
-        let state = GraphicsPipelineState::from(RenderState {
+    fn alpha_pipeline_state_preserves_independent_primitive_and_depth_state() {
+        let state = GraphicsPipelineState {
             primitive: PrimitiveState {
                 front_face: FrontFace::Clockwise,
                 cull_mode: CullMode::Front,
@@ -164,8 +147,10 @@ mod tests {
                 depth_compare: CompareFunction::Always,
                 depth_write_enabled: true,
             }),
-            blend_mode: BlendMode::Alpha,
-        });
+            color_target: Some(ColorTargetState {
+                blend: Some(BlendState::Alpha),
+            }),
+        };
 
         assert_eq!(state.primitive.topology, PrimitiveTopology::TriangleList);
         assert_eq!(state.primitive.front_face, FrontFace::Clockwise);
