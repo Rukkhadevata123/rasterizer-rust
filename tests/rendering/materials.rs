@@ -262,7 +262,7 @@ fn transparent_queue_sorts_back_to_front_and_preserves_band_order() {
         depth_write: false,
         ..test_render_state()
     };
-    let mut queue = RenderQueue::default();
+    let mut queue = RenderPhase::default();
     queue.push(0, RenderGeometry::Mesh(&near), Some(&material), state, 0.5);
     queue.push(0, RenderGeometry::Mesh(&far), Some(&material), state, -0.5);
     queue.sort_transparent();
@@ -281,7 +281,7 @@ fn transparent_queue_uses_insertion_id_to_break_depth_ties() {
     let first = triangle(0.0, Vector4::zeros());
     let second = triangle(0.0, Vector4::zeros());
     let third = triangle(0.0, Vector4::zeros());
-    let mut queue = RenderQueue::default();
+    let mut queue = RenderPhase::default();
     queue.push(
         0,
         RenderGeometry::Mesh(&first),
@@ -346,7 +346,7 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                     mesh.vertices[2].position.y = 0.95;
                 }
 
-                let mut queue = RenderQueue::with_capacity(layers.len());
+                let mut queue = RenderPhase::with_capacity(layers.len());
                 for (mesh, sort_depth) in &layers {
                     queue.push(
                         0,

@@ -48,7 +48,7 @@ pub struct DrawTimings {
     pub submission_total: Duration,
 }
 
-pub struct RenderCommand<'a> {
+pub struct DrawPacket<'a> {
     pub insertion_id: u64,
     pub shader_index: usize,
     pub geometry: RenderGeometry<'a>,
@@ -58,12 +58,12 @@ pub struct RenderCommand<'a> {
 }
 
 #[derive(Default)]
-pub struct RenderQueue<'a> {
-    commands: Vec<RenderCommand<'a>>,
+pub struct RenderPhase<'a> {
+    commands: Vec<DrawPacket<'a>>,
     next_insertion_id: u64,
 }
 
-impl<'a> RenderQueue<'a> {
+impl<'a> RenderPhase<'a> {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             commands: Vec::with_capacity(capacity),
@@ -81,7 +81,7 @@ impl<'a> RenderQueue<'a> {
     ) {
         let insertion_id = self.next_insertion_id;
         self.next_insertion_id += 1;
-        self.commands.push(RenderCommand {
+        self.commands.push(DrawPacket {
             insertion_id,
             shader_index,
             geometry,
@@ -104,7 +104,7 @@ impl<'a> RenderQueue<'a> {
         });
     }
 
-    pub fn commands(&self) -> &[RenderCommand<'a>] {
+    pub fn commands(&self) -> &[DrawPacket<'a>] {
         &self.commands
     }
 }
@@ -201,14 +201,14 @@ impl Renderer {
         });
     }
 
-    pub fn draw_queue<'a, S>(&mut self, queue: &RenderQueue<'a>, shaders: &'a [S])
+    pub fn draw_queue<'a, S>(&mut self, queue: &RenderPhase<'a>, shaders: &'a [S])
     where
         S: Shader<Option<&'a Material>>,
     {
         let _ = self.draw_queues_profiled(&[queue], shaders);
     }
 
-    pub fn draw_queues<'a, S>(&mut self, queues: &[&RenderQueue<'a>], shaders: &'a [S])
+    pub fn draw_queues<'a, S>(&mut self, queues: &[&RenderPhase<'a>], shaders: &'a [S])
     where
         S: Shader<Option<&'a Material>>,
     {
@@ -217,7 +217,7 @@ impl Renderer {
 
     pub fn draw_queue_profiled<'a, S>(
         &mut self,
-        queue: &RenderQueue<'a>,
+        queue: &RenderPhase<'a>,
         shaders: &'a [S],
     ) -> DrawTimings
     where
@@ -228,7 +228,7 @@ impl Renderer {
 
     pub fn draw_queues_profiled<'a, S>(
         &mut self,
-        queues: &[&RenderQueue<'a>],
+        queues: &[&RenderPhase<'a>],
         shaders: &'a [S],
     ) -> DrawTimings
     where
@@ -279,8 +279,8 @@ impl Renderer {
             })
             .collect();
 
-        let prepare_command_triangle =
-            |command: &RenderCommand<'a>, local_triangle_index: usize| {
+        let prepare_draw_packet_triangle =
+            |command: &DrawPacket<'a>, local_triangle_index: usize| {
                 let shader = &shaders[command.shader_index];
                 match &command.geometry {
                     RenderGeometry::Mesh(mesh) => {
@@ -391,7 +391,7 @@ impl Renderer {
                     let command_start = command_index
                         .checked_sub(1)
                         .map_or(0, |previous| triangle_ends[previous]);
-                    prepare_command_triangle(
+                    prepare_draw_packet_triangle(
                         commands[command_index],
                         triangle_index - command_start,
                     )
@@ -402,7 +402,11 @@ impl Renderer {
         } else {
             commands
                 .iter()
-                .flat_map(|command| prepare_command_triangle(command, 0).into_iter().flatten())
+                .flat_map(|command| {
+                    prepare_draw_packet_triangle(command, 0)
+                        .into_iter()
+                        .flatten()
+                })
                 .collect()
         };
         let backend_preparation = preparation_started.elapsed();

@@ -14,7 +14,7 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
     ];
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
     let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
-    let mut queue = RenderQueue::default();
+    let mut queue = RenderPhase::default();
     queue.push(
         0,
         RenderGeometry::Mesh(&mesh),
@@ -33,7 +33,7 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_queues() {
     let empty = Mesh::new(Vec::new(), Vec::new(), 0);
     let visible = triangle(0.0, Vector4::new(0.0, 1.0, 0.0, 1.0));
     let shaders = [ClipSpaceShader];
-    let mut empty_queue = RenderQueue::default();
+    let mut empty_queue = RenderPhase::default();
     empty_queue.push(
         0,
         RenderGeometry::Mesh(&empty),
@@ -41,7 +41,7 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_queues() {
         test_render_state(),
         0.0,
     );
-    let mut visible_queue = RenderQueue::default();
+    let mut visible_queue = RenderPhase::default();
     visible_queue.push(
         0,
         RenderGeometry::Mesh(&visible),

@@ -34,7 +34,7 @@ The 4.0 crate exports almost its entire source tree through `lib.rs`. Integratio
 - cameras, lights, materials, meshes, models, textures, and `RenderScene` from `scene`;
 - configuration and glTF loading from `io`.
 
-This is useful test coverage but not a deliberate stability boundary. In particular, `Rasterizer` is public even though its preparation and execution methods are crate-private, while `Renderer`, `RenderQueue`, and shader-index coupling expose the implementation that Phase 11 replaces.
+This is useful test coverage but not a deliberate stability boundary. In particular, `Rasterizer` is public even though its preparation and execution methods are crate-private, while `Renderer`, `RenderPhase`, and shader-index coupling expose the implementation that Phase 11 replaces.
 
 The new boundary distinguishes supported programmability from backend representation:
 
@@ -142,8 +142,8 @@ The following concepts are not public construction APIs in 5.0:
 - `SoftwareRasterBackend`;
 - framebuffer samples and mutable band views;
 - band bins and preparation scratch;
-- `RenderPhase` / current `RenderQueue`;
-- `DrawPacket` / current `RenderCommand`;
+- `RenderPhase`;
+- `DrawPacket`;
 - shader-index tables and vertex-source pointer keys;
 - `ClearOptions`;
 - the current coupled `Renderer`;

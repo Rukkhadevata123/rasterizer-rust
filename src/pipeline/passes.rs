@@ -4,7 +4,7 @@ use crate::core::math::transform::{TangentFrameTransform, TransformFactory};
 use crate::core::rasterizer::{BlendMode, CullMode, RenderState};
 use crate::error::AssetError;
 use crate::io::config::Config;
-use crate::pipeline::renderer::{ClearOptions, RenderGeometry, RenderQueue, Renderer};
+use crate::pipeline::renderer::{ClearOptions, RenderGeometry, RenderPhase, Renderer};
 use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
 use crate::scene::context::RenderScene;
@@ -225,7 +225,7 @@ pub fn render_shadow_pass_profiled(
     let pass_setup = initial_setup + setup_started.elapsed();
 
     let recording_started = Instant::now();
-    let mut shadow_queue = RenderQueue::with_capacity(
+    let mut shadow_queue = RenderPhase::with_capacity(
         context
             .scene_objects
             .iter()
@@ -395,9 +395,9 @@ pub fn render_main_pass_profiled(
     let pass_setup = initial_setup + setup_started.elapsed();
 
     let recording_started = Instant::now();
-    let mut opaque_queue = RenderQueue::with_capacity(queue_counts[0]);
-    let mut masked_queue = RenderQueue::with_capacity(queue_counts[1]);
-    let mut transparent_queue = RenderQueue::with_capacity(queue_counts[2]);
+    let mut opaque_queue = RenderPhase::with_capacity(queue_counts[0]);
+    let mut masked_queue = RenderPhase::with_capacity(queue_counts[1]);
+    let mut transparent_queue = RenderPhase::with_capacity(queue_counts[2]);
 
     for (shader_index, obj) in context.scene_objects.iter().enumerate() {
         for (mesh_index, mesh) in obj.model.meshes.iter().enumerate() {

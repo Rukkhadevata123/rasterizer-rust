@@ -9,7 +9,7 @@ use rasterizer_rust::core::rasterizer::{
 use rasterizer_rust::pipeline::passes::{
     ShadowPassOutput, post_process_to_buffer, render_main_pass, render_shadow_pass,
 };
-use rasterizer_rust::pipeline::renderer::{RenderGeometry, RenderQueue, Renderer};
+use rasterizer_rust::pipeline::renderer::{RenderGeometry, RenderPhase, Renderer};
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
 use rasterizer_rust::pipeline::shaders::shadow::ShadowShader;
 use rasterizer_rust::scene::camera::Camera;
@@ -281,7 +281,7 @@ fn draw_mesh<'a, S>(
 ) where
     S: Shader<Option<&'a Material>>,
 {
-    let mut queue = RenderQueue::default();
+    let mut queue = RenderPhase::default();
     queue.push(0, RenderGeometry::Mesh(mesh), material, state, 0.0);
     renderer.draw_queue(&queue, std::slice::from_ref(shader));
 }
