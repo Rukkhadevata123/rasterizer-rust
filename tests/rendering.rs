@@ -281,9 +281,9 @@ fn draw_mesh<'a, S>(
 ) where
     S: Shader<Option<&'a Material>>,
 {
-    let mut queue = RenderPhase::default();
-    queue.push(0, RenderGeometry::Mesh(mesh), material, state, 0.0);
-    renderer.draw_queue(&queue, std::slice::from_ref(shader));
+    let mut phase = RenderPhase::default();
+    phase.push(0, RenderGeometry::Mesh(mesh), material, state, 0.0);
+    renderer.draw_phase(&phase, std::slice::from_ref(shader));
 }
 
 fn shadow_test_camera() -> Camera {

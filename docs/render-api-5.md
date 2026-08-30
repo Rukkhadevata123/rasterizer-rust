@@ -147,7 +147,7 @@ The following concepts are not public construction APIs in 5.0:
 - shader-index tables and vertex-source pointer keys;
 - `ClearOptions`;
 - the current coupled `Renderer`;
-- immediate `draw_queue` and `draw_queues` execution methods.
+- immediate `draw_phase` and `draw_phases` execution methods.
 
 `RenderPhase` and `DrawPacket` remain useful internal names. Their fields are encoded through the public `RenderPassEncoder`; a finished `CommandBuffer` exposes labels and safe inspection only where a concrete debugging use case requires it.
 

@@ -225,7 +225,7 @@ pub fn render_shadow_pass_profiled(
     let pass_setup = initial_setup + setup_started.elapsed();
 
     let recording_started = Instant::now();
-    let mut shadow_queue = RenderPhase::with_capacity(
+    let mut shadow_phase = RenderPhase::with_capacity(
         context
             .scene_objects
             .iter()
@@ -251,7 +251,7 @@ pub fn render_shadow_pass_profiled(
                 front_face_inverted: object.front_face_inverted(),
                 ..shadow_state
             };
-            shadow_queue.push(
+            shadow_phase.push(
                 shader_index,
                 RenderGeometry::Mesh(mesh),
                 material,
@@ -261,7 +261,7 @@ pub fn render_shadow_pass_profiled(
         }
     }
     let recording = recording_started.elapsed();
-    let draw_timings = shadow_renderer.draw_queue_profiled(&shadow_queue, &shaders);
+    let draw_timings = shadow_renderer.draw_phase_profiled(&shadow_phase, &shaders);
 
     let output = ShadowPassOutput {
         depth: Some(shadow_renderer.shared_depth_values()),
@@ -371,7 +371,7 @@ pub fn render_main_pass_profiled(
         TangentFrameTransform::new(nalgebra::Matrix3::identity()),
     ));
 
-    let queue_counts = context
+    let phase_counts = context
         .scene_objects
         .iter()
         .fold([0; 3], |mut counts, object| {
@@ -395,9 +395,9 @@ pub fn render_main_pass_profiled(
     let pass_setup = initial_setup + setup_started.elapsed();
 
     let recording_started = Instant::now();
-    let mut opaque_queue = RenderPhase::with_capacity(queue_counts[0]);
-    let mut masked_queue = RenderPhase::with_capacity(queue_counts[1]);
-    let mut transparent_queue = RenderPhase::with_capacity(queue_counts[2]);
+    let mut opaque_phase = RenderPhase::with_capacity(phase_counts[0]);
+    let mut masked_phase = RenderPhase::with_capacity(phase_counts[1]);
+    let mut transparent_phase = RenderPhase::with_capacity(phase_counts[2]);
 
     for (shader_index, obj) in context.scene_objects.iter().enumerate() {
         for (mesh_index, mesh) in obj.model.meshes.iter().enumerate() {
@@ -446,7 +446,7 @@ pub fn render_main_pass_profiled(
                         let centroid_view =
                             view_matrix * Point3::from(centroid_world).to_homogeneous();
 
-                        transparent_queue.push(
+                        transparent_phase.push(
                             transparent_shader_index,
                             RenderGeometry::IndexedTriangle {
                                 vertices: world_vertices,
@@ -460,7 +460,7 @@ pub fn render_main_pass_profiled(
                     }
                 }
             } else if matches!(alpha_mode, AlphaMode::Mask(_)) {
-                masked_queue.push(
+                masked_phase.push(
                     shader_index,
                     RenderGeometry::Mesh(mesh),
                     material,
@@ -468,7 +468,7 @@ pub fn render_main_pass_profiled(
                     0.0,
                 );
             } else {
-                opaque_queue.push(
+                opaque_phase.push(
                     shader_index,
                     RenderGeometry::Mesh(mesh),
                     material,
@@ -480,11 +480,11 @@ pub fn render_main_pass_profiled(
     }
     let mut recording = recording_started.elapsed();
 
-    let opaque_masked = renderer.draw_queues_profiled(&[&opaque_queue, &masked_queue], &shaders);
+    let opaque_masked = renderer.draw_phases_profiled(&[&opaque_phase, &masked_phase], &shaders);
     let sorting_started = Instant::now();
-    transparent_queue.sort_transparent();
+    transparent_phase.sort_transparent();
     recording += sorting_started.elapsed();
-    let transparent = renderer.draw_queue_profiled(&transparent_queue, &shaders);
+    let transparent = renderer.draw_phase_profiled(&transparent_phase, &shaders);
 
     Ok(MainPassTimings {
         pass_setup,

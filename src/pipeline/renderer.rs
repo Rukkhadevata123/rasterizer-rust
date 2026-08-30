@@ -201,34 +201,34 @@ impl Renderer {
         });
     }
 
-    pub fn draw_queue<'a, S>(&mut self, queue: &RenderPhase<'a>, shaders: &'a [S])
+    pub fn draw_phase<'a, S>(&mut self, phase: &RenderPhase<'a>, shaders: &'a [S])
     where
         S: Shader<Option<&'a Material>>,
     {
-        let _ = self.draw_queues_profiled(&[queue], shaders);
+        let _ = self.draw_phases_profiled(&[phase], shaders);
     }
 
-    pub fn draw_queues<'a, S>(&mut self, queues: &[&RenderPhase<'a>], shaders: &'a [S])
+    pub fn draw_phases<'a, S>(&mut self, phases: &[&RenderPhase<'a>], shaders: &'a [S])
     where
         S: Shader<Option<&'a Material>>,
     {
-        let _ = self.draw_queues_profiled(queues, shaders);
+        let _ = self.draw_phases_profiled(phases, shaders);
     }
 
-    pub fn draw_queue_profiled<'a, S>(
+    pub fn draw_phase_profiled<'a, S>(
         &mut self,
-        queue: &RenderPhase<'a>,
+        phase: &RenderPhase<'a>,
         shaders: &'a [S],
     ) -> DrawTimings
     where
         S: Shader<Option<&'a Material>>,
     {
-        self.draw_queues_profiled(&[queue], shaders)
+        self.draw_phases_profiled(&[phase], shaders)
     }
 
-    pub fn draw_queues_profiled<'a, S>(
+    pub fn draw_phases_profiled<'a, S>(
         &mut self,
-        queues: &[&RenderPhase<'a>],
+        phases: &[&RenderPhase<'a>],
         shaders: &'a [S],
     ) -> DrawTimings
     where
@@ -238,7 +238,7 @@ impl Renderer {
         let preparation_started = Instant::now();
         let width = self.framebuffer.buffer_width;
         let height = self.framebuffer.buffer_height;
-        let commands: Vec<_> = queues.iter().flat_map(|queue| queue.commands()).collect();
+        let commands: Vec<_> = phases.iter().flat_map(|phase| phase.commands()).collect();
         let mut vertex_sources = HashMap::new();
         for command in &commands {
             let source = match &command.geometry {

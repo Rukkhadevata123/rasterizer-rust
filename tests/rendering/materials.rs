@@ -248,7 +248,7 @@ fn double_sided_material_disables_culling_per_command() {
 }
 
 #[test]
-fn transparent_queue_sorts_back_to_front_and_preserves_band_order() {
+fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
     let shader = ClipSpaceShader;
     let far = triangle(0.5, Vector4::new(1.0, 0.0, 0.0, 0.5));
     let near = triangle(-0.5, Vector4::new(0.0, 0.0, 1.0, 0.5));
@@ -262,11 +262,11 @@ fn transparent_queue_sorts_back_to_front_and_preserves_band_order() {
         depth_write: false,
         ..test_render_state()
     };
-    let mut queue = RenderPhase::default();
-    queue.push(0, RenderGeometry::Mesh(&near), Some(&material), state, 0.5);
-    queue.push(0, RenderGeometry::Mesh(&far), Some(&material), state, -0.5);
-    queue.sort_transparent();
-    renderer.draw_queue(&queue, std::slice::from_ref(&shader));
+    let mut phase = RenderPhase::default();
+    phase.push(0, RenderGeometry::Mesh(&near), Some(&material), state, 0.5);
+    phase.push(0, RenderGeometry::Mesh(&far), Some(&material), state, -0.5);
+    phase.sort_transparent();
+    renderer.draw_phase(&phase, std::slice::from_ref(&shader));
 
     for y in [8, 24, 40, 56] {
         assert_vec3_approx(
@@ -277,26 +277,26 @@ fn transparent_queue_sorts_back_to_front_and_preserves_band_order() {
 }
 
 #[test]
-fn transparent_queue_uses_insertion_id_to_break_depth_ties() {
+fn transparent_phase_uses_insertion_id_to_break_depth_ties() {
     let first = triangle(0.0, Vector4::zeros());
     let second = triangle(0.0, Vector4::zeros());
     let third = triangle(0.0, Vector4::zeros());
-    let mut queue = RenderPhase::default();
-    queue.push(
+    let mut phase = RenderPhase::default();
+    phase.push(
         0,
         RenderGeometry::Mesh(&first),
         None,
         test_render_state(),
         1.0,
     );
-    queue.push(
+    phase.push(
         0,
         RenderGeometry::Mesh(&second),
         None,
         test_render_state(),
         -1.0,
     );
-    queue.push(
+    phase.push(
         0,
         RenderGeometry::Mesh(&third),
         None,
@@ -304,9 +304,9 @@ fn transparent_queue_uses_insertion_id_to_break_depth_ties() {
         1.0,
     );
 
-    queue.sort_transparent();
+    phase.sort_transparent();
 
-    let ordering: Vec<(f32, u64)> = queue
+    let ordering: Vec<(f32, u64)> = phase
         .commands()
         .iter()
         .map(|command| (command.sort_depth, command.insertion_id))
@@ -346,9 +346,9 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                     mesh.vertices[2].position.y = 0.95;
                 }
 
-                let mut queue = RenderPhase::with_capacity(layers.len());
+                let mut phase = RenderPhase::with_capacity(layers.len());
                 for (mesh, sort_depth) in &layers {
-                    queue.push(
+                    phase.push(
                         0,
                         RenderGeometry::Mesh(mesh),
                         Some(&material),
@@ -356,12 +356,12 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                         *sort_depth,
                     );
                 }
-                queue.sort_transparent();
+                phase.sort_transparent();
 
                 let (width, height) = (96, 80);
                 let mut renderer =
                     Renderer::new(width, height, 1).expect("test dimensions should be valid");
-                renderer.draw_queue(&queue, std::slice::from_ref(&shader));
+                renderer.draw_phase(&phase, std::slice::from_ref(&shader));
 
                 let mut config = rasterizer_rust::io::config::Config::default();
                 config.render.width = width;
