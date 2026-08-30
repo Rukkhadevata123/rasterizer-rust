@@ -38,6 +38,33 @@ set BENCHMARK_THREADS=8
 node scripts/run-benchmarks.mjs
 ```
 
+`BENCHMARK_OUTPUT_ROOT` selects an independent output directory, which makes before/after runs directly comparable:
+
+```bash
+set BENCHMARK_OUTPUT_ROOT=outputs/benchmarks/baseline
+node scripts/run-benchmarks.mjs
+set BENCHMARK_OUTPUT_ROOT=outputs/benchmarks/candidate
+node scripts/run-benchmarks.mjs
+node scripts/compare-benchmarks.mjs outputs/benchmarks/baseline outputs/benchmarks/candidate benchmarks/performance-exceptions.json
+```
+
+The comparison command is the performance gate. It requires schema v2, identical environments and scenario sets, stable matching output hashes, matching workload metadata, and at least five measured frames per scenario. It fails when any candidate full-frame mean is more than 5% slower than its baseline. p95 changes are reported for diagnosis but do not independently fail the gate.
+
+Accepted exceptions belong in the tracked `performance-exceptions.json`, never only in an uncommitted report. Each exception must name the affected scenario, raise its allowed threshold above 5%, and provide a non-empty rationale:
+
+```json
+{
+  "schemaVersion": 1,
+  "exceptions": [
+    {
+      "scenario": "example-threads-12",
+      "thresholdPercent": 7.5,
+      "rationale": "Reviewed tradeoff and affected workload."
+    }
+  ]
+}
+```
+
 Set `BENCHMARK_THREADS` to the machine's physical-core count when simultaneous multithreading makes the runtime's available parallelism larger. Compare only runs with matching schema version, metadata, and output hashes. The opaque and masked queues intentionally share one rasterization measurement because the current renderer prepares and bins them together as one submission.
 
 Committed machine baselines live under `baselines/`; benchmark-backed comparisons for completed optimization phases live under `results/`.

@@ -10,7 +10,10 @@ import {
 } from "./benchmark-csv.mjs";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const outputRoot = join(repository, "outputs", "benchmarks");
+const outputRoot = resolve(
+  repository,
+  process.env.BENCHMARK_OUTPUT_ROOT ?? join("outputs", "benchmarks"),
+);
 const configRoot = join(outputRoot, "configs");
 mkdirSync(configRoot, { recursive: true });
 
