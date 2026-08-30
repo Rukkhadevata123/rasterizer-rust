@@ -172,7 +172,6 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
                 reason,
             }
         })?;
-    let mut shadow_backend = SoftwareRasterBackend::new();
     let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
@@ -294,7 +293,7 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         let shadow = render_shadow_pass(
             &config,
             &context,
-            &mut shadow_backend,
+            &mut backend,
             &mut shadow_target,
             &mut frame_resources,
         );
@@ -352,7 +351,6 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         target: "main framebuffer",
         reason,
     })?;
-    let mut shadow_backend = SoftwareRasterBackend::new();
     let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
@@ -375,7 +373,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     let shadow = render_shadow_pass(
         &config,
         &context,
-        &mut shadow_backend,
+        &mut backend,
         &mut shadow_target,
         &mut frame_resources,
     );

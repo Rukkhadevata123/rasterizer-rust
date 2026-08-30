@@ -31,6 +31,35 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
 }
 
 #[test]
+fn one_backend_executes_different_sized_targets_sequentially() {
+    let mesh = triangle(0.0, Vector4::new(1.0, 0.5, 0.25, 1.0));
+    let shaders = [ClipSpaceShader];
+    let mut phase = RenderPhase::default();
+    phase.push(
+        0,
+        RenderGeometry::Mesh(&mesh),
+        None,
+        test_pipeline_state(),
+        0.0,
+    );
+    let mut backend = SoftwareRasterBackend::new();
+    let mut shadow_target = RenderTarget::new(16, 16, 1).expect("shadow target should be valid");
+    let mut main_target = RenderTarget::new(48, 32, 1).expect("main target should be valid");
+
+    backend.execute_phase(&mut shadow_target, &phase, &shaders);
+    backend.execute_phase(&mut main_target, &phase, &shaders);
+
+    assert_vec3_approx(
+        shadow_target.framebuffer().get_pixel(8, 8).unwrap(),
+        Vector3::new(1.0, 0.5, 0.25),
+    );
+    assert_vec3_approx(
+        main_target.framebuffer().get_pixel(24, 16).unwrap(),
+        Vector3::new(1.0, 0.5, 0.25),
+    );
+}
+
+#[test]
 fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
     let empty = Mesh::new(Vec::new(), Vec::new(), 0);
     let visible = triangle(0.0, Vector4::new(0.0, 1.0, 0.0, 1.0));

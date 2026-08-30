@@ -188,7 +188,6 @@ pub fn run_benchmark(
         target: "main framebuffer",
         reason,
     })?;
-    let mut shadow_backend = SoftwareRasterBackend::new();
     let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
@@ -221,8 +220,8 @@ pub fn run_benchmark(
         let _ = render_profiled_frame(
             &config,
             &context,
-            (&mut backend, &mut target),
-            (&mut shadow_backend, &mut shadow_target),
+            &mut backend,
+            (&mut shadow_target, &mut target),
             &mut frame_resources,
             &mut buffer,
             pipeline_state,
@@ -235,8 +234,8 @@ pub fn run_benchmark(
         frames.push(render_profiled_frame(
             &config,
             &context,
-            (&mut backend, &mut target),
-            (&mut shadow_backend, &mut shadow_target),
+            &mut backend,
+            (&mut shadow_target, &mut target),
             &mut frame_resources,
             &mut buffer,
             pipeline_state,
@@ -272,17 +271,16 @@ pub fn run_benchmark(
 fn render_profiled_frame(
     config: &Config,
     context: &crate::scene::context::RenderScene,
-    main: (&mut SoftwareRasterBackend, &mut RenderTarget),
-    shadow_pass: (&mut SoftwareRasterBackend, &mut RenderTarget),
+    backend: &mut SoftwareRasterBackend,
+    targets: (&mut RenderTarget, &mut RenderTarget),
     resources: &mut FrameResources,
     buffer: &mut [u32],
     pipeline_state: GraphicsPipelineState,
 ) -> Result<FrameTimings, ApplicationError> {
     let frame_started = Instant::now();
-    let (backend, target) = main;
-    let (shadow_backend, shadow_target) = shadow_pass;
+    let (shadow_target, target) = targets;
     let (shadow, shadow_timings) =
-        render_shadow_pass_profiled(config, context, shadow_backend, shadow_target, resources);
+        render_shadow_pass_profiled(config, context, backend, shadow_target, resources);
     let main_timings = render_main_pass_profiled(
         config,
         context,
