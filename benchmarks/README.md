@@ -67,4 +67,4 @@ Accepted exceptions belong in the tracked `performance-exceptions.json`, never o
 
 Set `BENCHMARK_THREADS` to the machine's physical-core count when simultaneous multithreading makes the runtime's available parallelism larger. Compare only runs with matching schema version, metadata, and output hashes. The opaque and masked queues intentionally share one rasterization measurement because the current renderer prepares and bins them together as one submission.
 
-Committed machine baselines live under `baselines/`; benchmark-backed comparisons for completed optimization phases live under `results/`.
+Committed machine baselines live under `baselines/`; benchmark-backed comparisons for completed optimization phases live under `results/`. The Phase 11 baseline directory retains its raw schema-v2 CSV and metadata so it can be passed directly to `compare-benchmarks.mjs` rather than reconstructed from rounded Markdown values.
