@@ -11,7 +11,9 @@ use rasterizer_rust::core::shader::{FragmentInput, FragmentOutput, Interpolatabl
 use rasterizer_rust::pipeline::passes::{
     ShadowPassOutput, post_process_to_buffer, render_main_pass, render_shadow_pass,
 };
-use rasterizer_rust::pipeline::renderer::{RenderGeometry, RenderPhase, RenderTarget, Renderer};
+use rasterizer_rust::pipeline::renderer::{
+    FrameResources, RenderGeometry, RenderPhase, RenderTarget, Renderer,
+};
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
 use rasterizer_rust::pipeline::shaders::shadow::ShadowShader;
 use rasterizer_rust::scene::camera::Camera;
@@ -280,6 +282,7 @@ fn test_pipeline_state() -> GraphicsPipelineState {
 struct TestRenderer {
     renderer: Renderer,
     target: RenderTarget,
+    resources: FrameResources,
 }
 
 impl TestRenderer {
@@ -288,6 +291,7 @@ impl TestRenderer {
             renderer: Renderer::new(),
             target: RenderTarget::new(width, height, supersample_scale)
                 .expect("test dimensions should be valid"),
+            resources: FrameResources::new(),
         }
     }
 

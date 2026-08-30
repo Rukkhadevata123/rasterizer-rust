@@ -133,6 +133,7 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
         &context,
         &mut renderer.renderer,
         &mut renderer.target,
+        &mut renderer.resources,
         &shadow,
         GraphicsPipelineState {
             primitive: PrimitiveState {
@@ -241,6 +242,7 @@ fn double_sided_material_disables_culling_per_command() {
             &context,
             &mut renderer.renderer,
             &mut renderer.target,
+            &mut renderer.resources,
             &shadow,
             GraphicsPipelineState::default(),
         )

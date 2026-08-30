@@ -7,7 +7,7 @@ use crate::core::pipeline_state::{
 use crate::error::AssetError;
 use crate::io::config::Config;
 use crate::pipeline::renderer::{
-    ClearOptions, RenderGeometry, RenderPhase, RenderTarget, Renderer,
+    ClearOptions, FrameResources, RenderGeometry, RenderPhase, RenderTarget, Renderer,
 };
 use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
@@ -168,8 +168,9 @@ pub fn render_shadow_pass(
     context: &RenderScene,
     shadow_renderer: &mut Renderer,
     shadow_target: &mut RenderTarget,
+    resources: &mut FrameResources,
 ) -> ShadowPassOutput {
-    render_shadow_pass_profiled(config, context, shadow_renderer, shadow_target).0
+    render_shadow_pass_profiled(config, context, shadow_renderer, shadow_target, resources).0
 }
 
 pub fn render_shadow_pass_profiled(
@@ -177,6 +178,7 @@ pub fn render_shadow_pass_profiled(
     context: &RenderScene,
     shadow_renderer: &mut Renderer,
     shadow_target: &mut RenderTarget,
+    resources: &mut FrameResources,
 ) -> (ShadowPassOutput, ShadowPassTimings) {
     let pass_started = Instant::now();
     if !config.render.use_shadows {
@@ -279,7 +281,7 @@ pub fn render_shadow_pass_profiled(
     let draw_timings = shadow_renderer.draw_phase_profiled(shadow_target, &shadow_phase, &shaders);
 
     let output = ShadowPassOutput {
-        depth: Some(shadow_renderer.shared_depth_values(shadow_target)),
+        depth: Some(resources.shadow_depth_snapshot(shadow_target)),
         size: shadow_target.framebuffer().width,
         light_space_matrix,
         light_index: Some(shadow_light.light_index),
@@ -302,10 +304,12 @@ pub fn render_main_pass(
     context: &RenderScene,
     renderer: &mut Renderer,
     target: &mut RenderTarget,
+    resources: &mut FrameResources,
     shadow: &ShadowPassOutput,
     state: GraphicsPipelineState,
 ) -> Result<(), AssetError> {
-    render_main_pass_profiled(config, context, renderer, target, shadow, state).map(|_| ())
+    render_main_pass_profiled(config, context, renderer, target, resources, shadow, state)
+        .map(|_| ())
 }
 
 pub fn render_main_pass_profiled(
@@ -313,6 +317,7 @@ pub fn render_main_pass_profiled(
     context: &RenderScene,
     renderer: &mut Renderer,
     target: &mut RenderTarget,
+    resources: &mut FrameResources,
     shadow: &ShadowPassOutput,
     state: GraphicsPipelineState,
 ) -> Result<MainPassTimings, AssetError> {
@@ -320,7 +325,7 @@ pub fn render_main_pass_profiled(
     let bg_texture = if let Some(path) = &config.render.background_image {
         let background_path = config.resolve_path(path);
         Some(
-            renderer
+            resources
                 .background_texture(&background_path, config.render.use_mipmap)
                 .map_err(|source| AssetError::BackgroundImage {
                     path: background_path,

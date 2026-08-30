@@ -4,7 +4,7 @@ use crate::io::config::{Config, CullModeConfig};
 use crate::pipeline::passes::{
     post_process_to_buffer, render_main_pass_profiled, render_shadow_pass_profiled,
 };
-use crate::pipeline::renderer::{RenderTarget, Renderer};
+use crate::pipeline::renderer::{FrameResources, RenderTarget, Renderer};
 use crate::scene::loader::init_scene_resources;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -198,6 +198,7 @@ pub fn run_benchmark(
         target: "shadow framebuffer",
         reason,
     })?;
+    let mut frame_resources = FrameResources::new();
     let mut buffer = vec![0u32; config.render.width * config.render.height];
     let pipeline_state = GraphicsPipelineState {
         primitive: PrimitiveState {
@@ -222,6 +223,7 @@ pub fn run_benchmark(
             &context,
             (&mut renderer, &mut target),
             (&mut shadow_renderer, &mut shadow_target),
+            &mut frame_resources,
             &mut buffer,
             pipeline_state,
         )?;
@@ -235,6 +237,7 @@ pub fn run_benchmark(
             &context,
             (&mut renderer, &mut target),
             (&mut shadow_renderer, &mut shadow_target),
+            &mut frame_resources,
             &mut buffer,
             pipeline_state,
         )?);
@@ -271,6 +274,7 @@ fn render_profiled_frame(
     context: &crate::scene::context::RenderScene,
     main: (&mut Renderer, &mut RenderTarget),
     shadow_pass: (&mut Renderer, &mut RenderTarget),
+    resources: &mut FrameResources,
     buffer: &mut [u32],
     pipeline_state: GraphicsPipelineState,
 ) -> Result<FrameTimings, ApplicationError> {
@@ -278,9 +282,16 @@ fn render_profiled_frame(
     let (renderer, target) = main;
     let (shadow_renderer, shadow_target) = shadow_pass;
     let (shadow, shadow_timings) =
-        render_shadow_pass_profiled(config, context, shadow_renderer, shadow_target);
-    let main_timings =
-        render_main_pass_profiled(config, context, renderer, target, &shadow, pipeline_state)?;
+        render_shadow_pass_profiled(config, context, shadow_renderer, shadow_target, resources);
+    let main_timings = render_main_pass_profiled(
+        config,
+        context,
+        renderer,
+        target,
+        resources,
+        &shadow,
+        pipeline_state,
+    )?;
     let post_started = Instant::now();
     post_process_to_buffer(target, buffer, config);
     let post_processing = post_started.elapsed();

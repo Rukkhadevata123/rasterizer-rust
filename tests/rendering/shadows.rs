@@ -140,6 +140,7 @@ fn blended_materials_do_not_write_shadow_depth() {
         &context,
         &mut renderer.renderer,
         &mut renderer.target,
+        &mut renderer.resources,
     );
 
     assert!(
@@ -186,6 +187,7 @@ fn double_sided_material_disables_shadow_culling_per_command() {
             &context,
             &mut renderer.renderer,
             &mut renderer.target,
+            &mut renderer.resources,
         )
         .depth
         .unwrap()
@@ -215,6 +217,7 @@ fn point_only_scene_disables_shadow_pass() {
         &context,
         &mut renderer.renderer,
         &mut renderer.target,
+        &mut renderer.resources,
     );
 
     assert!(shadow.depth.is_none());
@@ -246,6 +249,7 @@ fn shadow_output_reports_actual_buffer_size() {
         &context,
         &mut renderer.renderer,
         &mut renderer.target,
+        &mut renderer.resources,
     );
 
     assert_eq!(shadow.size, 16);
@@ -286,6 +290,7 @@ fn directional_shadow_bounds_follow_the_camera_frustum() {
             &context,
             &mut renderer.renderer,
             &mut renderer.target,
+            &mut renderer.resources,
         )
         .light_space_matrix
     };
@@ -320,6 +325,7 @@ fn directional_shadow_bounds_include_scene_geometry() {
             &context,
             &mut renderer.renderer,
             &mut renderer.target,
+            &mut renderer.resources,
         )
         .light_space_matrix
     };

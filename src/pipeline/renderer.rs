@@ -148,24 +148,22 @@ impl RenderTarget {
     }
 }
 
-pub struct Renderer {
-    pub rasterizer: Rasterizer,
+pub struct FrameResources {
     cached_background: Option<CachedBackgroundTexture>,
-    shared_depth: Arc<Vec<f32>>,
+    shadow_snapshot: Arc<Vec<f32>>,
 }
 
-impl Default for Renderer {
+impl Default for FrameResources {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Renderer {
+impl FrameResources {
     pub fn new() -> Self {
         Self {
-            rasterizer: Rasterizer::new(),
             cached_background: None,
-            shared_depth: Arc::new(Vec::new()),
+            shadow_snapshot: Arc::new(Vec::new()),
         }
     }
 
@@ -203,11 +201,29 @@ impl Renderer {
         ))
     }
 
-    pub(crate) fn shared_depth_values(&mut self, target: &RenderTarget) -> Arc<Vec<f32>> {
+    pub(crate) fn shadow_depth_snapshot(&mut self, target: &RenderTarget) -> Arc<Vec<f32>> {
         target
             .framebuffer()
-            .copy_depth_values_into(Arc::make_mut(&mut self.shared_depth));
-        Arc::clone(&self.shared_depth)
+            .copy_depth_values_into(Arc::make_mut(&mut self.shadow_snapshot));
+        Arc::clone(&self.shadow_snapshot)
+    }
+}
+
+pub struct Renderer {
+    pub rasterizer: Rasterizer,
+}
+
+impl Default for Renderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Renderer {
+    pub fn new() -> Self {
+        Self {
+            rasterizer: Rasterizer::new(),
+        }
     }
 
     pub fn clear_with_options(&mut self, target: &mut RenderTarget, options: ClearOptions) {
@@ -525,17 +541,17 @@ mod tests {
         RgbaImage::from_pixel(1, 1, Rgba([1, 2, 3, 255]))
             .save(&path)
             .expect("test background should be writable");
-        let mut renderer = Renderer::new();
+        let mut resources = FrameResources::new();
 
-        let first = renderer
+        let first = resources
             .background_texture(&path, false)
             .expect("test background should load");
-        let second = renderer
+        let second = resources
             .background_texture(&path, false)
             .expect("cached test background should load");
         assert!(Arc::ptr_eq(&first, &second));
 
-        let mipmapped = renderer
+        let mipmapped = resources
             .background_texture(&path, true)
             .expect("test background should reload with mipmaps");
         assert!(!Arc::ptr_eq(&first, &mipmapped));
@@ -544,14 +560,15 @@ mod tests {
     }
 
     #[test]
-    fn shadow_depth_storage_is_reused_after_consumers_release_it() {
-        let mut renderer = Renderer::new();
+    fn frame_resources_reuse_shadow_storage_across_target_rebuilds() {
+        let mut resources = FrameResources::new();
         let target = RenderTarget::new(2, 2, 1).expect("test dimensions should be valid");
-        let first = renderer.shared_depth_values(&target);
+        let first = resources.shadow_depth_snapshot(&target);
         let allocation = Arc::as_ptr(&first);
         drop(first);
 
-        let second = renderer.shared_depth_values(&target);
+        let target = RenderTarget::new(2, 2, 1).expect("rebuilt dimensions should be valid");
+        let second = resources.shadow_depth_snapshot(&target);
 
         assert_eq!(Arc::as_ptr(&second), allocation);
         assert_eq!(second.len(), 4);

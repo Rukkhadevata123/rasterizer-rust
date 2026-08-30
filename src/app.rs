@@ -4,7 +4,7 @@ use crate::error::{ApplicationError, WindowError};
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
 use crate::pipeline::passes::{post_process_to_buffer, render_main_pass, render_shadow_pass};
-use crate::pipeline::renderer::{RenderTarget, Renderer};
+use crate::pipeline::renderer::{FrameResources, RenderTarget, Renderer};
 use crate::scene::loader::{build_lights_from_config, init_scene_resources, update_scene_objects};
 use crate::ui::input::CameraController;
 use log::{debug, info, warn};
@@ -182,6 +182,7 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         target: "shadow framebuffer",
         reason,
     })?;
+    let mut frame_resources = FrameResources::new();
 
     let mut cam_controller = CameraController::new(
         config.camera.speed,
@@ -290,13 +291,19 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         }
         last_middle_click = middle_click;
 
-        let shadow =
-            render_shadow_pass(&config, &context, &mut shadow_renderer, &mut shadow_target);
+        let shadow = render_shadow_pass(
+            &config,
+            &context,
+            &mut shadow_renderer,
+            &mut shadow_target,
+            &mut frame_resources,
+        );
         render_main_pass(
             &config,
             &context,
             &mut renderer,
             &mut target,
+            &mut frame_resources,
             &shadow,
             pipeline_state,
         )?;
@@ -355,6 +362,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         target: "shadow framebuffer",
         reason,
     })?;
+    let mut frame_resources = FrameResources::new();
 
     let pipeline_state = GraphicsPipelineState {
         primitive: primitive_state(
@@ -364,7 +372,13 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         ..Default::default()
     };
 
-    let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer, &mut shadow_target);
+    let shadow = render_shadow_pass(
+        &config,
+        &context,
+        &mut shadow_renderer,
+        &mut shadow_target,
+        &mut frame_resources,
+    );
     if shadow.depth.is_some() {
         debug!("Shadow pass completed.");
     }
@@ -373,6 +387,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         &context,
         &mut renderer,
         &mut target,
+        &mut frame_resources,
         &shadow,
         pipeline_state,
     )?;
