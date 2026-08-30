@@ -9,7 +9,7 @@ fn depth_only_pipeline_state() -> GraphicsPipelineState {
 
 #[test]
 fn masked_shadow_fragments_respect_material_alpha() {
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
     let shader = ShadowShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -78,7 +78,7 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
         albedo_texture: Some(texture),
         ..Default::default()
     });
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
     let shader = ShadowShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -133,12 +133,12 @@ fn blended_materials_do_not_write_shadow_depth() {
     };
     let mut config = rasterizer_rust::io::config::Config::default();
     config.render.shadow_map_size = 32;
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
 
     let shadow = render_shadow_pass(
         &config,
         &context,
-        &mut renderer.renderer,
+        &mut renderer.backend,
         &mut renderer.target,
         &mut renderer.resources,
     );
@@ -180,12 +180,12 @@ fn double_sided_material_disables_shadow_culling_per_command() {
         };
         let mut config = rasterizer_rust::io::config::Config::default();
         config.render.shadow_map_size = 32;
-        let mut renderer = TestRenderer::new(32, 32, 1);
+        let mut renderer = TestRenderHarness::new(32, 32, 1);
 
         render_shadow_pass(
             &config,
             &context,
-            &mut renderer.renderer,
+            &mut renderer.backend,
             &mut renderer.target,
             &mut renderer.resources,
         )
@@ -210,12 +210,12 @@ fn point_only_scene_disables_shadow_pass() {
         shadow_light: None,
     };
     let config = rasterizer_rust::io::config::Config::default();
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
 
     let shadow = render_shadow_pass(
         &config,
         &context,
-        &mut renderer.renderer,
+        &mut renderer.backend,
         &mut renderer.target,
         &mut renderer.resources,
     );
@@ -242,12 +242,12 @@ fn shadow_output_reports_actual_buffer_size() {
     };
     let mut config = rasterizer_rust::io::config::Config::default();
     config.render.shadow_map_size = 64;
-    let mut renderer = TestRenderer::new(16, 16, 1);
+    let mut renderer = TestRenderHarness::new(16, 16, 1);
 
     let shadow = render_shadow_pass(
         &config,
         &context,
-        &mut renderer.renderer,
+        &mut renderer.backend,
         &mut renderer.target,
         &mut renderer.resources,
     );
@@ -284,11 +284,11 @@ fn directional_shadow_bounds_follow_the_camera_frustum() {
         let mut config = rasterizer_rust::io::config::Config::default();
         config.render.shadow_map_size = 16;
         config.render.shadow_ortho_size = 10.0;
-        let mut renderer = TestRenderer::new(16, 16, 1);
+        let mut renderer = TestRenderHarness::new(16, 16, 1);
         render_shadow_pass(
             &config,
             &context,
-            &mut renderer.renderer,
+            &mut renderer.backend,
             &mut renderer.target,
             &mut renderer.resources,
         )
@@ -319,11 +319,11 @@ fn directional_shadow_bounds_include_scene_geometry() {
         };
         let mut config = rasterizer_rust::io::config::Config::default();
         config.render.shadow_ortho_size = 2.0;
-        let mut renderer = TestRenderer::new(16, 16, 1);
+        let mut renderer = TestRenderHarness::new(16, 16, 1);
         render_shadow_pass(
             &config,
             &context,
-            &mut renderer.renderer,
+            &mut renderer.backend,
             &mut renderer.target,
             &mut renderer.resources,
         )

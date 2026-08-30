@@ -4,7 +4,7 @@ use rayon::ThreadPoolBuilder;
 #[test]
 fn alpha_mask_discards_fragments_below_cutoff() {
     let shader = ClipSpaceShader;
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
     let mesh = triangle(0.0, Vector4::new(1.0, 0.0, 0.0, 0.25));
     let material = Material::Pbr(PbrMaterial {
         alpha_mode: AlphaMode::Mask(0.5),
@@ -35,7 +35,7 @@ fn alpha_mask_discards_fragments_below_cutoff() {
 
 #[test]
 fn headless_pbr_triangle_produces_visible_output() {
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
     let shader = PbrShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -127,11 +127,11 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
         light_space_matrix: Matrix4::identity(),
         light_index: None,
     };
-    let mut renderer = TestRenderer::new(64, 64, 1);
+    let mut renderer = TestRenderHarness::new(64, 64, 1);
     render_main_pass(
         &config,
         &context,
-        &mut renderer.renderer,
+        &mut renderer.backend,
         &mut renderer.target,
         &mut renderer.resources,
         &shadow,
@@ -163,7 +163,7 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
 
 #[test]
 fn masked_pbr_fragments_respect_material_alpha() {
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
     let shader = PbrShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -235,12 +235,12 @@ fn double_sided_material_disables_culling_per_command() {
             light_space_matrix: Matrix4::identity(),
             light_index: None,
         };
-        let mut renderer = TestRenderer::new(32, 32, 1);
+        let mut renderer = TestRenderHarness::new(32, 32, 1);
 
         render_main_pass(
             &config,
             &context,
-            &mut renderer.renderer,
+            &mut renderer.backend,
             &mut renderer.target,
             &mut renderer.resources,
             &shadow,
@@ -263,7 +263,7 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
         alpha_mode: AlphaMode::Blend,
         ..Default::default()
     });
-    let mut renderer = TestRenderer::new(64, 64, 1);
+    let mut renderer = TestRenderHarness::new(64, 64, 1);
     let state = GraphicsPipelineState {
         color_target: Some(ColorTargetState {
             blend: Some(BlendState::Alpha),
@@ -279,7 +279,7 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
     phase.push(0, RenderGeometry::Mesh(&far), Some(&material), state, -0.5);
     phase.sort_transparent();
     renderer
-        .renderer
+        .backend
         .draw_phase(&mut renderer.target, &phase, std::slice::from_ref(&shader));
 
     for y in [8, 24, 40, 56] {
@@ -378,8 +378,8 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 phase.sort_transparent();
 
                 let (width, height) = (96, 80);
-                let mut renderer = TestRenderer::new(width, height, 1);
-                renderer.renderer.draw_phase(
+                let mut renderer = TestRenderHarness::new(width, height, 1);
+                renderer.backend.draw_phase(
                     &mut renderer.target,
                     &phase,
                     std::slice::from_ref(&shader),

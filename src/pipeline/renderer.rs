@@ -209,17 +209,17 @@ impl FrameResources {
     }
 }
 
-pub struct Renderer {
-    pub rasterizer: Rasterizer,
+pub struct SoftwareRasterBackend {
+    rasterizer: Rasterizer,
 }
 
-impl Default for Renderer {
+impl Default for SoftwareRasterBackend {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Renderer {
+impl SoftwareRasterBackend {
     pub fn new() -> Self {
         Self {
             rasterizer: Rasterizer::new(),

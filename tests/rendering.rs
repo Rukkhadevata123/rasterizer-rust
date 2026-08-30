@@ -6,13 +6,12 @@ use rasterizer_rust::core::pipeline_state::{
     BlendState, ColorTargetState, CompareFunction, CullMode, DepthStencilState, FrontFace,
     GraphicsPipelineState, PolygonMode, PrimitiveState,
 };
-use rasterizer_rust::core::rasterizer::Rasterizer;
 use rasterizer_rust::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use rasterizer_rust::pipeline::passes::{
     ShadowPassOutput, post_process_to_buffer, render_main_pass, render_shadow_pass,
 };
 use rasterizer_rust::pipeline::renderer::{
-    FrameResources, RenderGeometry, RenderPhase, RenderTarget, Renderer,
+    FrameResources, RenderGeometry, RenderPhase, RenderTarget, SoftwareRasterBackend,
 };
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
 use rasterizer_rust::pipeline::shaders::shadow::ShadowShader;
@@ -279,16 +278,16 @@ fn test_pipeline_state() -> GraphicsPipelineState {
     }
 }
 
-struct TestRenderer {
-    renderer: Renderer,
+struct TestRenderHarness {
+    backend: SoftwareRasterBackend,
     target: RenderTarget,
     resources: FrameResources,
 }
 
-impl TestRenderer {
+impl TestRenderHarness {
     fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
         Self {
-            renderer: Renderer::new(),
+            backend: SoftwareRasterBackend::new(),
             target: RenderTarget::new(width, height, supersample_scale)
                 .expect("test dimensions should be valid"),
             resources: FrameResources::new(),
@@ -301,7 +300,7 @@ impl TestRenderer {
 }
 
 fn draw_mesh<'a, S>(
-    renderer: &mut TestRenderer,
+    renderer: &mut TestRenderHarness,
     mesh: &'a Mesh,
     shader: &'a S,
     material: Option<&'a Material>,
@@ -312,7 +311,7 @@ fn draw_mesh<'a, S>(
     let mut phase = RenderPhase::default();
     phase.push(0, RenderGeometry::Mesh(mesh), material, state, 0.0);
     renderer
-        .renderer
+        .backend
         .draw_phase(&mut renderer.target, &phase, std::slice::from_ref(shader));
 }
 

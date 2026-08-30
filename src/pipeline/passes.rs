@@ -7,7 +7,7 @@ use crate::core::pipeline_state::{
 use crate::error::AssetError;
 use crate::io::config::Config;
 use crate::pipeline::renderer::{
-    ClearOptions, FrameResources, RenderGeometry, RenderPhase, RenderTarget, Renderer,
+    ClearOptions, FrameResources, RenderGeometry, RenderPhase, RenderTarget, SoftwareRasterBackend,
 };
 use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
@@ -166,17 +166,17 @@ fn shadow_camera(
 pub fn render_shadow_pass(
     config: &Config,
     context: &RenderScene,
-    shadow_renderer: &mut Renderer,
+    shadow_backend: &mut SoftwareRasterBackend,
     shadow_target: &mut RenderTarget,
     resources: &mut FrameResources,
 ) -> ShadowPassOutput {
-    render_shadow_pass_profiled(config, context, shadow_renderer, shadow_target, resources).0
+    render_shadow_pass_profiled(config, context, shadow_backend, shadow_target, resources).0
 }
 
 pub fn render_shadow_pass_profiled(
     config: &Config,
     context: &RenderScene,
-    shadow_renderer: &mut Renderer,
+    shadow_backend: &mut SoftwareRasterBackend,
     shadow_target: &mut RenderTarget,
     resources: &mut FrameResources,
 ) -> (ShadowPassOutput, ShadowPassTimings) {
@@ -217,7 +217,7 @@ pub fn render_shadow_pass_profiled(
 
     let initial_setup = pass_started.elapsed();
     let attachment_started = Instant::now();
-    shadow_renderer.clear_with_options(
+    shadow_backend.clear_with_options(
         shadow_target,
         ClearOptions {
             depth: f32::INFINITY,
@@ -278,7 +278,7 @@ pub fn render_shadow_pass_profiled(
         }
     }
     let recording = recording_started.elapsed();
-    let draw_timings = shadow_renderer.draw_phase_profiled(shadow_target, &shadow_phase, &shaders);
+    let draw_timings = shadow_backend.draw_phase_profiled(shadow_target, &shadow_phase, &shaders);
 
     let output = ShadowPassOutput {
         depth: Some(resources.shadow_depth_snapshot(shadow_target)),
@@ -302,20 +302,20 @@ pub fn render_shadow_pass_profiled(
 pub fn render_main_pass(
     config: &Config,
     context: &RenderScene,
-    renderer: &mut Renderer,
+    backend: &mut SoftwareRasterBackend,
     target: &mut RenderTarget,
     resources: &mut FrameResources,
     shadow: &ShadowPassOutput,
     state: GraphicsPipelineState,
 ) -> Result<(), AssetError> {
-    render_main_pass_profiled(config, context, renderer, target, resources, shadow, state)
+    render_main_pass_profiled(config, context, backend, target, resources, shadow, state)
         .map(|_| ())
 }
 
 pub fn render_main_pass_profiled(
     config: &Config,
     context: &RenderScene,
-    renderer: &mut Renderer,
+    backend: &mut SoftwareRasterBackend,
     target: &mut RenderTarget,
     resources: &mut FrameResources,
     shadow: &ShadowPassOutput,
@@ -352,7 +352,7 @@ pub fn render_main_pass_profiled(
 
     let initial_setup = pass_started.elapsed();
     let attachment_started = Instant::now();
-    renderer.clear_with_options(
+    backend.clear_with_options(
         target,
         ClearOptions {
             color,
@@ -517,11 +517,11 @@ pub fn render_main_pass_profiled(
     let mut recording = recording_started.elapsed();
 
     let opaque_masked =
-        renderer.draw_phases_profiled(target, &[&opaque_phase, &masked_phase], &shaders);
+        backend.draw_phases_profiled(target, &[&opaque_phase, &masked_phase], &shaders);
     let sorting_started = Instant::now();
     transparent_phase.sort_transparent();
     recording += sorting_started.elapsed();
-    let transparent = renderer.draw_phase_profiled(target, &transparent_phase, &shaders);
+    let transparent = backend.draw_phase_profiled(target, &transparent_phase, &shaders);
 
     Ok(MainPassTimings {
         pass_setup,

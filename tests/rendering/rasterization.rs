@@ -13,7 +13,7 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
         Vertex::new(Point3::new(-0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
     ];
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
     let mut phase = RenderPhase::default();
     phase.push(
         0,
@@ -24,7 +24,7 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
     );
 
     renderer
-        .renderer
+        .backend
         .draw_phase(&mut renderer.target, &phase, &[shader]);
 
     assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len());
@@ -51,9 +51,9 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
         test_pipeline_state(),
         0.0,
     );
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
 
-    renderer.renderer.draw_phases(
+    renderer.backend.draw_phases(
         &mut renderer.target,
         &[&empty_phase, &visible_phase],
         &shaders,
@@ -68,7 +68,7 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
 #[test]
 fn nearer_triangle_wins_depth_test() {
     let shader = ClipSpaceShader;
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
 
     let far = triangle(0.5, Vector4::new(1.0, 0.0, 0.0, 1.0));
     let near = triangle(-0.5, Vector4::new(0.0, 1.0, 0.0, 1.0));
@@ -84,7 +84,7 @@ fn nearer_triangle_wins_depth_test() {
 #[test]
 fn depth_state_is_explicit_per_draw() {
     let shader = ClipSpaceShader;
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
     let red = triangle(-0.5, Vector4::new(1.0, 0.0, 0.0, 1.0));
     let blue = triangle(0.5, Vector4::new(0.0, 0.0, 1.0, 1.0));
 
@@ -179,7 +179,7 @@ fn depth_only_color_target_runs_fragments_without_storing_color() {
         color_target: None,
         ..test_pipeline_state()
     };
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
 
     draw_mesh(&mut renderer, &mesh, &shader, Some(&masked), pipeline);
     let discarded = renderer.framebuffer().sample(16, 16).unwrap();
@@ -195,7 +195,7 @@ fn depth_only_color_target_runs_fragments_without_storing_color() {
 #[test]
 fn triangle_crossing_near_plane_is_clipped_and_rendered() {
     let shader = ClipSpaceShader;
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
 
     let mut mesh = triangle(0.0, Vector4::new(1.0, 0.0, 1.0, 1.0));
     mesh.vertices[0].position.z = -2.0;
@@ -238,8 +238,7 @@ fn cull_mode_can_reject_one_winding() {
     let mesh = triangle(0.0, Vector4::new(1.0, 1.0, 1.0, 1.0));
 
     let render = |mode| {
-        let mut renderer = TestRenderer::new(32, 32, 1);
-        renderer.renderer.rasterizer = Rasterizer::new();
+        let mut renderer = TestRenderHarness::new(32, 32, 1);
         let state = GraphicsPipelineState {
             primitive: PrimitiveState {
                 cull_mode: mode,
@@ -263,7 +262,7 @@ fn fragment_input_reports_triangle_facing() {
     let mut back_mesh = triangle(0.0, Vector4::zeros());
     back_mesh.indices = vec![0, 2, 1];
     let render = |mesh: &Mesh| {
-        let mut renderer = TestRenderer::new(32, 32, 1);
+        let mut renderer = TestRenderHarness::new(32, 32, 1);
         draw_mesh(&mut renderer, mesh, &shader, None, test_pipeline_state());
         renderer.framebuffer().get_pixel(16, 16).unwrap()
     };
@@ -276,7 +275,7 @@ fn fragment_input_reports_triangle_facing() {
 fn mirrored_front_face_inverts_culling_and_fragment_facing() {
     let mesh = triangle(0.0, Vector4::zeros());
     let render = |cull_mode, front_face| {
-        let mut renderer = TestRenderer::new(32, 32, 1);
+        let mut renderer = TestRenderHarness::new(32, 32, 1);
         let state = GraphicsPipelineState {
             primitive: PrimitiveState {
                 cull_mode,
@@ -318,7 +317,7 @@ fn triangle_rasterization_crosses_band_boundaries() {
         vertex.tangent = color;
     }
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
-    let mut renderer = TestRenderer::new(48, 70, 1);
+    let mut renderer = TestRenderHarness::new(48, 70, 1);
 
     draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
 
@@ -345,7 +344,7 @@ fn top_left_rule_covers_shared_edge_once_without_cracks() {
         vertex.tangent = color;
     }
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
-    let mut renderer = TestRenderer::new(size, size, 1);
+    let mut renderer = TestRenderHarness::new(size, size, 1);
     draw_mesh(
         &mut renderer,
         &mesh,
@@ -379,7 +378,7 @@ fn wireframe_width_is_stable_in_pixel_space() {
     let shader = ClipSpaceShader;
     let color = Vector4::new(1.0, 1.0, 1.0, 1.0);
     let render = |width| {
-        let mut renderer = TestRenderer::new(width, width, 1);
+        let mut renderer = TestRenderHarness::new(width, width, 1);
         draw_mesh(
             &mut renderer,
             &triangle(0.0, color),
@@ -425,7 +424,7 @@ fn non_finite_clip_coordinates_are_rejected() {
         let shader = NonFiniteClipShader {
             clip: Vector4::new(invalid, 0.0, 0.0, 1.0),
         };
-        let mut renderer = TestRenderer::new(32, 32, 1);
+        let mut renderer = TestRenderHarness::new(32, 32, 1);
         draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
         for y in 0..32 {
             for x in 0..32 {
@@ -443,7 +442,7 @@ fn rasterizer_tracks_uv_density_per_texture_coordinate_set() {
     mesh.vertices[0].texcoords[1] = Vector2::new(0.0, 0.0);
     mesh.vertices[1].texcoords[1] = Vector2::new(1.0, 0.0);
     mesh.vertices[2].texcoords[1] = Vector2::new(0.0, 1.0);
-    let mut renderer = TestRenderer::new(32, 32, 1);
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
 
     draw_mesh(
         &mut renderer,
@@ -484,7 +483,7 @@ fn overlapping_triangles_produce_deterministic_depth_and_color() {
     let mesh = Mesh::new(vertices, indices, 0);
 
     for _ in 0..16 {
-        let mut renderer = TestRenderer::new(64, 64, 1);
+        let mut renderer = TestRenderHarness::new(64, 64, 1);
         draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
 
         let sample = renderer.framebuffer().sample(32, 32).unwrap();

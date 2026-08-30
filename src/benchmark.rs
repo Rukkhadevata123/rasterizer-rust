@@ -4,7 +4,7 @@ use crate::io::config::{Config, CullModeConfig};
 use crate::pipeline::passes::{
     post_process_to_buffer, render_main_pass_profiled, render_shadow_pass_profiled,
 };
-use crate::pipeline::renderer::{FrameResources, RenderTarget, Renderer};
+use crate::pipeline::renderer::{FrameResources, RenderTarget, SoftwareRasterBackend};
 use crate::scene::loader::init_scene_resources;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -178,7 +178,7 @@ pub fn run_benchmark(
     let context = init_scene_resources(&config)?;
     let scene_loading = scene_loading_started.elapsed();
 
-    let mut renderer = Renderer::new();
+    let mut backend = SoftwareRasterBackend::new();
     let mut target = RenderTarget::new(
         config.render.width,
         config.render.height,
@@ -188,7 +188,7 @@ pub fn run_benchmark(
         target: "main framebuffer",
         reason,
     })?;
-    let mut shadow_renderer = Renderer::new();
+    let mut shadow_backend = SoftwareRasterBackend::new();
     let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
@@ -221,8 +221,8 @@ pub fn run_benchmark(
         let _ = render_profiled_frame(
             &config,
             &context,
-            (&mut renderer, &mut target),
-            (&mut shadow_renderer, &mut shadow_target),
+            (&mut backend, &mut target),
+            (&mut shadow_backend, &mut shadow_target),
             &mut frame_resources,
             &mut buffer,
             pipeline_state,
@@ -235,8 +235,8 @@ pub fn run_benchmark(
         frames.push(render_profiled_frame(
             &config,
             &context,
-            (&mut renderer, &mut target),
-            (&mut shadow_renderer, &mut shadow_target),
+            (&mut backend, &mut target),
+            (&mut shadow_backend, &mut shadow_target),
             &mut frame_resources,
             &mut buffer,
             pipeline_state,
@@ -272,21 +272,21 @@ pub fn run_benchmark(
 fn render_profiled_frame(
     config: &Config,
     context: &crate::scene::context::RenderScene,
-    main: (&mut Renderer, &mut RenderTarget),
-    shadow_pass: (&mut Renderer, &mut RenderTarget),
+    main: (&mut SoftwareRasterBackend, &mut RenderTarget),
+    shadow_pass: (&mut SoftwareRasterBackend, &mut RenderTarget),
     resources: &mut FrameResources,
     buffer: &mut [u32],
     pipeline_state: GraphicsPipelineState,
 ) -> Result<FrameTimings, ApplicationError> {
     let frame_started = Instant::now();
-    let (renderer, target) = main;
-    let (shadow_renderer, shadow_target) = shadow_pass;
+    let (backend, target) = main;
+    let (shadow_backend, shadow_target) = shadow_pass;
     let (shadow, shadow_timings) =
-        render_shadow_pass_profiled(config, context, shadow_renderer, shadow_target, resources);
+        render_shadow_pass_profiled(config, context, shadow_backend, shadow_target, resources);
     let main_timings = render_main_pass_profiled(
         config,
         context,
-        renderer,
+        backend,
         target,
         resources,
         &shadow,

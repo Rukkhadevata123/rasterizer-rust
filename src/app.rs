@@ -4,7 +4,7 @@ use crate::error::{ApplicationError, WindowError};
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
 use crate::pipeline::passes::{post_process_to_buffer, render_main_pass, render_shadow_pass};
-use crate::pipeline::renderer::{FrameResources, RenderTarget, Renderer};
+use crate::pipeline::renderer::{FrameResources, RenderTarget, SoftwareRasterBackend};
 use crate::scene::loader::{build_lights_from_config, init_scene_resources, update_scene_objects};
 use crate::ui::input::CameraController;
 use log::{debug, info, warn};
@@ -41,21 +41,21 @@ fn primitive_state(cull_mode: CullMode, wireframe: bool) -> PrimitiveState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct HotReloadPlan {
-    renderer_rebuild: bool,
+    target_rebuild: bool,
     resource_reload: bool,
     window_restart: bool,
 }
 
 impl HotReloadPlan {
     fn is_live_update(self) -> bool {
-        !self.renderer_rebuild && !self.resource_reload && !self.window_restart
+        !self.target_rebuild && !self.resource_reload && !self.window_restart
     }
 }
 
 fn classify_hot_reload(current: &Config, next: &Config) -> HotReloadPlan {
     let window_restart =
         current.render.width != next.render.width || current.render.height != next.render.height;
-    let renderer_rebuild = current.render.supersample_scale != next.render.supersample_scale
+    let target_rebuild = current.render.supersample_scale != next.render.supersample_scale
         || current.render.shadow_map_size != next.render.shadow_map_size;
     let objects_changed = current.objects.len() != next.objects.len()
         || current
@@ -73,7 +73,7 @@ fn classify_hot_reload(current: &Config, next: &Config) -> HotReloadPlan {
         || current.render.use_mipmap != next.render.use_mipmap;
 
     HotReloadPlan {
-        renderer_rebuild,
+        target_rebuild,
         resource_reload,
         window_restart,
     }
@@ -164,7 +164,7 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
 
     let mut context = init_scene_resources(&config)?;
 
-    let mut renderer = Renderer::new();
+    let mut backend = SoftwareRasterBackend::new();
     let mut target =
         RenderTarget::new(width, height, config.render.supersample_scale).map_err(|reason| {
             ApplicationError::RenderInitialization {
@@ -172,7 +172,7 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
                 reason,
             }
         })?;
-    let mut shadow_renderer = Renderer::new();
+    let mut shadow_backend = SoftwareRasterBackend::new();
     let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
@@ -294,14 +294,14 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         let shadow = render_shadow_pass(
             &config,
             &context,
-            &mut shadow_renderer,
+            &mut shadow_backend,
             &mut shadow_target,
             &mut frame_resources,
         );
         render_main_pass(
             &config,
             &context,
-            &mut renderer,
+            &mut backend,
             &mut target,
             &mut frame_resources,
             &shadow,
@@ -342,7 +342,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     let context = init_scene_resources(&config)?;
     let start_time = Instant::now();
 
-    let mut renderer = Renderer::new();
+    let mut backend = SoftwareRasterBackend::new();
     let mut target = RenderTarget::new(
         config.render.width,
         config.render.height,
@@ -352,7 +352,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         target: "main framebuffer",
         reason,
     })?;
-    let mut shadow_renderer = Renderer::new();
+    let mut shadow_backend = SoftwareRasterBackend::new();
     let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
@@ -375,7 +375,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     let shadow = render_shadow_pass(
         &config,
         &context,
-        &mut shadow_renderer,
+        &mut shadow_backend,
         &mut shadow_target,
         &mut frame_resources,
     );
@@ -385,7 +385,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     render_main_pass(
         &config,
         &context,
-        &mut renderer,
+        &mut backend,
         &mut target,
         &mut frame_resources,
         &shadow,
@@ -412,18 +412,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hot_reload_classifies_live_renderer_and_window_changes() {
+    fn hot_reload_classifies_live_target_and_window_changes() {
         let current = Config::default();
         let mut live = current.clone();
         live.render.exposure = 2.0;
         assert!(classify_hot_reload(&current, &live).is_live_update());
 
-        let mut renderer = current.clone();
-        renderer.render.supersample_scale += 1;
+        let mut target = current.clone();
+        target.render.supersample_scale += 1;
         assert_eq!(
-            classify_hot_reload(&current, &renderer),
+            classify_hot_reload(&current, &target),
             HotReloadPlan {
-                renderer_rebuild: true,
+                target_rebuild: true,
                 resource_reload: false,
                 window_restart: false,
             }
@@ -434,7 +434,7 @@ mod tests {
         assert_eq!(
             classify_hot_reload(&current, &window),
             HotReloadPlan {
-                renderer_rebuild: false,
+                target_rebuild: false,
                 resource_reload: false,
                 window_restart: true,
             }
