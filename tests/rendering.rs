@@ -11,7 +11,7 @@ use rasterizer_rust::core::shader::{FragmentInput, FragmentOutput, Interpolatabl
 use rasterizer_rust::pipeline::passes::{
     ShadowPassOutput, post_process_to_buffer, render_main_pass, render_shadow_pass,
 };
-use rasterizer_rust::pipeline::renderer::{RenderGeometry, RenderPhase, Renderer};
+use rasterizer_rust::pipeline::renderer::{RenderGeometry, RenderPhase, RenderTarget, Renderer};
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
 use rasterizer_rust::pipeline::shaders::shadow::ShadowShader;
 use rasterizer_rust::scene::camera::Camera;
@@ -277,8 +277,27 @@ fn test_pipeline_state() -> GraphicsPipelineState {
     }
 }
 
+struct TestRenderer {
+    renderer: Renderer,
+    target: RenderTarget,
+}
+
+impl TestRenderer {
+    fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
+        Self {
+            renderer: Renderer::new(),
+            target: RenderTarget::new(width, height, supersample_scale)
+                .expect("test dimensions should be valid"),
+        }
+    }
+
+    fn framebuffer(&self) -> &FrameBuffer {
+        self.target.framebuffer()
+    }
+}
+
 fn draw_mesh<'a, S>(
-    renderer: &mut Renderer,
+    renderer: &mut TestRenderer,
     mesh: &'a Mesh,
     shader: &'a S,
     material: Option<&'a Material>,
@@ -288,7 +307,9 @@ fn draw_mesh<'a, S>(
 {
     let mut phase = RenderPhase::default();
     phase.push(0, RenderGeometry::Mesh(mesh), material, state, 0.0);
-    renderer.draw_phase(&phase, std::slice::from_ref(shader));
+    renderer
+        .renderer
+        .draw_phase(&mut renderer.target, &phase, std::slice::from_ref(shader));
 }
 
 fn shadow_test_camera() -> Camera {

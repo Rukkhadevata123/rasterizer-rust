@@ -1,5 +1,4 @@
 use crate::core::color::{aces_tone_mapping, linear_to_srgb};
-use crate::core::framebuffer::FrameBuffer;
 use crate::core::math::transform::{TangentFrameTransform, TransformFactory};
 use crate::core::pipeline_state::{
     BlendState, ColorTargetState, CullMode, DepthStencilState, GraphicsPipelineState,
@@ -7,7 +6,9 @@ use crate::core::pipeline_state::{
 };
 use crate::error::AssetError;
 use crate::io::config::Config;
-use crate::pipeline::renderer::{ClearOptions, RenderGeometry, RenderPhase, Renderer};
+use crate::pipeline::renderer::{
+    ClearOptions, RenderGeometry, RenderPhase, RenderTarget, Renderer,
+};
 use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
 use crate::scene::context::RenderScene;
@@ -166,14 +167,16 @@ pub fn render_shadow_pass(
     config: &Config,
     context: &RenderScene,
     shadow_renderer: &mut Renderer,
+    shadow_target: &mut RenderTarget,
 ) -> ShadowPassOutput {
-    render_shadow_pass_profiled(config, context, shadow_renderer).0
+    render_shadow_pass_profiled(config, context, shadow_renderer, shadow_target).0
 }
 
 pub fn render_shadow_pass_profiled(
     config: &Config,
     context: &RenderScene,
     shadow_renderer: &mut Renderer,
+    shadow_target: &mut RenderTarget,
 ) -> (ShadowPassOutput, ShadowPassTimings) {
     let pass_started = Instant::now();
     if !config.render.use_shadows {
@@ -212,10 +215,13 @@ pub fn render_shadow_pass_profiled(
 
     let initial_setup = pass_started.elapsed();
     let attachment_started = Instant::now();
-    shadow_renderer.clear_with_options(ClearOptions {
-        depth: f32::INFINITY,
-        ..Default::default()
-    });
+    shadow_renderer.clear_with_options(
+        shadow_target,
+        ClearOptions {
+            depth: f32::INFINITY,
+            ..Default::default()
+        },
+    );
     let attachment_processing = attachment_started.elapsed();
 
     let setup_started = Instant::now();
@@ -270,11 +276,11 @@ pub fn render_shadow_pass_profiled(
         }
     }
     let recording = recording_started.elapsed();
-    let draw_timings = shadow_renderer.draw_phase_profiled(&shadow_phase, &shaders);
+    let draw_timings = shadow_renderer.draw_phase_profiled(shadow_target, &shadow_phase, &shaders);
 
     let output = ShadowPassOutput {
-        depth: Some(shadow_renderer.shared_depth_values()),
-        size: shadow_renderer.framebuffer.width,
+        depth: Some(shadow_renderer.shared_depth_values(shadow_target)),
+        size: shadow_target.framebuffer().width,
         light_space_matrix,
         light_index: Some(shadow_light.light_index),
     };
@@ -295,16 +301,18 @@ pub fn render_main_pass(
     config: &Config,
     context: &RenderScene,
     renderer: &mut Renderer,
+    target: &mut RenderTarget,
     shadow: &ShadowPassOutput,
     state: GraphicsPipelineState,
 ) -> Result<(), AssetError> {
-    render_main_pass_profiled(config, context, renderer, shadow, state).map(|_| ())
+    render_main_pass_profiled(config, context, renderer, target, shadow, state).map(|_| ())
 }
 
 pub fn render_main_pass_profiled(
     config: &Config,
     context: &RenderScene,
     renderer: &mut Renderer,
+    target: &mut RenderTarget,
     shadow: &ShadowPassOutput,
     state: GraphicsPipelineState,
 ) -> Result<MainPassTimings, AssetError> {
@@ -339,12 +347,15 @@ pub fn render_main_pass_profiled(
 
     let initial_setup = pass_started.elapsed();
     let attachment_started = Instant::now();
-    renderer.clear_with_options(ClearOptions {
-        color,
-        gradient,
-        texture: bg_texture.as_deref(),
-        depth: f32::INFINITY,
-    });
+    renderer.clear_with_options(
+        target,
+        ClearOptions {
+            color,
+            gradient,
+            texture: bg_texture.as_deref(),
+            depth: f32::INFINITY,
+        },
+    );
     let attachment_processing = attachment_started.elapsed();
 
     let setup_started = Instant::now();
@@ -500,11 +511,12 @@ pub fn render_main_pass_profiled(
     }
     let mut recording = recording_started.elapsed();
 
-    let opaque_masked = renderer.draw_phases_profiled(&[&opaque_phase, &masked_phase], &shaders);
+    let opaque_masked =
+        renderer.draw_phases_profiled(target, &[&opaque_phase, &masked_phase], &shaders);
     let sorting_started = Instant::now();
     transparent_phase.sort_transparent();
     recording += sorting_started.elapsed();
-    let transparent = renderer.draw_phase_profiled(&transparent_phase, &shaders);
+    let transparent = renderer.draw_phase_profiled(target, &transparent_phase, &shaders);
 
     Ok(MainPassTimings {
         pass_setup,
@@ -518,7 +530,8 @@ pub fn render_main_pass_profiled(
 }
 
 /// Post-processing: Tone Mapping -> Gamma Correction -> u32 Buffer.
-pub fn post_process_to_buffer(framebuffer: &FrameBuffer, buffer: &mut [u32], config: &Config) {
+pub fn post_process_to_buffer(target: &RenderTarget, buffer: &mut [u32], config: &Config) {
+    let framebuffer = target.framebuffer();
     buffer
         .par_chunks_mut(framebuffer.width)
         .enumerate()

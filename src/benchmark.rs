@@ -4,7 +4,7 @@ use crate::io::config::{Config, CullModeConfig};
 use crate::pipeline::passes::{
     post_process_to_buffer, render_main_pass_profiled, render_shadow_pass_profiled,
 };
-use crate::pipeline::renderer::Renderer;
+use crate::pipeline::renderer::{RenderTarget, Renderer};
 use crate::scene::loader::init_scene_resources;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -178,7 +178,8 @@ pub fn run_benchmark(
     let context = init_scene_resources(&config)?;
     let scene_loading = scene_loading_started.elapsed();
 
-    let mut renderer = Renderer::new(
+    let mut renderer = Renderer::new();
+    let mut target = RenderTarget::new(
         config.render.width,
         config.render.height,
         config.render.supersample_scale,
@@ -187,7 +188,8 @@ pub fn run_benchmark(
         target: "main framebuffer",
         reason,
     })?;
-    let mut shadow_renderer = Renderer::new(
+    let mut shadow_renderer = Renderer::new();
+    let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
         1,
@@ -218,8 +220,8 @@ pub fn run_benchmark(
         let _ = render_profiled_frame(
             &config,
             &context,
-            &mut renderer,
-            &mut shadow_renderer,
+            (&mut renderer, &mut target),
+            (&mut shadow_renderer, &mut shadow_target),
             &mut buffer,
             pipeline_state,
         )?;
@@ -231,8 +233,8 @@ pub fn run_benchmark(
         frames.push(render_profiled_frame(
             &config,
             &context,
-            &mut renderer,
-            &mut shadow_renderer,
+            (&mut renderer, &mut target),
+            (&mut shadow_renderer, &mut shadow_target),
             &mut buffer,
             pipeline_state,
         )?);
@@ -267,17 +269,20 @@ pub fn run_benchmark(
 fn render_profiled_frame(
     config: &Config,
     context: &crate::scene::context::RenderScene,
-    renderer: &mut Renderer,
-    shadow_renderer: &mut Renderer,
+    main: (&mut Renderer, &mut RenderTarget),
+    shadow_pass: (&mut Renderer, &mut RenderTarget),
     buffer: &mut [u32],
     pipeline_state: GraphicsPipelineState,
 ) -> Result<FrameTimings, ApplicationError> {
     let frame_started = Instant::now();
-    let (shadow, shadow_timings) = render_shadow_pass_profiled(config, context, shadow_renderer);
+    let (renderer, target) = main;
+    let (shadow_renderer, shadow_target) = shadow_pass;
+    let (shadow, shadow_timings) =
+        render_shadow_pass_profiled(config, context, shadow_renderer, shadow_target);
     let main_timings =
-        render_main_pass_profiled(config, context, renderer, &shadow, pipeline_state)?;
+        render_main_pass_profiled(config, context, renderer, target, &shadow, pipeline_state)?;
     let post_started = Instant::now();
-    post_process_to_buffer(&renderer.framebuffer, buffer, config);
+    post_process_to_buffer(target, buffer, config);
     let post_processing = post_started.elapsed();
 
     Ok(FrameTimings {

@@ -128,21 +128,45 @@ impl Default for ClearOptions<'_> {
     }
 }
 
+pub struct RenderTarget {
+    framebuffer: FrameBuffer,
+}
+
+impl RenderTarget {
+    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Result<Self, String> {
+        Ok(Self {
+            framebuffer: FrameBuffer::new(width, height, supersample_scale)?,
+        })
+    }
+
+    pub fn framebuffer(&self) -> &FrameBuffer {
+        &self.framebuffer
+    }
+
+    fn framebuffer_mut(&mut self) -> &mut FrameBuffer {
+        &mut self.framebuffer
+    }
+}
+
 pub struct Renderer {
     pub rasterizer: Rasterizer,
-    pub framebuffer: FrameBuffer,
     cached_background: Option<CachedBackgroundTexture>,
     shared_depth: Arc<Vec<f32>>,
 }
 
+impl Default for Renderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Renderer {
-    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Result<Self, String> {
-        Ok(Self {
+    pub fn new() -> Self {
+        Self {
             rasterizer: Rasterizer::new(),
-            framebuffer: FrameBuffer::new(width, height, supersample_scale)?,
             cached_background: None,
             shared_depth: Arc::new(Vec::new()),
-        })
+        }
     }
 
     pub(crate) fn background_texture(
@@ -179,16 +203,17 @@ impl Renderer {
         ))
     }
 
-    pub(crate) fn shared_depth_values(&mut self) -> Arc<Vec<f32>> {
-        self.framebuffer
+    pub(crate) fn shared_depth_values(&mut self, target: &RenderTarget) -> Arc<Vec<f32>> {
+        target
+            .framebuffer()
             .copy_depth_values_into(Arc::make_mut(&mut self.shared_depth));
         Arc::clone(&self.shared_depth)
     }
 
-    pub fn clear_with_options(&mut self, options: ClearOptions) {
-        let width = self.framebuffer.buffer_width;
-        let height = self.framebuffer.buffer_height;
-        self.framebuffer.clear_with(options.depth, |x, y| {
+    pub fn clear_with_options(&mut self, target: &mut RenderTarget, options: ClearOptions) {
+        let width = target.framebuffer().buffer_width;
+        let height = target.framebuffer().buffer_height;
+        target.framebuffer_mut().clear_with(options.depth, |x, y| {
             let u = x as f32 / width as f32;
             let v = y as f32 / height as f32;
 
@@ -202,33 +227,43 @@ impl Renderer {
         });
     }
 
-    pub fn draw_phase<'a, S>(&mut self, phase: &RenderPhase<'a>, shaders: &'a [S])
-    where
+    pub fn draw_phase<'a, S>(
+        &mut self,
+        target: &mut RenderTarget,
+        phase: &RenderPhase<'a>,
+        shaders: &'a [S],
+    ) where
         S: Shader<Option<&'a Material>>,
     {
-        let _ = self.draw_phases_profiled(&[phase], shaders);
+        let _ = self.draw_phases_profiled(target, &[phase], shaders);
     }
 
-    pub fn draw_phases<'a, S>(&mut self, phases: &[&RenderPhase<'a>], shaders: &'a [S])
-    where
+    pub fn draw_phases<'a, S>(
+        &mut self,
+        target: &mut RenderTarget,
+        phases: &[&RenderPhase<'a>],
+        shaders: &'a [S],
+    ) where
         S: Shader<Option<&'a Material>>,
     {
-        let _ = self.draw_phases_profiled(phases, shaders);
+        let _ = self.draw_phases_profiled(target, phases, shaders);
     }
 
     pub fn draw_phase_profiled<'a, S>(
         &mut self,
+        target: &mut RenderTarget,
         phase: &RenderPhase<'a>,
         shaders: &'a [S],
     ) -> DrawTimings
     where
         S: Shader<Option<&'a Material>>,
     {
-        self.draw_phases_profiled(&[phase], shaders)
+        self.draw_phases_profiled(target, &[phase], shaders)
     }
 
     pub fn draw_phases_profiled<'a, S>(
         &mut self,
+        target: &mut RenderTarget,
         phases: &[&RenderPhase<'a>],
         shaders: &'a [S],
     ) -> DrawTimings
@@ -237,8 +272,8 @@ impl Renderer {
     {
         let submission_started = Instant::now();
         let preparation_started = Instant::now();
-        let width = self.framebuffer.buffer_width;
-        let height = self.framebuffer.buffer_height;
+        let width = target.framebuffer().buffer_width;
+        let height = target.framebuffer().buffer_height;
         let commands: Vec<_> = phases.iter().flat_map(|phase| phase.commands()).collect();
         let mut vertex_sources = HashMap::new();
         for command in &commands {
@@ -414,7 +449,7 @@ impl Renderer {
 
         let rasterization_started = Instant::now();
         self.rasterizer
-            .rasterize_prepared(&mut self.framebuffer, &prepared);
+            .rasterize_prepared(target.framebuffer_mut(), &prepared);
         let rasterization = rasterization_started.elapsed();
         DrawTimings {
             backend_preparation,
@@ -490,7 +525,7 @@ mod tests {
         RgbaImage::from_pixel(1, 1, Rgba([1, 2, 3, 255]))
             .save(&path)
             .expect("test background should be writable");
-        let mut renderer = Renderer::new(1, 1, 1).expect("test dimensions should be valid");
+        let mut renderer = Renderer::new();
 
         let first = renderer
             .background_texture(&path, false)
@@ -510,12 +545,13 @@ mod tests {
 
     #[test]
     fn shadow_depth_storage_is_reused_after_consumers_release_it() {
-        let mut renderer = Renderer::new(2, 2, 1).expect("test dimensions should be valid");
-        let first = renderer.shared_depth_values();
+        let mut renderer = Renderer::new();
+        let target = RenderTarget::new(2, 2, 1).expect("test dimensions should be valid");
+        let first = renderer.shared_depth_values(&target);
         let allocation = Arc::as_ptr(&first);
         drop(first);
 
-        let second = renderer.shared_depth_values();
+        let second = renderer.shared_depth_values(&target);
 
         assert_eq!(Arc::as_ptr(&second), allocation);
         assert_eq!(second.len(), 4);

@@ -4,7 +4,7 @@ use rayon::ThreadPoolBuilder;
 #[test]
 fn alpha_mask_discards_fragments_below_cutoff() {
     let shader = ClipSpaceShader;
-    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(32, 32, 1);
     let mesh = triangle(0.0, Vector4::new(1.0, 0.0, 0.0, 0.25));
     let material = Material::Pbr(PbrMaterial {
         alpha_mode: AlphaMode::Mask(0.5),
@@ -20,12 +20,12 @@ fn alpha_mask_discards_fragments_below_cutoff() {
     );
 
     assert_eq!(
-        renderer.framebuffer.get_pixel(16, 16).unwrap(),
+        renderer.framebuffer().get_pixel(16, 16).unwrap(),
         Vector3::zeros()
     );
     assert!(
         renderer
-            .framebuffer
+            .framebuffer()
             .sample(16, 16)
             .unwrap()
             .depth
@@ -35,7 +35,7 @@ fn alpha_mask_discards_fragments_below_cutoff() {
 
 #[test]
 fn headless_pbr_triangle_produces_visible_output() {
-    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(32, 32, 1);
     let shader = PbrShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -62,7 +62,7 @@ fn headless_pbr_triangle_produces_visible_output() {
     config.render.height = 32;
     config.render.use_aces = false;
     let mut output = vec![0; 32 * 32];
-    post_process_to_buffer(&renderer.framebuffer, &mut output, &config);
+    post_process_to_buffer(&renderer.target, &mut output, &config);
 
     assert_ne!(output[16 * 32 + 16] & 0x00ff_ffff, 0);
 }
@@ -127,11 +127,12 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
         light_space_matrix: Matrix4::identity(),
         light_index: None,
     };
-    let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(64, 64, 1);
     render_main_pass(
         &config,
         &context,
-        &mut renderer,
+        &mut renderer.renderer,
+        &mut renderer.target,
         &shadow,
         GraphicsPipelineState {
             primitive: PrimitiveState {
@@ -143,10 +144,10 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
     )
     .expect("mixed-phase scene should render");
 
-    let center = renderer.framebuffer.sample(32, 32).unwrap();
+    let center = renderer.framebuffer().sample(32, 32).unwrap();
     assert_vec3_approx(center.color, Vector3::new(0.5, 0.0, 0.5));
 
-    let masked = renderer.framebuffer.sample(22, 32).unwrap();
+    let masked = renderer.framebuffer().sample(22, 32).unwrap();
     assert_vec3_approx(masked.color, Vector3::new(0.0, 0.5, 0.5));
 
     let expected_depth = |world_z| {
@@ -161,7 +162,7 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
 
 #[test]
 fn masked_pbr_fragments_respect_material_alpha() {
-    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(32, 32, 1);
     let shader = PbrShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -184,7 +185,7 @@ fn masked_pbr_fragments_respect_material_alpha() {
     );
     assert!(
         renderer
-            .framebuffer
+            .framebuffer()
             .sample(16, 16)
             .unwrap()
             .depth
@@ -203,7 +204,7 @@ fn masked_pbr_fragments_respect_material_alpha() {
         Some(&visible),
         test_pipeline_state(),
     );
-    assert!((renderer.framebuffer.sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
+    assert!((renderer.framebuffer().sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
 
 #[test]
@@ -233,17 +234,18 @@ fn double_sided_material_disables_culling_per_command() {
             light_space_matrix: Matrix4::identity(),
             light_index: None,
         };
-        let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+        let mut renderer = TestRenderer::new(32, 32, 1);
 
         render_main_pass(
             &config,
             &context,
-            &mut renderer,
+            &mut renderer.renderer,
+            &mut renderer.target,
             &shadow,
             GraphicsPipelineState::default(),
         )
         .expect("test scene should render");
-        renderer.framebuffer.sample(16, 16).unwrap().depth
+        renderer.framebuffer().sample(16, 16).unwrap().depth
     };
 
     assert!(render(false).is_infinite());
@@ -259,7 +261,7 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
         alpha_mode: AlphaMode::Blend,
         ..Default::default()
     });
-    let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(64, 64, 1);
     let state = GraphicsPipelineState {
         color_target: Some(ColorTargetState {
             blend: Some(BlendState::Alpha),
@@ -274,11 +276,13 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
     phase.push(0, RenderGeometry::Mesh(&near), Some(&material), state, 0.5);
     phase.push(0, RenderGeometry::Mesh(&far), Some(&material), state, -0.5);
     phase.sort_transparent();
-    renderer.draw_phase(&phase, std::slice::from_ref(&shader));
+    renderer
+        .renderer
+        .draw_phase(&mut renderer.target, &phase, std::slice::from_ref(&shader));
 
     for y in [8, 24, 40, 56] {
         assert_vec3_approx(
-            renderer.framebuffer.get_pixel(32, y).unwrap(),
+            renderer.framebuffer().get_pixel(32, y).unwrap(),
             Vector3::new(0.25, 0.0, 0.5),
         );
     }
@@ -372,9 +376,12 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 phase.sort_transparent();
 
                 let (width, height) = (96, 80);
-                let mut renderer =
-                    Renderer::new(width, height, 1).expect("test dimensions should be valid");
-                renderer.draw_phase(&phase, std::slice::from_ref(&shader));
+                let mut renderer = TestRenderer::new(width, height, 1);
+                renderer.renderer.draw_phase(
+                    &mut renderer.target,
+                    &phase,
+                    std::slice::from_ref(&shader),
+                );
 
                 let mut config = rasterizer_rust::io::config::Config::default();
                 config.render.width = width;
@@ -382,8 +389,8 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 config.render.exposure = 1.0;
                 config.render.use_aces = false;
                 let mut output = vec![0; width * height];
-                post_process_to_buffer(&renderer.framebuffer, &mut output, &config);
-                (output, renderer.framebuffer.depth_values())
+                post_process_to_buffer(&renderer.target, &mut output, &config);
+                (output, renderer.framebuffer().depth_values())
             })
     };
 

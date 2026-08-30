@@ -9,7 +9,7 @@ fn depth_only_pipeline_state() -> GraphicsPipelineState {
 
 #[test]
 fn masked_shadow_fragments_respect_material_alpha() {
-    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(32, 32, 1);
     let shader = ShadowShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -31,7 +31,7 @@ fn masked_shadow_fragments_respect_material_alpha() {
     );
     assert!(
         renderer
-            .framebuffer
+            .framebuffer()
             .sample(16, 16)
             .unwrap()
             .depth
@@ -50,7 +50,7 @@ fn masked_shadow_fragments_respect_material_alpha() {
         Some(&visible),
         depth_only_pipeline_state(),
     );
-    assert!((renderer.framebuffer.sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
+    assert!((renderer.framebuffer().sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
         albedo_texture: Some(texture),
         ..Default::default()
     });
-    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(32, 32, 1);
     let shader = ShadowShader::new(
         Matrix4::identity(),
         Matrix4::identity(),
@@ -100,7 +100,7 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
 
     assert!(
         renderer
-            .framebuffer
+            .framebuffer()
             .sample(16, 16)
             .unwrap()
             .depth
@@ -133,9 +133,14 @@ fn blended_materials_do_not_write_shadow_depth() {
     };
     let mut config = rasterizer_rust::io::config::Config::default();
     config.render.shadow_map_size = 32;
-    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(32, 32, 1);
 
-    let shadow = render_shadow_pass(&config, &context, &mut renderer);
+    let shadow = render_shadow_pass(
+        &config,
+        &context,
+        &mut renderer.renderer,
+        &mut renderer.target,
+    );
 
     assert!(
         shadow
@@ -174,11 +179,16 @@ fn double_sided_material_disables_shadow_culling_per_command() {
         };
         let mut config = rasterizer_rust::io::config::Config::default();
         config.render.shadow_map_size = 32;
-        let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+        let mut renderer = TestRenderer::new(32, 32, 1);
 
-        render_shadow_pass(&config, &context, &mut renderer)
-            .depth
-            .unwrap()
+        render_shadow_pass(
+            &config,
+            &context,
+            &mut renderer.renderer,
+            &mut renderer.target,
+        )
+        .depth
+        .unwrap()
     };
 
     assert!(render(false).iter().all(|depth| depth.is_infinite()));
@@ -198,9 +208,14 @@ fn point_only_scene_disables_shadow_pass() {
         shadow_light: None,
     };
     let config = rasterizer_rust::io::config::Config::default();
-    let mut renderer = Renderer::new(32, 32, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(32, 32, 1);
 
-    let shadow = render_shadow_pass(&config, &context, &mut renderer);
+    let shadow = render_shadow_pass(
+        &config,
+        &context,
+        &mut renderer.renderer,
+        &mut renderer.target,
+    );
 
     assert!(shadow.depth.is_none());
     assert_eq!(shadow.size, 0);
@@ -224,9 +239,14 @@ fn shadow_output_reports_actual_buffer_size() {
     };
     let mut config = rasterizer_rust::io::config::Config::default();
     config.render.shadow_map_size = 64;
-    let mut renderer = Renderer::new(16, 16, 1).expect("test dimensions should be valid");
+    let mut renderer = TestRenderer::new(16, 16, 1);
 
-    let shadow = render_shadow_pass(&config, &context, &mut renderer);
+    let shadow = render_shadow_pass(
+        &config,
+        &context,
+        &mut renderer.renderer,
+        &mut renderer.target,
+    );
 
     assert_eq!(shadow.size, 16);
     assert_eq!(shadow.depth.unwrap().len(), 16 * 16);
@@ -260,8 +280,14 @@ fn directional_shadow_bounds_follow_the_camera_frustum() {
         let mut config = rasterizer_rust::io::config::Config::default();
         config.render.shadow_map_size = 16;
         config.render.shadow_ortho_size = 10.0;
-        let mut renderer = Renderer::new(16, 16, 1).expect("test dimensions should be valid");
-        render_shadow_pass(&config, &context, &mut renderer).light_space_matrix
+        let mut renderer = TestRenderer::new(16, 16, 1);
+        render_shadow_pass(
+            &config,
+            &context,
+            &mut renderer.renderer,
+            &mut renderer.target,
+        )
+        .light_space_matrix
     };
 
     let origin = render(0.0);
@@ -288,8 +314,14 @@ fn directional_shadow_bounds_include_scene_geometry() {
         };
         let mut config = rasterizer_rust::io::config::Config::default();
         config.render.shadow_ortho_size = 2.0;
-        let mut renderer = Renderer::new(16, 16, 1).expect("test dimensions should be valid");
-        render_shadow_pass(&config, &context, &mut renderer).light_space_matrix
+        let mut renderer = TestRenderer::new(16, 16, 1);
+        render_shadow_pass(
+            &config,
+            &context,
+            &mut renderer.renderer,
+            &mut renderer.target,
+        )
+        .light_space_matrix
     };
     let far_caster = SceneObject::new(
         SceneObjectKind::Model { config_index: 0 },

@@ -4,7 +4,7 @@ use crate::error::{ApplicationError, WindowError};
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
 use crate::pipeline::passes::{post_process_to_buffer, render_main_pass, render_shadow_pass};
-use crate::pipeline::renderer::Renderer;
+use crate::pipeline::renderer::{RenderTarget, Renderer};
 use crate::scene::loader::{build_lights_from_config, init_scene_resources, update_scene_objects};
 use crate::ui::input::CameraController;
 use log::{debug, info, warn};
@@ -90,21 +90,21 @@ fn apply_hot_reload_render_settings(
     mut render: RenderConfig,
     window_width: usize,
     window_height: usize,
-    renderer: &mut Renderer,
-    shadow_renderer: &mut Renderer,
+    target: &mut RenderTarget,
+    shadow_target: &mut RenderTarget,
 ) -> HotReloadRenderSettings {
     let supersample_scale_rejected =
         FrameBuffer::validate_dimensions(window_width, window_height, render.supersample_scale)
             .is_err();
     if supersample_scale_rejected {
-        render.supersample_scale = renderer.framebuffer.supersample_scale;
-    } else if renderer.framebuffer.supersample_scale != render.supersample_scale {
-        if let Ok(new_renderer) =
-            Renderer::new(window_width, window_height, render.supersample_scale)
+        render.supersample_scale = target.framebuffer().supersample_scale;
+    } else if target.framebuffer().supersample_scale != render.supersample_scale {
+        if let Ok(new_target) =
+            RenderTarget::new(window_width, window_height, render.supersample_scale)
         {
-            *renderer = new_renderer;
+            *target = new_target;
         } else {
-            render.supersample_scale = renderer.framebuffer.supersample_scale;
+            render.supersample_scale = target.framebuffer().supersample_scale;
         }
     }
 
@@ -112,14 +112,15 @@ fn apply_hot_reload_render_settings(
         FrameBuffer::validate_dimensions(render.shadow_map_size, render.shadow_map_size, 1)
             .is_err();
     if shadow_map_size_rejected {
-        render.shadow_map_size = shadow_renderer.framebuffer.width;
-    } else if shadow_renderer.framebuffer.width != render.shadow_map_size
-        || shadow_renderer.framebuffer.height != render.shadow_map_size
+        render.shadow_map_size = shadow_target.framebuffer().width;
+    } else if shadow_target.framebuffer().width != render.shadow_map_size
+        || shadow_target.framebuffer().height != render.shadow_map_size
     {
-        if let Ok(new_renderer) = Renderer::new(render.shadow_map_size, render.shadow_map_size, 1) {
-            *shadow_renderer = new_renderer;
+        if let Ok(new_target) = RenderTarget::new(render.shadow_map_size, render.shadow_map_size, 1)
+        {
+            *shadow_target = new_target;
         } else {
-            render.shadow_map_size = shadow_renderer.framebuffer.width;
+            render.shadow_map_size = shadow_target.framebuffer().width;
         }
     }
 
@@ -163,14 +164,16 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
 
     let mut context = init_scene_resources(&config)?;
 
-    let mut renderer =
-        Renderer::new(width, height, config.render.supersample_scale).map_err(|reason| {
+    let mut renderer = Renderer::new();
+    let mut target =
+        RenderTarget::new(width, height, config.render.supersample_scale).map_err(|reason| {
             ApplicationError::RenderInitialization {
                 target: "main framebuffer",
                 reason,
             }
         })?;
-    let mut shadow_renderer = Renderer::new(
+    let mut shadow_renderer = Renderer::new();
+    let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
         1,
@@ -214,8 +217,8 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
                     new_config.render.clone(),
                     width,
                     height,
-                    &mut renderer,
-                    &mut shadow_renderer,
+                    &mut target,
+                    &mut shadow_target,
                 );
                 if render_settings.resize_requested {
                     warn!(
@@ -287,10 +290,18 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         }
         last_middle_click = middle_click;
 
-        let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
-        render_main_pass(&config, &context, &mut renderer, &shadow, pipeline_state)?;
+        let shadow =
+            render_shadow_pass(&config, &context, &mut shadow_renderer, &mut shadow_target);
+        render_main_pass(
+            &config,
+            &context,
+            &mut renderer,
+            &mut target,
+            &shadow,
+            pipeline_state,
+        )?;
 
-        post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
+        post_process_to_buffer(&target, &mut buffer, &config);
         window
             .update_with_buffer(&buffer, width, height)
             .map_err(|source| WindowError::Present { source })?;
@@ -324,7 +335,8 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     let context = init_scene_resources(&config)?;
     let start_time = Instant::now();
 
-    let mut renderer = Renderer::new(
+    let mut renderer = Renderer::new();
+    let mut target = RenderTarget::new(
         config.render.width,
         config.render.height,
         config.render.supersample_scale,
@@ -333,7 +345,8 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         target: "main framebuffer",
         reason,
     })?;
-    let mut shadow_renderer = Renderer::new(
+    let mut shadow_renderer = Renderer::new();
+    let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
         1,
@@ -351,18 +364,25 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         ..Default::default()
     };
 
-    let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer);
+    let shadow = render_shadow_pass(&config, &context, &mut shadow_renderer, &mut shadow_target);
     if shadow.depth.is_some() {
         debug!("Shadow pass completed.");
     }
-    render_main_pass(&config, &context, &mut renderer, &shadow, pipeline_state)?;
+    render_main_pass(
+        &config,
+        &context,
+        &mut renderer,
+        &mut target,
+        &shadow,
+        pipeline_state,
+    )?;
 
     info!("Render completed in {:.2?}", start_time.elapsed());
 
     let output_path = config.resolve_path(&config.render.output);
     info!("Saving output to '{}'...", output_path.display());
     let mut buffer = vec![0u32; config.render.width * config.render.height];
-    post_process_to_buffer(&renderer.framebuffer, &mut buffer, &config);
+    post_process_to_buffer(&target, &mut buffer, &config);
     save_buffer_to_image(
         &buffer,
         config.render.width,
@@ -445,10 +465,10 @@ mod tests {
     }
 
     #[test]
-    fn hot_reload_rebuilds_sample_and_shadow_buffers() {
-        let mut renderer = Renderer::new(80, 45, 1).expect("test dimensions should be valid");
-        let mut shadow_renderer =
-            Renderer::new(64, 64, 1).expect("test dimensions should be valid");
+    fn hot_reload_rebuilds_main_and_shadow_targets() {
+        let mut target = RenderTarget::new(80, 45, 1).expect("test dimensions should be valid");
+        let mut shadow_target =
+            RenderTarget::new(64, 64, 1).expect("test dimensions should be valid");
         let render = RenderConfig {
             width: 160,
             height: 90,
@@ -458,24 +478,24 @@ mod tests {
         };
 
         let settings =
-            apply_hot_reload_render_settings(render, 80, 45, &mut renderer, &mut shadow_renderer);
+            apply_hot_reload_render_settings(render, 80, 45, &mut target, &mut shadow_target);
 
         assert!(settings.resize_requested);
         assert!(!settings.supersample_scale_rejected);
         assert!(!settings.shadow_map_size_rejected);
         assert_eq!((settings.render.width, settings.render.height), (80, 45));
-        assert_eq!(renderer.framebuffer.supersample_scale, 2);
-        assert_eq!(renderer.framebuffer.buffer_width, 160);
-        assert_eq!(renderer.framebuffer.buffer_height, 90);
-        assert_eq!(shadow_renderer.framebuffer.width, 128);
-        assert_eq!(shadow_renderer.framebuffer.height, 128);
+        assert_eq!(target.framebuffer().supersample_scale, 2);
+        assert_eq!(target.framebuffer().buffer_width, 160);
+        assert_eq!(target.framebuffer().buffer_height, 90);
+        assert_eq!(shadow_target.framebuffer().width, 128);
+        assert_eq!(shadow_target.framebuffer().height, 128);
     }
 
     #[test]
     fn hot_reload_keeps_window_size_when_no_resize_is_requested() {
-        let mut renderer = Renderer::new(80, 45, 1).expect("test dimensions should be valid");
-        let mut shadow_renderer =
-            Renderer::new(64, 64, 1).expect("test dimensions should be valid");
+        let mut target = RenderTarget::new(80, 45, 1).expect("test dimensions should be valid");
+        let mut shadow_target =
+            RenderTarget::new(64, 64, 1).expect("test dimensions should be valid");
         let render = RenderConfig {
             width: 80,
             height: 45,
@@ -485,20 +505,20 @@ mod tests {
         };
 
         let settings =
-            apply_hot_reload_render_settings(render, 80, 45, &mut renderer, &mut shadow_renderer);
+            apply_hot_reload_render_settings(render, 80, 45, &mut target, &mut shadow_target);
 
         assert!(!settings.resize_requested);
         assert!(!settings.supersample_scale_rejected);
         assert!(!settings.shadow_map_size_rejected);
         assert_eq!((settings.render.width, settings.render.height), (80, 45));
-        assert_eq!(renderer.framebuffer.supersample_scale, 1);
-        assert_eq!(shadow_renderer.framebuffer.width, 64);
+        assert_eq!(target.framebuffer().supersample_scale, 1);
+        assert_eq!(shadow_target.framebuffer().width, 64);
     }
     #[test]
     fn hot_reload_rejects_zero_sized_render_resources() {
-        let mut renderer = Renderer::new(80, 45, 2).expect("test dimensions should be valid");
-        let mut shadow_renderer =
-            Renderer::new(64, 64, 1).expect("test dimensions should be valid");
+        let mut target = RenderTarget::new(80, 45, 2).expect("test dimensions should be valid");
+        let mut shadow_target =
+            RenderTarget::new(64, 64, 1).expect("test dimensions should be valid");
         let render = RenderConfig {
             width: 80,
             height: 45,
@@ -508,13 +528,13 @@ mod tests {
         };
 
         let settings =
-            apply_hot_reload_render_settings(render, 80, 45, &mut renderer, &mut shadow_renderer);
+            apply_hot_reload_render_settings(render, 80, 45, &mut target, &mut shadow_target);
 
         assert!(settings.supersample_scale_rejected);
         assert!(settings.shadow_map_size_rejected);
         assert_eq!(settings.render.supersample_scale, 2);
         assert_eq!(settings.render.shadow_map_size, 64);
-        assert_eq!(renderer.framebuffer.supersample_scale, 2);
-        assert_eq!(shadow_renderer.framebuffer.width, 64);
+        assert_eq!(target.framebuffer().supersample_scale, 2);
+        assert_eq!(shadow_target.framebuffer().width, 64);
     }
 }
