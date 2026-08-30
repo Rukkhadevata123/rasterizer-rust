@@ -88,7 +88,10 @@ fn depth_state_is_explicit_per_draw() {
         &shader,
         None,
         RenderState {
-            depth_write: false,
+            depth_stencil: Some(DepthStencilState {
+                depth_write_enabled: false,
+                ..Default::default()
+            }),
             ..test_render_state()
         },
     );
@@ -107,7 +110,10 @@ fn depth_state_is_explicit_per_draw() {
         &shader,
         None,
         RenderState {
-            depth_compare: DepthCompare::Greater,
+            depth_stencil: Some(DepthStencilState {
+                depth_compare: CompareFunction::Greater,
+                ..Default::default()
+            }),
             ..test_render_state()
         },
     );
@@ -122,13 +128,36 @@ fn depth_state_is_explicit_per_draw() {
         &shader,
         None,
         RenderState {
-            depth_test: false,
+            depth_stencil: Some(DepthStencilState {
+                depth_compare: CompareFunction::Always,
+                ..Default::default()
+            }),
             ..test_render_state()
         },
     );
     assert_vec3_approx(
         renderer.framebuffer.get_pixel(16, 16).unwrap(),
         Vector3::new(0.0, 0.0, 1.0),
+    );
+
+    let stored_depth = renderer.framebuffer.sample(16, 16).unwrap().depth;
+    draw_mesh(
+        &mut renderer,
+        &red,
+        &shader,
+        None,
+        RenderState {
+            depth_stencil: None,
+            ..test_render_state()
+        },
+    );
+    assert_vec3_approx(
+        renderer.framebuffer.get_pixel(16, 16).unwrap(),
+        Vector3::new(1.0, 0.0, 0.0),
+    );
+    assert_eq!(
+        renderer.framebuffer.sample(16, 16).unwrap().depth,
+        stored_depth
     );
 }
 
@@ -283,8 +312,10 @@ fn top_left_rule_covers_shared_edge_once_without_cracks() {
         None,
         RenderState {
             blend_mode: BlendMode::Alpha,
-            depth_test: false,
-            depth_write: false,
+            depth_stencil: Some(DepthStencilState {
+                depth_compare: CompareFunction::Always,
+                depth_write_enabled: false,
+            }),
             ..test_render_state()
         },
     );

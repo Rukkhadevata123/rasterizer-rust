@@ -2,7 +2,9 @@ use crate::core::framebuffer::{FrameBuffer, Sample};
 use crate::core::geometry::SUPPORTED_TEXCOORD_SETS;
 use crate::core::math::interpolation::perspective_correct_barycentric;
 use crate::core::math::transform::{apply_perspective_division, ndc_to_screen};
-use crate::core::pipeline_state::{CullMode, FrontFace, PolygonMode, PrimitiveState};
+use crate::core::pipeline_state::{
+    CullMode, DepthStencilState, FrontFace, PolygonMode, PrimitiveState,
+};
 use crate::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use nalgebra::{Point2, Vector3, Vector4};
 use rayon::prelude::*;
@@ -57,38 +59,9 @@ pub enum BlendMode {
 }
 
 #[derive(PartialEq, Copy, Clone, Debug)]
-pub enum DepthCompare {
-    Never,
-    Less,
-    LessEqual,
-    Equal,
-    NotEqual,
-    GreaterEqual,
-    Greater,
-    Always,
-}
-
-impl DepthCompare {
-    fn test(self, incoming: f32, stored: f32) -> bool {
-        match self {
-            Self::Never => false,
-            Self::Less => incoming < stored,
-            Self::LessEqual => incoming <= stored,
-            Self::Equal => incoming == stored,
-            Self::NotEqual => incoming != stored,
-            Self::GreaterEqual => incoming >= stored,
-            Self::Greater => incoming > stored,
-            Self::Always => true,
-        }
-    }
-}
-
-#[derive(PartialEq, Copy, Clone, Debug)]
 pub struct RenderState {
     pub primitive: PrimitiveState,
-    pub depth_test: bool,
-    pub depth_compare: DepthCompare,
-    pub depth_write: bool,
+    pub depth_stencil: Option<DepthStencilState>,
     pub blend_mode: BlendMode,
 }
 
@@ -96,9 +69,7 @@ impl Default for RenderState {
     fn default() -> Self {
         Self {
             primitive: PrimitiveState::default(),
-            depth_test: true,
-            depth_compare: DepthCompare::Less,
-            depth_write: true,
+            depth_stencil: Some(DepthStencilState::default()),
             blend_mode: BlendMode::Opaque,
         }
     }
@@ -580,8 +551,9 @@ impl Rasterizer {
                         }
 
                         let sample = &mut samples[row_offset + x];
-                        if triangle.state.depth_test
-                            && !triangle.state.depth_compare.test(depth, sample.depth)
+                        let depth_stencil = triangle.state.depth_stencil;
+                        if depth_stencil
+                            .is_some_and(|state| !state.depth_compare.test(depth, sample.depth))
                         {
                             break 'fragment;
                         }
@@ -616,13 +588,13 @@ impl Rasterizer {
 
                         match triangle.state.blend_mode {
                             BlendMode::Opaque => {
-                                if triangle.state.depth_write {
+                                if depth_stencil.is_some_and(|state| state.depth_write_enabled) {
                                     sample.depth = depth;
                                 }
                                 sample.color = color.xyz();
                             }
                             BlendMode::Alpha if color.w > 0.001 => {
-                                if triangle.state.depth_write {
+                                if depth_stencil.is_some_and(|state| state.depth_write_enabled) {
                                     sample.depth = depth;
                                 }
                                 sample.color =
@@ -649,33 +621,7 @@ mod tests {
         let state = RenderState::default();
 
         assert_eq!(state.primitive, PrimitiveState::default());
-        assert!(state.depth_test);
-        assert_eq!(state.depth_compare, DepthCompare::Less);
-        assert!(state.depth_write);
+        assert_eq!(state.depth_stencil, Some(DepthStencilState::default()));
         assert_eq!(state.blend_mode, BlendMode::Opaque);
-    }
-
-    #[test]
-    fn depth_compare_functions_match_their_ordering_contract() {
-        let stored = 0.5;
-        let incoming = [0.25, 0.5, 0.75];
-        let cases = [
-            (DepthCompare::Never, [false, false, false]),
-            (DepthCompare::Less, [true, false, false]),
-            (DepthCompare::LessEqual, [true, true, false]),
-            (DepthCompare::Equal, [false, true, false]),
-            (DepthCompare::NotEqual, [true, false, true]),
-            (DepthCompare::GreaterEqual, [false, true, true]),
-            (DepthCompare::Greater, [false, false, true]),
-            (DepthCompare::Always, [true, true, true]),
-        ];
-
-        for (compare, expected) in cases {
-            assert_eq!(
-                incoming.map(|value| compare.test(value, stored)),
-                expected,
-                "unexpected {compare:?} comparison results"
-            );
-        }
     }
 }

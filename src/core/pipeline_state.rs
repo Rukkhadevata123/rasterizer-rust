@@ -1,4 +1,4 @@
-use super::rasterizer::{BlendMode, DepthCompare, RenderState};
+use super::rasterizer::{BlendMode, RenderState};
 
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum CullMode {
@@ -39,17 +39,17 @@ pub enum CompareFunction {
     Always,
 }
 
-impl From<DepthCompare> for CompareFunction {
-    fn from(value: DepthCompare) -> Self {
-        match value {
-            DepthCompare::Never => Self::Never,
-            DepthCompare::Less => Self::Less,
-            DepthCompare::LessEqual => Self::LessEqual,
-            DepthCompare::Equal => Self::Equal,
-            DepthCompare::NotEqual => Self::NotEqual,
-            DepthCompare::GreaterEqual => Self::GreaterEqual,
-            DepthCompare::Greater => Self::Greater,
-            DepthCompare::Always => Self::Always,
+impl CompareFunction {
+    pub(crate) fn test(self, incoming: f32, stored: f32) -> bool {
+        match self {
+            Self::Never => false,
+            Self::Less => incoming < stored,
+            Self::LessEqual => incoming <= stored,
+            Self::Equal => incoming == stored,
+            Self::NotEqual => incoming != stored,
+            Self::GreaterEqual => incoming >= stored,
+            Self::Greater => incoming > stored,
+            Self::Always => true,
         }
     }
 }
@@ -119,14 +119,7 @@ impl From<RenderState> for GraphicsPipelineState {
     fn from(value: RenderState) -> Self {
         Self {
             primitive: value.primitive,
-            depth_stencil: Some(DepthStencilState {
-                depth_compare: if value.depth_test {
-                    value.depth_compare.into()
-                } else {
-                    CompareFunction::Always
-                },
-                depth_write_enabled: value.depth_write,
-            }),
+            depth_stencil: value.depth_stencil,
             color_target: Some(ColorTargetState {
                 blend: match value.blend_mode {
                     BlendMode::Opaque => None,
@@ -159,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_state_maps_to_the_new_pipeline_vocabulary() {
+    fn render_state_maps_to_the_complete_pipeline_vocabulary() {
         let state = GraphicsPipelineState::from(RenderState {
             primitive: PrimitiveState {
                 front_face: FrontFace::Clockwise,
@@ -167,9 +160,10 @@ mod tests {
                 polygon_mode: PolygonMode::Line,
                 ..Default::default()
             },
-            depth_test: false,
-            depth_compare: DepthCompare::Greater,
-            depth_write: true,
+            depth_stencil: Some(DepthStencilState {
+                depth_compare: CompareFunction::Always,
+                depth_write_enabled: true,
+            }),
             blend_mode: BlendMode::Alpha,
         });
 
@@ -193,20 +187,26 @@ mod tests {
     }
 
     #[test]
-    fn every_legacy_depth_compare_has_an_exact_pipeline_equivalent() {
+    fn compare_functions_match_their_ordering_contract() {
+        let stored = 0.5;
+        let incoming = [0.25, 0.5, 0.75];
         let cases = [
-            (DepthCompare::Never, CompareFunction::Never),
-            (DepthCompare::Less, CompareFunction::Less),
-            (DepthCompare::LessEqual, CompareFunction::LessEqual),
-            (DepthCompare::Equal, CompareFunction::Equal),
-            (DepthCompare::NotEqual, CompareFunction::NotEqual),
-            (DepthCompare::GreaterEqual, CompareFunction::GreaterEqual),
-            (DepthCompare::Greater, CompareFunction::Greater),
-            (DepthCompare::Always, CompareFunction::Always),
+            (CompareFunction::Never, [false, false, false]),
+            (CompareFunction::Less, [true, false, false]),
+            (CompareFunction::LessEqual, [true, true, false]),
+            (CompareFunction::Equal, [false, true, false]),
+            (CompareFunction::NotEqual, [true, false, true]),
+            (CompareFunction::GreaterEqual, [false, true, true]),
+            (CompareFunction::Greater, [false, false, true]),
+            (CompareFunction::Always, [true, true, true]),
         ];
 
-        for (legacy, pipeline) in cases {
-            assert_eq!(CompareFunction::from(legacy), pipeline);
+        for (compare, expected) in cases {
+            assert_eq!(
+                incoming.map(|value| compare.test(value, stored)),
+                expected,
+                "unexpected {compare:?} comparison results"
+            );
         }
     }
 }

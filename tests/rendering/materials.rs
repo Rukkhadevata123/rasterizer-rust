@@ -262,7 +262,10 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
     let mut renderer = Renderer::new(64, 64, 1).expect("test dimensions should be valid");
     let state = RenderState {
         blend_mode: BlendMode::Alpha,
-        depth_write: false,
+        depth_stencil: Some(DepthStencilState {
+            depth_write_enabled: false,
+            ..Default::default()
+        }),
         ..test_render_state()
     };
     let mut phase = RenderPhase::default();
@@ -332,7 +335,10 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 });
                 let state = RenderState {
                     blend_mode: BlendMode::Alpha,
-                    depth_write: false,
+                    depth_stencil: Some(DepthStencilState {
+                        depth_write_enabled: false,
+                        ..Default::default()
+                    }),
                     ..test_render_state()
                 };
                 let mut layers = [

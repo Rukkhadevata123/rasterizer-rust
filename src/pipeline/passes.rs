@@ -1,7 +1,7 @@
 use crate::core::color::{aces_tone_mapping, linear_to_srgb};
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::math::transform::{TangentFrameTransform, TransformFactory};
-use crate::core::pipeline_state::{CullMode, PrimitiveState};
+use crate::core::pipeline_state::{CullMode, DepthStencilState, PrimitiveState};
 use crate::core::rasterizer::{BlendMode, RenderState};
 use crate::error::AssetError;
 use crate::io::config::Config;
@@ -345,12 +345,18 @@ pub fn render_main_pass_profiled(
     let setup_started = Instant::now();
     let opaque_state = RenderState {
         blend_mode: BlendMode::Opaque,
-        depth_write: true,
+        depth_stencil: state.depth_stencil.map(|depth_stencil| DepthStencilState {
+            depth_write_enabled: true,
+            ..depth_stencil
+        }),
         ..state
     };
     let transparent_state = RenderState {
         blend_mode: BlendMode::Alpha,
-        depth_write: false,
+        depth_stencil: state.depth_stencil.map(|depth_stencil| DepthStencilState {
+            depth_write_enabled: false,
+            ..depth_stencil
+        }),
         ..state
     };
     let mut shaders: Vec<PbrShader<'_>> = context
