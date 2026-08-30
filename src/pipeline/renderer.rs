@@ -41,10 +41,10 @@ type PreparedBatch<'a, V, S> =
     [Option<PreparedTriangle<'a, V, S, Option<&'a Material>>>; MAX_PREPARED_TRIANGLES];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DrawTimings {
+pub struct BackendExecutionTimings {
     pub backend_preparation: Duration,
     pub rasterization: Duration,
-    /// Inclusive synchronous draw duration. Backend preparation and rasterization are nested
+    /// Inclusive synchronous backend execution duration. Preparation and rasterization are nested
     /// within this value and must not be added to it when computing a total.
     pub submission_total: Duration,
 }
@@ -243,7 +243,7 @@ impl SoftwareRasterBackend {
         });
     }
 
-    pub fn draw_phase<'a, S>(
+    pub fn execute_phase<'a, S>(
         &mut self,
         target: &mut RenderTarget,
         phase: &RenderPhase<'a>,
@@ -251,10 +251,10 @@ impl SoftwareRasterBackend {
     ) where
         S: Shader<Option<&'a Material>>,
     {
-        let _ = self.draw_phases_profiled(target, &[phase], shaders);
+        let _ = self.execute_phases_profiled(target, &[phase], shaders);
     }
 
-    pub fn draw_phases<'a, S>(
+    pub fn execute_phases<'a, S>(
         &mut self,
         target: &mut RenderTarget,
         phases: &[&RenderPhase<'a>],
@@ -262,27 +262,27 @@ impl SoftwareRasterBackend {
     ) where
         S: Shader<Option<&'a Material>>,
     {
-        let _ = self.draw_phases_profiled(target, phases, shaders);
+        let _ = self.execute_phases_profiled(target, phases, shaders);
     }
 
-    pub fn draw_phase_profiled<'a, S>(
+    pub fn execute_phase_profiled<'a, S>(
         &mut self,
         target: &mut RenderTarget,
         phase: &RenderPhase<'a>,
         shaders: &'a [S],
-    ) -> DrawTimings
+    ) -> BackendExecutionTimings
     where
         S: Shader<Option<&'a Material>>,
     {
-        self.draw_phases_profiled(target, &[phase], shaders)
+        self.execute_phases_profiled(target, &[phase], shaders)
     }
 
-    pub fn draw_phases_profiled<'a, S>(
+    pub fn execute_phases_profiled<'a, S>(
         &mut self,
         target: &mut RenderTarget,
         phases: &[&RenderPhase<'a>],
         shaders: &'a [S],
-    ) -> DrawTimings
+    ) -> BackendExecutionTimings
     where
         S: Shader<Option<&'a Material>>,
     {
@@ -467,7 +467,7 @@ impl SoftwareRasterBackend {
         self.rasterizer
             .rasterize_prepared(target.framebuffer_mut(), &prepared);
         let rasterization = rasterization_started.elapsed();
-        DrawTimings {
+        BackendExecutionTimings {
             backend_preparation,
             rasterization,
             submission_total: submission_started.elapsed(),

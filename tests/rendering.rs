@@ -312,7 +312,7 @@ fn draw_mesh<'a, S>(
     phase.push(0, RenderGeometry::Mesh(mesh), material, state, 0.0);
     renderer
         .backend
-        .draw_phase(&mut renderer.target, &phase, std::slice::from_ref(shader));
+        .execute_phase(&mut renderer.target, &phase, std::slice::from_ref(shader));
 }
 
 fn shadow_test_camera() -> Camera {

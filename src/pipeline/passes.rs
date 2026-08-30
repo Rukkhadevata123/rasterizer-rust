@@ -278,7 +278,8 @@ pub fn render_shadow_pass_profiled(
         }
     }
     let recording = recording_started.elapsed();
-    let draw_timings = shadow_backend.draw_phase_profiled(shadow_target, &shadow_phase, &shaders);
+    let execution_timings =
+        shadow_backend.execute_phase_profiled(shadow_target, &shadow_phase, &shaders);
 
     let output = ShadowPassOutput {
         depth: Some(resources.shadow_depth_snapshot(shadow_target)),
@@ -292,9 +293,9 @@ pub fn render_shadow_pass_profiled(
             pass_setup,
             recording,
             attachment_processing,
-            backend_preparation: draw_timings.backend_preparation,
-            rasterization: draw_timings.rasterization,
-            submission_total: draw_timings.submission_total,
+            backend_preparation: execution_timings.backend_preparation,
+            rasterization: execution_timings.rasterization,
+            submission_total: execution_timings.submission_total,
         },
     )
 }
@@ -517,11 +518,11 @@ pub fn render_main_pass_profiled(
     let mut recording = recording_started.elapsed();
 
     let opaque_masked =
-        backend.draw_phases_profiled(target, &[&opaque_phase, &masked_phase], &shaders);
+        backend.execute_phases_profiled(target, &[&opaque_phase, &masked_phase], &shaders);
     let sorting_started = Instant::now();
     transparent_phase.sort_transparent();
     recording += sorting_started.elapsed();
-    let transparent = backend.draw_phase_profiled(target, &transparent_phase, &shaders);
+    let transparent = backend.execute_phase_profiled(target, &transparent_phase, &shaders);
 
     Ok(MainPassTimings {
         pass_setup,

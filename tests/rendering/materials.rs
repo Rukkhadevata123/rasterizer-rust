@@ -280,7 +280,7 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
     phase.sort_transparent();
     renderer
         .backend
-        .draw_phase(&mut renderer.target, &phase, std::slice::from_ref(&shader));
+        .execute_phase(&mut renderer.target, &phase, std::slice::from_ref(&shader));
 
     for y in [8, 24, 40, 56] {
         assert_vec3_approx(
@@ -379,7 +379,7 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
 
                 let (width, height) = (96, 80);
                 let mut renderer = TestRenderHarness::new(width, height, 1);
-                renderer.backend.draw_phase(
+                renderer.backend.execute_phase(
                     &mut renderer.target,
                     &phase,
                     std::slice::from_ref(&shader),
