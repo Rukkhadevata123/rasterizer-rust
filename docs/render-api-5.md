@@ -31,7 +31,7 @@ The 4.0 crate exports almost its entire source tree through `lib.rs`. Integratio
 - raster state and `Rasterizer` from `core::rasterizer`;
 - immediate draw lists and `Renderer` from `pipeline::renderer`;
 - built-in shaders and pass functions from `pipeline`;
-- cameras, lights, materials, meshes, models, textures, and `RenderContext` from `scene`;
+- cameras, lights, materials, meshes, models, textures, and `RenderScene` from `scene`;
 - configuration and glTF loading from `io`.
 
 This is useful test coverage but not a deliberate stability boundary. In particular, `Rasterizer` is public even though its preparation and execution methods are crate-private, while `Renderer`, `RenderQueue`, and shader-index coupling expose the implementation that Phase 11 replaces.

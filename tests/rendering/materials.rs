@@ -99,7 +99,7 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
     let transparent = triangle(0.8, Vector4::zeros());
 
     let camera = shadow_test_camera();
-    let context = RenderContext {
+    let context = RenderScene {
         camera: camera.clone(),
         lights: Vec::new(),
         scene_objects: vec![
@@ -213,7 +213,7 @@ fn double_sided_material_disables_culling_per_command() {
             double_sided,
             ..Default::default()
         });
-        let context = RenderContext {
+        let context = RenderScene {
             camera: shadow_test_camera(),
             lights: Vec::new(),
             scene_objects: vec![SceneObject::new(

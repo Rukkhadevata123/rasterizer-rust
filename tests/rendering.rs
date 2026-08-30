@@ -13,7 +13,7 @@ use rasterizer_rust::pipeline::renderer::{RenderGeometry, RenderQueue, Renderer}
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
 use rasterizer_rust::pipeline::shaders::shadow::ShadowShader;
 use rasterizer_rust::scene::camera::Camera;
-use rasterizer_rust::scene::context::{RenderContext, ShadowLight};
+use rasterizer_rust::scene::context::{RenderScene, ShadowLight};
 use rasterizer_rust::scene::light::Light;
 use rasterizer_rust::scene::material::{AlphaMode, Material, PbrMaterial};
 use rasterizer_rust::scene::mesh::Mesh;

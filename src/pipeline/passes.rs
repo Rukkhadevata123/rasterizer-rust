@@ -7,7 +7,7 @@ use crate::io::config::Config;
 use crate::pipeline::renderer::{ClearOptions, RenderGeometry, RenderQueue, Renderer};
 use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
-use crate::scene::context::RenderContext;
+use crate::scene::context::RenderScene;
 use crate::scene::material::{AlphaMode, Material};
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
@@ -49,7 +49,7 @@ struct ShadowCamera {
 
 fn configured_pbr_shader<'resources>(
     config: &Config,
-    context: &'resources RenderContext,
+    context: &'resources RenderScene,
     shadow: &'resources ShadowPassOutput,
     model: Matrix4<f32>,
     tangent_frame_transform: TangentFrameTransform,
@@ -87,7 +87,7 @@ impl ShadowPassOutput {
 
 fn shadow_camera(
     config: &Config,
-    context: &RenderContext,
+    context: &RenderScene,
     light_direction: Vector3<f32>,
 ) -> ShadowCamera {
     let inverse_view_projection = (context.camera.projection_matrix()
@@ -161,7 +161,7 @@ fn shadow_camera(
 
 pub fn render_shadow_pass(
     config: &Config,
-    context: &RenderContext,
+    context: &RenderScene,
     shadow_renderer: &mut Renderer,
 ) -> ShadowPassOutput {
     render_shadow_pass_profiled(config, context, shadow_renderer).0
@@ -169,7 +169,7 @@ pub fn render_shadow_pass(
 
 pub fn render_shadow_pass_profiled(
     config: &Config,
-    context: &RenderContext,
+    context: &RenderScene,
     shadow_renderer: &mut Renderer,
 ) -> (ShadowPassOutput, ShadowPassTimings) {
     let pass_started = Instant::now();
@@ -284,7 +284,7 @@ pub fn render_shadow_pass_profiled(
 /// Executes the Main Rendering Pass.
 pub fn render_main_pass(
     config: &Config,
-    context: &RenderContext,
+    context: &RenderScene,
     renderer: &mut Renderer,
     shadow: &ShadowPassOutput,
     state: RenderState,
@@ -294,7 +294,7 @@ pub fn render_main_pass(
 
 pub fn render_main_pass_profiled(
     config: &Config,
-    context: &RenderContext,
+    context: &RenderScene,
     renderer: &mut Renderer,
     shadow: &ShadowPassOutput,
     state: RenderState,

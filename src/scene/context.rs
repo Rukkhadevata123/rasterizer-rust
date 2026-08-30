@@ -9,7 +9,7 @@ pub struct ShadowLight {
     pub position: Point3<f32>,
 }
 
-pub struct RenderContext {
+pub struct RenderScene {
     pub camera: Camera,
     pub lights: Vec<Light>,
     pub scene_objects: Vec<SceneObject>,

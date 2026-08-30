@@ -107,7 +107,7 @@ fn blended_materials_do_not_write_shadow_depth() {
         alpha_mode: AlphaMode::Blend,
         ..Default::default()
     });
-    let context = RenderContext {
+    let context = RenderScene {
         camera: shadow_test_camera(),
         lights: vec![Light::new_directional(
             Vector3::new(0.0, 0.0, -1.0),
@@ -148,7 +148,7 @@ fn double_sided_material_disables_shadow_culling_per_command() {
             double_sided,
             ..Default::default()
         });
-        let context = RenderContext {
+        let context = RenderScene {
             camera: shadow_test_camera(),
             lights: vec![Light::new_directional(
                 Vector3::new(0.0, 0.0, -1.0),
@@ -180,7 +180,7 @@ fn double_sided_material_disables_shadow_culling_per_command() {
 
 #[test]
 fn point_only_scene_disables_shadow_pass() {
-    let context = RenderContext {
+    let context = RenderScene {
         camera: shadow_test_camera(),
         lights: vec![Light::new_point(
             Point3::new(0.0, 1.0, 0.0),
@@ -202,7 +202,7 @@ fn point_only_scene_disables_shadow_pass() {
 
 #[test]
 fn shadow_output_reports_actual_buffer_size() {
-    let context = RenderContext {
+    let context = RenderScene {
         camera: shadow_test_camera(),
         lights: vec![Light::new_directional(
             Vector3::new(0.0, 0.0, -1.0),
@@ -229,7 +229,7 @@ fn shadow_output_reports_actual_buffer_size() {
 #[test]
 fn directional_shadow_bounds_follow_the_camera_frustum() {
     let render = |camera_x| {
-        let context = RenderContext {
+        let context = RenderScene {
             camera: Camera::new_perspective(
                 Point3::new(camera_x, 0.0, 3.0),
                 Point3::new(camera_x, 0.0, 0.0),
@@ -266,7 +266,7 @@ fn directional_shadow_bounds_follow_the_camera_frustum() {
 #[test]
 fn directional_shadow_bounds_include_scene_geometry() {
     let render = |scene_objects| {
-        let context = RenderContext {
+        let context = RenderScene {
             camera: shadow_test_camera(),
             lights: vec![Light::new_directional(
                 Vector3::new(0.0, 0.0, -1.0),

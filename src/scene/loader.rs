@@ -3,7 +3,7 @@ use crate::error::AssetError;
 use crate::io::config::{Config, LightKind, ModelNormalization, ObjectConfig, ProjectionMode};
 use crate::io::gltf_loader::load_gltf;
 use crate::scene::camera::Camera;
-use crate::scene::context::{RenderContext, ShadowLight};
+use crate::scene::context::{RenderScene, ShadowLight};
 use crate::scene::light::Light;
 use crate::scene::material::{Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
@@ -96,7 +96,7 @@ pub fn update_scene_objects(scene_objects: &mut [SceneObject], config: &Config) 
 }
 
 /// Loads the configured camera and scene resources.
-pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError> {
+pub fn init_scene_resources(config: &Config) -> Result<RenderScene, AssetError> {
     let cam_pos = Point3::from(config.camera.position);
     let cam_target = Point3::from(config.camera.target);
     let cam_up = Vector3::from(config.camera.up);
@@ -176,7 +176,7 @@ pub fn init_scene_resources(config: &Config) -> Result<RenderContext, AssetError
 
     info!("Scene initialized with {} objects.", scene_objects.len());
 
-    Ok(RenderContext {
+    Ok(RenderScene {
         camera,
         lights,
         scene_objects,

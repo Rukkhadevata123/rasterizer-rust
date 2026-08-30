@@ -259,7 +259,7 @@ pub fn run_benchmark(
 
 fn render_profiled_frame(
     config: &Config,
-    context: &crate::scene::context::RenderContext,
+    context: &crate::scene::context::RenderScene,
     renderer: &mut Renderer,
     shadow_renderer: &mut Renderer,
     buffer: &mut [u32],
