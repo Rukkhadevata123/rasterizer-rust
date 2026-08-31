@@ -117,6 +117,24 @@ impl FrameBuffer {
             });
     }
 
+    pub(crate) fn clear_color(&mut self, color: Vector3<f32>) {
+        let width = self.buffer_width;
+        self.samples.par_chunks_mut(width).for_each(|row| {
+            for sample in row {
+                sample.color = color;
+            }
+        });
+    }
+
+    pub(crate) fn clear_depth(&mut self, depth: f32) {
+        let width = self.buffer_width;
+        self.samples.par_chunks_mut(width).for_each(|row| {
+            for sample in row {
+                sample.depth = depth;
+            }
+        });
+    }
+
     pub fn get_pixel(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
         if x >= self.width || y >= self.height {
             return None;

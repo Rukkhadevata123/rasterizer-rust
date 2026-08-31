@@ -7,7 +7,8 @@ use crate::core::pipeline_state::{
 use crate::error::AssetError;
 use crate::io::config::Config;
 use crate::pipeline::renderer::{
-    ClearOptions, FrameResources, RenderGeometry, RenderPhase, RenderTarget, SoftwareRasterBackend,
+    ClearOptions, FrameResources, LoadOp, Operations, RenderGeometry, RenderPassDescriptor,
+    RenderPhase, RenderTarget, SoftwareRasterBackend,
 };
 use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
@@ -217,13 +218,14 @@ pub fn render_shadow_pass_profiled(
 
     let initial_setup = pass_started.elapsed();
     let attachment_started = Instant::now();
-    shadow_backend.clear_with_options(
-        shadow_target,
-        ClearOptions {
-            depth: f32::INFINITY,
-            ..Default::default()
-        },
-    );
+    shadow_backend.load_render_pass_attachments(RenderPassDescriptor {
+        label: Some("shadow"),
+        target: shadow_target,
+        color_ops: None,
+        depth_ops: Some(Operations {
+            load: LoadOp::Clear(f32::INFINITY),
+        }),
+    });
     let attachment_processing = attachment_started.elapsed();
 
     let setup_started = Instant::now();

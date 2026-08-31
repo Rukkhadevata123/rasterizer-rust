@@ -117,6 +117,24 @@ pub struct ClearOptions<'a> {
     pub depth: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LoadOp<T> {
+    Load,
+    Clear(T),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Operations<T> {
+    pub load: LoadOp<T>,
+}
+
+pub struct RenderPassDescriptor<'a> {
+    pub label: Option<&'a str>,
+    pub target: &'a mut RenderTarget,
+    pub color_ops: Option<Operations<Vector3<f32>>>,
+    pub depth_ops: Option<Operations<f32>>,
+}
+
 impl Default for ClearOptions<'_> {
     fn default() -> Self {
         Self {
@@ -241,6 +259,30 @@ impl SoftwareRasterBackend {
                 options.color
             }
         });
+    }
+
+    pub(crate) fn load_render_pass_attachments(&mut self, descriptor: RenderPassDescriptor<'_>) {
+        let RenderPassDescriptor {
+            label: _,
+            target,
+            color_ops,
+            depth_ops,
+        } = descriptor;
+        let color_load = color_ops.map(|operations| operations.load);
+        let depth_load = depth_ops.map(|operations| operations.load);
+
+        match (color_load, depth_load) {
+            (Some(LoadOp::Clear(color)), Some(LoadOp::Clear(depth))) => {
+                target.framebuffer_mut().clear_with(depth, |_, _| color);
+            }
+            (Some(LoadOp::Clear(color)), _) => {
+                target.framebuffer_mut().clear_color(color);
+            }
+            (_, Some(LoadOp::Clear(depth))) => {
+                target.framebuffer_mut().clear_depth(depth);
+            }
+            _ => {}
+        }
     }
 
     pub fn execute_phase<'a, S>(
@@ -572,5 +614,89 @@ mod tests {
 
         assert_eq!(Arc::as_ptr(&second), allocation);
         assert_eq!(second.len(), 4);
+    }
+
+    #[test]
+    fn depth_only_pass_clear_preserves_color() {
+        let mut backend = SoftwareRasterBackend::new();
+        let mut target = RenderTarget::new(2, 2, 1).expect("test dimensions should be valid");
+        let original_color = Vector3::new(0.25, 0.5, 0.75);
+        target
+            .framebuffer_mut()
+            .clear_with(0.125, |_, _| original_color);
+
+        backend.load_render_pass_attachments(RenderPassDescriptor {
+            label: Some("depth-only"),
+            target: &mut target,
+            color_ops: None,
+            depth_ops: Some(Operations {
+                load: LoadOp::Clear(0.875),
+            }),
+        });
+
+        for y in 0..2 {
+            for x in 0..2 {
+                let sample = target
+                    .framebuffer()
+                    .sample(x, y)
+                    .expect("sample should be in bounds");
+                assert_eq!(sample.color, original_color);
+                assert_eq!(sample.depth, 0.875);
+            }
+        }
+    }
+
+    #[test]
+    fn color_only_pass_clear_preserves_depth() {
+        let mut backend = SoftwareRasterBackend::new();
+        let mut target = RenderTarget::new(2, 2, 1).expect("test dimensions should be valid");
+        let clear_color = Vector3::new(0.75, 0.5, 0.25);
+        target
+            .framebuffer_mut()
+            .clear_with(0.125, |_, _| Vector3::zeros());
+
+        backend.load_render_pass_attachments(RenderPassDescriptor {
+            label: Some("color-only"),
+            target: &mut target,
+            color_ops: Some(Operations {
+                load: LoadOp::Clear(clear_color),
+            }),
+            depth_ops: None,
+        });
+
+        for y in 0..2 {
+            for x in 0..2 {
+                let sample = target
+                    .framebuffer()
+                    .sample(x, y)
+                    .expect("sample should be in bounds");
+                assert_eq!(sample.color, clear_color);
+                assert_eq!(sample.depth, 0.125);
+            }
+        }
+    }
+
+    #[test]
+    fn load_operations_preserve_existing_attachments() {
+        let mut backend = SoftwareRasterBackend::new();
+        let mut target = RenderTarget::new(1, 1, 1).expect("test dimensions should be valid");
+        let original_color = Vector3::new(0.2, 0.4, 0.6);
+        target
+            .framebuffer_mut()
+            .clear_with(0.25, |_, _| original_color);
+
+        backend.load_render_pass_attachments(RenderPassDescriptor {
+            label: Some("load"),
+            target: &mut target,
+            color_ops: Some(Operations { load: LoadOp::Load }),
+            depth_ops: Some(Operations { load: LoadOp::Load }),
+        });
+
+        let sample = target
+            .framebuffer()
+            .sample(0, 0)
+            .expect("sample should be in bounds");
+        assert_eq!(sample.color, original_color);
+        assert_eq!(sample.depth, 0.25);
     }
 }
