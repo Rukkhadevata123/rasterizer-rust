@@ -45,6 +45,25 @@ impl FrameBuffer {
         Self::checked_dimensions(width, height, supersample_scale).map(|_| ())
     }
 
+    pub(crate) fn validate_layout(&self) -> Result<(), String> {
+        let (expected_width, expected_height, expected_samples) =
+            Self::checked_dimensions(self.width, self.height, self.supersample_scale)?;
+        if (self.buffer_width, self.buffer_height) != (expected_width, expected_height) {
+            return Err(format!(
+                "buffer dimensions {}x{} do not match the expected {}x{}",
+                self.buffer_width, self.buffer_height, expected_width, expected_height
+            ));
+        }
+        if self.samples.len() != expected_samples {
+            return Err(format!(
+                "sample count {} does not match the expected {expected_samples}",
+                self.samples.len()
+            ));
+        }
+
+        Ok(())
+    }
+
     fn checked_dimensions(
         width: usize,
         height: usize,

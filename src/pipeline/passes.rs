@@ -218,17 +218,19 @@ pub fn render_shadow_pass_profiled(
 
     let initial_setup = pass_started.elapsed();
     let attachment_started = Instant::now();
-    shadow_backend.initialize_render_pass(
-        RenderPassDescriptor {
-            label: Some("shadow"),
-            target: shadow_target,
-            color_ops: None,
-            depth_ops: Some(Operations {
-                load: LoadOp::Clear(f32::INFINITY),
-            }),
-        },
-        None,
-    );
+    shadow_backend
+        .initialize_render_pass(
+            RenderPassDescriptor {
+                label: Some("shadow"),
+                target: shadow_target,
+                color_ops: None,
+                depth_ops: Some(Operations {
+                    load: LoadOp::Clear(f32::INFINITY),
+                }),
+            },
+            None,
+        )
+        .expect("the built-in shadow pass descriptor must remain valid");
     let attachment_processing = attachment_started.elapsed();
 
     let setup_started = Instant::now();
@@ -375,17 +377,19 @@ pub fn render_main_pass_profiled(
     let color_ops = background.is_none().then_some(Operations {
         load: LoadOp::Clear(color),
     });
-    backend.initialize_render_pass(
-        RenderPassDescriptor {
-            label: Some("main-loads"),
-            target,
-            color_ops,
-            depth_ops: Some(Operations {
-                load: LoadOp::Clear(f32::INFINITY),
-            }),
-        },
-        background,
-    );
+    backend
+        .initialize_render_pass(
+            RenderPassDescriptor {
+                label: Some("main-loads"),
+                target,
+                color_ops,
+                depth_ops: Some(Operations {
+                    load: LoadOp::Clear(f32::INFINITY),
+                }),
+            },
+            background,
+        )
+        .expect("the built-in main pass descriptor must remain valid");
     let attachment_processing = attachment_started.elapsed();
 
     let setup_started = Instant::now();

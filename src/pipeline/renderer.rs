@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use thiserror::Error;
 
 pub enum RenderGeometry<'a> {
     Mesh(&'a Mesh),
@@ -126,6 +127,34 @@ pub struct RenderPassDescriptor<'a> {
     pub target: &'a mut RenderTarget,
     pub color_ops: Option<Operations<Vector3<f32>>>,
     pub depth_ops: Option<Operations<f32>>,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub(crate) enum RenderPassError {
+    #[error(
+        "render pass '{label}' does not declare a color attachment, depth attachment, or background"
+    )]
+    EmptyPass { label: String },
+    #[error("render pass '{label}' has an invalid target: {reason}")]
+    InvalidTarget { label: String, reason: String },
+}
+
+impl RenderPassDescriptor<'_> {
+    pub(crate) fn validate(&self, has_background: bool) -> Result<(), RenderPassError> {
+        let label = || self.label.unwrap_or("<unnamed>").to_owned();
+        self.target
+            .framebuffer()
+            .validate_layout()
+            .map_err(|reason| RenderPassError::InvalidTarget {
+                label: label(),
+                reason,
+            })?;
+        if self.color_ops.is_none() && self.depth_ops.is_none() && !has_background {
+            return Err(RenderPassError::EmptyPass { label: label() });
+        }
+
+        Ok(())
+    }
 }
 
 pub enum BackgroundSource<'a> {
@@ -254,7 +283,8 @@ impl SoftwareRasterBackend {
         &mut self,
         descriptor: RenderPassDescriptor<'_>,
         background: Option<BackgroundPass<'_>>,
-    ) {
+    ) -> Result<(), RenderPassError> {
+        descriptor.validate(background.is_some())?;
         let RenderPassDescriptor {
             label: _,
             target,
@@ -277,7 +307,7 @@ impl SoftwareRasterBackend {
                     .framebuffer_mut()
                     .fill_color_with(|x, y| background.source.color_at(x, y, width, height));
             }
-            return;
+            return Ok(());
         }
 
         match (color_load, depth_load) {
@@ -292,6 +322,8 @@ impl SoftwareRasterBackend {
             }
             _ => {}
         }
+
+        Ok(())
     }
 
     pub fn execute_phase<'a, S>(
@@ -634,17 +666,19 @@ mod tests {
             .framebuffer_mut()
             .clear_with(0.125, |_, _| original_color);
 
-        backend.initialize_render_pass(
-            RenderPassDescriptor {
-                label: Some("depth-only"),
-                target: &mut target,
-                color_ops: None,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Clear(0.875),
-                }),
-            },
-            None,
-        );
+        backend
+            .initialize_render_pass(
+                RenderPassDescriptor {
+                    label: Some("depth-only"),
+                    target: &mut target,
+                    color_ops: None,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(0.875),
+                    }),
+                },
+                None,
+            )
+            .expect("the depth-only descriptor should be valid");
 
         for y in 0..2 {
             for x in 0..2 {
@@ -667,17 +701,19 @@ mod tests {
             .framebuffer_mut()
             .clear_with(0.125, |_, _| Vector3::zeros());
 
-        backend.initialize_render_pass(
-            RenderPassDescriptor {
-                label: Some("color-only"),
-                target: &mut target,
-                color_ops: Some(Operations {
-                    load: LoadOp::Clear(clear_color),
-                }),
-                depth_ops: None,
-            },
-            None,
-        );
+        backend
+            .initialize_render_pass(
+                RenderPassDescriptor {
+                    label: Some("color-only"),
+                    target: &mut target,
+                    color_ops: Some(Operations {
+                        load: LoadOp::Clear(clear_color),
+                    }),
+                    depth_ops: None,
+                },
+                None,
+            )
+            .expect("the color-only descriptor should be valid");
 
         for y in 0..2 {
             for x in 0..2 {
@@ -700,15 +736,17 @@ mod tests {
             .framebuffer_mut()
             .clear_with(0.25, |_, _| original_color);
 
-        backend.initialize_render_pass(
-            RenderPassDescriptor {
-                label: Some("load"),
-                target: &mut target,
-                color_ops: Some(Operations { load: LoadOp::Load }),
-                depth_ops: Some(Operations { load: LoadOp::Load }),
-            },
-            None,
-        );
+        backend
+            .initialize_render_pass(
+                RenderPassDescriptor {
+                    label: Some("load"),
+                    target: &mut target,
+                    color_ops: Some(Operations { load: LoadOp::Load }),
+                    depth_ops: Some(Operations { load: LoadOp::Load }),
+                },
+                None,
+            )
+            .expect("the load descriptor should be valid");
 
         let sample = target
             .framebuffer()
@@ -725,20 +763,22 @@ mod tests {
         let top = Vector3::new(1.0, 0.5, 0.25);
         let bottom = Vector3::new(0.0, 0.25, 0.75);
 
-        backend.initialize_render_pass(
-            RenderPassDescriptor {
-                label: Some("main-loads"),
-                target: &mut target,
-                color_ops: None,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Clear(0.75),
+        backend
+            .initialize_render_pass(
+                RenderPassDescriptor {
+                    label: Some("main-loads"),
+                    target: &mut target,
+                    color_ops: None,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(0.75),
+                    }),
+                },
+                Some(BackgroundPass {
+                    label: Some("gradient-background"),
+                    source: BackgroundSource::Gradient { top, bottom },
                 }),
-            },
-            Some(BackgroundPass {
-                label: Some("gradient-background"),
-                source: BackgroundSource::Gradient { top, bottom },
-            }),
-        );
+            )
+            .expect("the background descriptor should be valid");
 
         let top_sample = target
             .framebuffer()
@@ -753,5 +793,59 @@ mod tests {
             .expect("middle sample should be in bounds");
         assert_eq!(middle_sample.color, top.lerp(&bottom, 0.5));
         assert_eq!(middle_sample.depth, 0.75);
+    }
+
+    #[test]
+    fn invalid_render_pass_descriptors_are_rejected_before_writes() {
+        let mut backend = SoftwareRasterBackend::new();
+        let mut target = RenderTarget::new(1, 1, 1).expect("test dimensions should be valid");
+
+        let error = backend
+            .initialize_render_pass(
+                RenderPassDescriptor {
+                    label: Some("empty"),
+                    target: &mut target,
+                    color_ops: None,
+                    depth_ops: None,
+                },
+                None,
+            )
+            .expect_err("an empty pass should be rejected");
+        assert_eq!(
+            error,
+            RenderPassError::EmptyPass {
+                label: "empty".to_owned()
+            }
+        );
+
+        let original_color = Vector3::new(0.2, 0.4, 0.6);
+        target
+            .framebuffer_mut()
+            .clear_with(0.25, |_, _| original_color);
+        target.framebuffer.buffer_width = 2;
+        let error = backend
+            .initialize_render_pass(
+                RenderPassDescriptor {
+                    label: Some("invalid-target"),
+                    target: &mut target,
+                    color_ops: Some(Operations {
+                        load: LoadOp::Clear(Vector3::zeros()),
+                    }),
+                    depth_ops: None,
+                },
+                None,
+            )
+            .expect_err("an inconsistent target should be rejected");
+        assert!(matches!(
+            error,
+            RenderPassError::InvalidTarget { label, reason }
+                if label == "invalid-target" && reason.contains("buffer dimensions")
+        ));
+        let sample = target
+            .framebuffer()
+            .sample(0, 0)
+            .expect("the first sample should remain addressable");
+        assert_eq!(sample.color, original_color);
+        assert_eq!(sample.depth, 0.25);
     }
 }
