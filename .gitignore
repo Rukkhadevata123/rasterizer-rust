@@ -1,6 +1,5 @@
 target
 outputs/
-Plan.md
 obj_not_upload
 python_files/
 output_*/
