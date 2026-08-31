@@ -7,8 +7,8 @@ use crate::core::pipeline_state::{
 use crate::error::AssetError;
 use crate::io::config::Config;
 use crate::pipeline::renderer::{
-    ClearOptions, FrameResources, LoadOp, Operations, RenderGeometry, RenderPassDescriptor,
-    RenderPhase, RenderTarget, SoftwareRasterBackend,
+    BackgroundPass, BackgroundSource, FrameResources, LoadOp, Operations, RenderGeometry,
+    RenderPassDescriptor, RenderPhase, RenderTarget, SoftwareRasterBackend,
 };
 use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
@@ -218,14 +218,17 @@ pub fn render_shadow_pass_profiled(
 
     let initial_setup = pass_started.elapsed();
     let attachment_started = Instant::now();
-    shadow_backend.load_render_pass_attachments(RenderPassDescriptor {
-        label: Some("shadow"),
-        target: shadow_target,
-        color_ops: None,
-        depth_ops: Some(Operations {
-            load: LoadOp::Clear(f32::INFINITY),
-        }),
-    });
+    shadow_backend.initialize_render_pass(
+        RenderPassDescriptor {
+            label: Some("shadow"),
+            target: shadow_target,
+            color_ops: None,
+            depth_ops: Some(Operations {
+                load: LoadOp::Clear(f32::INFINITY),
+            }),
+        },
+        None,
+    );
     let attachment_processing = attachment_started.elapsed();
 
     let setup_started = Instant::now();
@@ -339,14 +342,28 @@ pub fn render_main_pass_profiled(
         None
     };
 
-    let (gradient, color) = if let Some(c) = config.render.background_color {
+    let (background, color) = if let Some(texture) = bg_texture.as_deref() {
+        (
+            Some(BackgroundPass {
+                label: Some("image-background"),
+                source: BackgroundSource::Texture(texture),
+            }),
+            Vector3::zeros(),
+        )
+    } else if let Some(c) = config.render.background_color {
         (None, Vector3::from(c))
     } else if let (Some(top), Some(bottom)) = (
         config.render.background_gradient_top,
         config.render.background_gradient_bottom,
     ) {
         (
-            Some((Vector3::from(top), Vector3::from(bottom))),
+            Some(BackgroundPass {
+                label: Some("gradient-background"),
+                source: BackgroundSource::Gradient {
+                    top: Vector3::from(top),
+                    bottom: Vector3::from(bottom),
+                },
+            }),
             Vector3::zeros(),
         )
     } else {
@@ -355,14 +372,19 @@ pub fn render_main_pass_profiled(
 
     let initial_setup = pass_started.elapsed();
     let attachment_started = Instant::now();
-    backend.clear_with_options(
-        target,
-        ClearOptions {
-            color,
-            gradient,
-            texture: bg_texture.as_deref(),
-            depth: f32::INFINITY,
+    let color_ops = background.is_none().then_some(Operations {
+        load: LoadOp::Clear(color),
+    });
+    backend.initialize_render_pass(
+        RenderPassDescriptor {
+            label: Some("main-loads"),
+            target,
+            color_ops,
+            depth_ops: Some(Operations {
+                load: LoadOp::Clear(f32::INFINITY),
+            }),
         },
+        background,
     );
     let attachment_processing = attachment_started.elapsed();
 

@@ -126,6 +126,21 @@ impl FrameBuffer {
         });
     }
 
+    pub(crate) fn fill_color_with<F>(&mut self, color_at: F)
+    where
+        F: Fn(usize, usize) -> Vector3<f32> + Sync,
+    {
+        let width = self.buffer_width;
+        self.samples
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, sample) in row.iter_mut().enumerate() {
+                    sample.color = color_at(x, y);
+                }
+            });
+    }
+
     pub(crate) fn clear_depth(&mut self, depth: f32) {
         let width = self.buffer_width;
         self.samples.par_chunks_mut(width).for_each(|row| {

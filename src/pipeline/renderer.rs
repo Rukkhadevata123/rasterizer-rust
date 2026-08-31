@@ -110,13 +110,6 @@ impl<'a> RenderPhase<'a> {
     }
 }
 
-pub struct ClearOptions<'a> {
-    pub color: Vector3<f32>,
-    pub gradient: Option<(Vector3<f32>, Vector3<f32>)>,
-    pub texture: Option<&'a TextureBinding>,
-    pub depth: f32,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LoadOp<T> {
     Load,
@@ -135,15 +128,28 @@ pub struct RenderPassDescriptor<'a> {
     pub depth_ops: Option<Operations<f32>>,
 }
 
-impl Default for ClearOptions<'_> {
-    fn default() -> Self {
-        Self {
-            color: Vector3::zeros(),
-            gradient: None,
-            texture: None,
-            depth: f32::INFINITY,
+pub enum BackgroundSource<'a> {
+    Gradient {
+        top: Vector3<f32>,
+        bottom: Vector3<f32>,
+    },
+    Texture(&'a TextureBinding),
+}
+
+impl BackgroundSource<'_> {
+    fn color_at(&self, x: usize, y: usize, width: usize, height: usize) -> Vector3<f32> {
+        let u = x as f32 / width as f32;
+        let v = y as f32 / height as f32;
+        match self {
+            Self::Gradient { top, bottom } => top.lerp(bottom, v),
+            Self::Texture(texture) => texture.sample(u, v).xyz(),
         }
     }
+}
+
+pub struct BackgroundPass<'a> {
+    pub label: Option<&'a str>,
+    pub source: BackgroundSource<'a>,
 }
 
 pub struct RenderTarget {
@@ -244,24 +250,11 @@ impl SoftwareRasterBackend {
         }
     }
 
-    pub fn clear_with_options(&mut self, target: &mut RenderTarget, options: ClearOptions) {
-        let width = target.framebuffer().buffer_width;
-        let height = target.framebuffer().buffer_height;
-        target.framebuffer_mut().clear_with(options.depth, |x, y| {
-            let u = x as f32 / width as f32;
-            let v = y as f32 / height as f32;
-
-            if let Some(texture) = options.texture {
-                texture.sample(u, v).xyz()
-            } else if let Some((top, bottom)) = options.gradient {
-                top.lerp(&bottom, v)
-            } else {
-                options.color
-            }
-        });
-    }
-
-    pub(crate) fn load_render_pass_attachments(&mut self, descriptor: RenderPassDescriptor<'_>) {
+    pub(crate) fn initialize_render_pass(
+        &mut self,
+        descriptor: RenderPassDescriptor<'_>,
+        background: Option<BackgroundPass<'_>>,
+    ) {
         let RenderPassDescriptor {
             label: _,
             target,
@@ -270,6 +263,22 @@ impl SoftwareRasterBackend {
         } = descriptor;
         let color_load = color_ops.map(|operations| operations.load);
         let depth_load = depth_ops.map(|operations| operations.load);
+
+        if let Some(background) = background {
+            let _ = background.label;
+            let width = target.framebuffer().buffer_width;
+            let height = target.framebuffer().buffer_height;
+            if let Some(LoadOp::Clear(depth)) = depth_load {
+                target.framebuffer_mut().clear_with(depth, |x, y| {
+                    background.source.color_at(x, y, width, height)
+                });
+            } else {
+                target
+                    .framebuffer_mut()
+                    .fill_color_with(|x, y| background.source.color_at(x, y, width, height));
+            }
+            return;
+        }
 
         match (color_load, depth_load) {
             (Some(LoadOp::Clear(color)), Some(LoadOp::Clear(depth))) => {
@@ -625,14 +634,17 @@ mod tests {
             .framebuffer_mut()
             .clear_with(0.125, |_, _| original_color);
 
-        backend.load_render_pass_attachments(RenderPassDescriptor {
-            label: Some("depth-only"),
-            target: &mut target,
-            color_ops: None,
-            depth_ops: Some(Operations {
-                load: LoadOp::Clear(0.875),
-            }),
-        });
+        backend.initialize_render_pass(
+            RenderPassDescriptor {
+                label: Some("depth-only"),
+                target: &mut target,
+                color_ops: None,
+                depth_ops: Some(Operations {
+                    load: LoadOp::Clear(0.875),
+                }),
+            },
+            None,
+        );
 
         for y in 0..2 {
             for x in 0..2 {
@@ -655,14 +667,17 @@ mod tests {
             .framebuffer_mut()
             .clear_with(0.125, |_, _| Vector3::zeros());
 
-        backend.load_render_pass_attachments(RenderPassDescriptor {
-            label: Some("color-only"),
-            target: &mut target,
-            color_ops: Some(Operations {
-                load: LoadOp::Clear(clear_color),
-            }),
-            depth_ops: None,
-        });
+        backend.initialize_render_pass(
+            RenderPassDescriptor {
+                label: Some("color-only"),
+                target: &mut target,
+                color_ops: Some(Operations {
+                    load: LoadOp::Clear(clear_color),
+                }),
+                depth_ops: None,
+            },
+            None,
+        );
 
         for y in 0..2 {
             for x in 0..2 {
@@ -685,12 +700,15 @@ mod tests {
             .framebuffer_mut()
             .clear_with(0.25, |_, _| original_color);
 
-        backend.load_render_pass_attachments(RenderPassDescriptor {
-            label: Some("load"),
-            target: &mut target,
-            color_ops: Some(Operations { load: LoadOp::Load }),
-            depth_ops: Some(Operations { load: LoadOp::Load }),
-        });
+        backend.initialize_render_pass(
+            RenderPassDescriptor {
+                label: Some("load"),
+                target: &mut target,
+                color_ops: Some(Operations { load: LoadOp::Load }),
+                depth_ops: Some(Operations { load: LoadOp::Load }),
+            },
+            None,
+        );
 
         let sample = target
             .framebuffer()
@@ -698,5 +716,42 @@ mod tests {
             .expect("sample should be in bounds");
         assert_eq!(sample.color, original_color);
         assert_eq!(sample.depth, 0.25);
+    }
+
+    #[test]
+    fn background_pass_fuses_gradient_fill_with_depth_clear() {
+        let mut backend = SoftwareRasterBackend::new();
+        let mut target = RenderTarget::new(1, 2, 1).expect("test dimensions should be valid");
+        let top = Vector3::new(1.0, 0.5, 0.25);
+        let bottom = Vector3::new(0.0, 0.25, 0.75);
+
+        backend.initialize_render_pass(
+            RenderPassDescriptor {
+                label: Some("main-loads"),
+                target: &mut target,
+                color_ops: None,
+                depth_ops: Some(Operations {
+                    load: LoadOp::Clear(0.75),
+                }),
+            },
+            Some(BackgroundPass {
+                label: Some("gradient-background"),
+                source: BackgroundSource::Gradient { top, bottom },
+            }),
+        );
+
+        let top_sample = target
+            .framebuffer()
+            .sample(0, 0)
+            .expect("top sample should be in bounds");
+        assert_eq!(top_sample.color, top);
+        assert_eq!(top_sample.depth, 0.75);
+
+        let middle_sample = target
+            .framebuffer()
+            .sample(0, 1)
+            .expect("middle sample should be in bounds");
+        assert_eq!(middle_sample.color, top.lerp(&bottom, 0.5));
+        assert_eq!(middle_sample.depth, 0.75);
     }
 }
