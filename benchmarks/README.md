@@ -27,7 +27,7 @@ Run the representative scenario matrix:
 node scripts/run-benchmarks.mjs
 ```
 
-The matrix covers a large triangle, 400 small triangles, the default car, the city asset, a high-transparency scene, shadows on/off, 1x/2x supersampling, and one versus all configured workers. It writes per-run CSV files plus `baseline.csv`, `baseline.md`, and `metadata.json` under ignored `outputs/benchmarks/`.
+The matrix covers a large triangle, 400 small triangles, the default car, the city asset, a high-transparency scene, a deterministic image background, shadows on/off, 1x/2x supersampling, and one versus all configured workers. The image-background case uses the tracked 8x8 color fixture under `benchmarks/fixtures/` and no geometry so attachment/background traversal cost stays visible. The runner writes per-run CSV files plus `baseline.csv`, `baseline.md`, and `metadata.json` under ignored `outputs/benchmarks/`.
 
 Environment variables control suite sampling and the all-worker comparison:
 

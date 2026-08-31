@@ -31,6 +31,7 @@ run("cargo", ["build", "--release"]);
 
 const opaqueTriangle = join(repository, "tests", "fixtures", "gltf", "nested-named-nodes.gltf");
 const transparentTriangle = join(repository, "benchmarks", "fixtures", "transparent-triangle.gltf");
+const backgroundImage = join(repository, "benchmarks", "fixtures", "background-checker.png");
 const car = join(repository, "assets", "glbs", "old_rusty_car.glb");
 const city = join(repository, "assets", "glbs", "ccity_building_set_1.glb");
 
@@ -89,6 +90,14 @@ const cases = [
     shadows: false,
     camera: orthographicCamera(),
     objects: gridObjects(transparentTriangle, 400, true),
+  },
+  {
+    name: "image-background",
+    ssaa: 1,
+    shadows: false,
+    camera: orthographicCamera(),
+    backgroundImage,
+    objects: object(opaqueTriangle, [100, 100, 0], [1, 1, 1]),
   },
 ];
 
@@ -166,13 +175,16 @@ writeFileSync(
 );
 
 function config(benchmarkCase) {
+  const background = benchmarkCase.backgroundImage === undefined
+    ? "background_color = [0.02, 0.02, 0.03]"
+    : `background_image = ${JSON.stringify(benchmarkCase.backgroundImage.replaceAll("\\", "/"))}`;
   return `[render]
 width = 640
 height = 360
 output = "unused.png"
 supersample_scale = ${benchmarkCase.ssaa}
 ambient_light = [0.15, 0.15, 0.15]
-background_color = [0.02, 0.02, 0.03]
+${background}
 use_shadows = ${benchmarkCase.shadows}
 shadow_map_size = 512
 shadow_ortho_size = 12.0
