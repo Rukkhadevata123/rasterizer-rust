@@ -27,6 +27,15 @@ pub enum RenderGeometry<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ObjectBindingId(usize);
+
+impl ObjectBindingId {
+    pub fn from_pass_index(index: usize) -> Self {
+        Self(index)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum VertexSourceKey {
     Mesh(usize),
     Vertices(usize),
@@ -35,12 +44,12 @@ enum VertexSourceKey {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct VertexCacheKey {
     shader_index: usize,
-    draw_context: Option<usize>,
+    draw_context: Option<ObjectBindingId>,
     source: VertexSourceKey,
 }
 
-fn material_context_identity(material: Option<&Material>) -> Option<usize> {
-    material.map(|material| material as *const Material as usize)
+fn material_context_identity(material: Option<&Material>) -> Option<ObjectBindingId> {
+    material.map(|material| ObjectBindingId(material as *const Material as usize))
 }
 
 struct CachedBackgroundTexture {
@@ -49,8 +58,8 @@ struct CachedBackgroundTexture {
     binding: Arc<TextureBinding>,
 }
 
-type PreparedBatch<'a, V, S> =
-    [Option<PreparedTriangle<'a, V, S, Option<&'a Material>>>; MAX_PREPARED_TRIANGLES];
+type PreparedBatch<'shader, V, S, C> =
+    [Option<PreparedTriangle<'shader, V, S, C>>; MAX_PREPARED_TRIANGLES];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BackendExecutionTimings {
@@ -61,22 +70,28 @@ pub struct BackendExecutionTimings {
     pub submission_total: Duration,
 }
 
-pub struct DrawPacket<'a> {
+pub struct DrawPacket<'a, C = Option<&'a Material>> {
     pub insertion_id: u64,
     pub shader_index: usize,
     pub geometry: RenderGeometry<'a>,
-    pub material: Option<&'a Material>,
+    pub draw_context: C,
+    vertex_context_identity: Option<ObjectBindingId>,
     pub state: GraphicsPipelineState,
     pub sort_depth: f32,
 }
 
-#[derive(Default)]
-pub struct RenderPhase<'a> {
-    commands: Vec<DrawPacket<'a>>,
+pub struct RenderPhase<'a, C = Option<&'a Material>> {
+    commands: Vec<DrawPacket<'a, C>>,
     next_insertion_id: u64,
 }
 
-impl<'a> RenderPhase<'a> {
+impl<'a, C> Default for RenderPhase<'a, C> {
+    fn default() -> Self {
+        Self::with_capacity(0)
+    }
+}
+
+impl<'a, C> RenderPhase<'a, C> {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             commands: Vec::with_capacity(capacity),
@@ -84,11 +99,31 @@ impl<'a> RenderPhase<'a> {
         }
     }
 
-    pub fn push(
+    pub fn push_with_context(
         &mut self,
         shader_index: usize,
         geometry: RenderGeometry<'a>,
-        material: Option<&'a Material>,
+        draw_context: C,
+        object_binding_id: ObjectBindingId,
+        state: GraphicsPipelineState,
+        sort_depth: f32,
+    ) {
+        self.push_with_context_identity(
+            shader_index,
+            geometry,
+            draw_context,
+            Some(object_binding_id),
+            state,
+            sort_depth,
+        );
+    }
+
+    fn push_with_context_identity(
+        &mut self,
+        shader_index: usize,
+        geometry: RenderGeometry<'a>,
+        draw_context: C,
+        vertex_context_identity: Option<ObjectBindingId>,
         state: GraphicsPipelineState,
         sort_depth: f32,
     ) {
@@ -98,12 +133,12 @@ impl<'a> RenderPhase<'a> {
             insertion_id,
             shader_index,
             geometry,
-            material,
+            draw_context,
+            vertex_context_identity,
             state,
             sort_depth,
         });
     }
-
     /// Sorts transparent work back-to-front for the renderer's view-space convention.
     ///
     /// Visible view-space Z values are negative, so ascending Z visits farther draws first.
@@ -117,8 +152,28 @@ impl<'a> RenderPhase<'a> {
         });
     }
 
-    pub fn commands(&self) -> &[DrawPacket<'a>] {
+    pub fn commands(&self) -> &[DrawPacket<'a, C>] {
         &self.commands
+    }
+}
+
+impl<'a> RenderPhase<'a, Option<&'a Material>> {
+    pub fn push(
+        &mut self,
+        shader_index: usize,
+        geometry: RenderGeometry<'a>,
+        material: Option<&'a Material>,
+        state: GraphicsPipelineState,
+        sort_depth: f32,
+    ) {
+        self.push_with_context_identity(
+            shader_index,
+            geometry,
+            material,
+            material_context_identity(material),
+            state,
+            sort_depth,
+        );
     }
 }
 
@@ -403,48 +458,52 @@ impl SoftwareRasterBackend {
         Ok(())
     }
 
-    pub fn execute_phase<'a, S>(
+    pub fn execute_phase<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
-        phase: &RenderPhase<'a>,
-        shaders: &'a [S],
+        phase: &RenderPhase<'a, C>,
+        shaders: &[S],
     ) where
-        S: Shader<Option<&'a Material>>,
+        S: Shader<C>,
+        C: Copy + Send + Sync,
     {
         let _ = self.execute_phases_profiled(target, &[phase], shaders);
     }
 
-    pub fn execute_phases<'a, S>(
+    pub fn execute_phases<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
-        phases: &[&RenderPhase<'a>],
-        shaders: &'a [S],
+        phases: &[&RenderPhase<'a, C>],
+        shaders: &[S],
     ) where
-        S: Shader<Option<&'a Material>>,
+        S: Shader<C>,
+        C: Copy + Send + Sync,
     {
         let _ = self.execute_phases_profiled(target, phases, shaders);
     }
 
-    pub fn execute_phase_profiled<'a, S>(
+    pub fn execute_phase_profiled<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
-        phase: &RenderPhase<'a>,
-        shaders: &'a [S],
+        phase: &RenderPhase<'a, C>,
+        shaders: &[S],
     ) -> BackendExecutionTimings
     where
-        S: Shader<Option<&'a Material>>,
+        S: Shader<C>,
+        C: Copy + Send + Sync,
     {
         self.execute_phases_profiled(target, &[phase], shaders)
     }
 
-    pub fn execute_phases_profiled<'a, S>(
+    pub fn execute_phases_profiled<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
-        phases: &[&RenderPhase<'a>],
-        shaders: &'a [S],
+        phases: &[&RenderPhase<'a, C>],
+        shaders: &[S],
     ) -> BackendExecutionTimings
     where
-        S: Shader<Option<&'a Material>>,
+        S: Shader<C>,
+        C: Copy + Send + Sync,
     {
         let submission_started = Instant::now();
         let preparation_started = Instant::now();
@@ -476,13 +535,13 @@ impl SoftwareRasterBackend {
             if let Some((source, vertices)) = source {
                 let key = VertexCacheKey {
                     shader_index: command.shader_index,
-                    draw_context: material_context_identity(command.material),
+                    draw_context: command.vertex_context_identity,
                     source,
                 };
                 vertex_sources.entry(key).or_insert((
                     vertices,
                     &shaders[command.shader_index],
-                    command.material,
+                    command.draw_context,
                 ));
             }
         }
@@ -498,7 +557,7 @@ impl SoftwareRasterBackend {
             .collect();
 
         let prepare_draw_packet_triangle =
-            |command: &DrawPacket<'a>, local_triangle_index: usize| {
+            |command: &DrawPacket<'a, C>, local_triangle_index: usize| {
                 let shader = &shaders[command.shader_index];
                 match &command.geometry {
                     RenderGeometry::Mesh(mesh) => {
@@ -509,7 +568,7 @@ impl SoftwareRasterBackend {
                             std::array::from_fn(|_| None)
                         } else if let Some(transformed) = vertex_cache.get(&VertexCacheKey {
                             shader_index: command.shader_index,
-                            draw_context: material_context_identity(command.material),
+                            draw_context: command.vertex_context_identity,
                             source: VertexSourceKey::Mesh(*mesh as *const Mesh as usize),
                         }) {
                             self.prepare_shaded_vertices(
@@ -521,7 +580,7 @@ impl SoftwareRasterBackend {
                                     transformed[indices[2] as usize],
                                 ],
                                 shader,
-                                command.material,
+                                command.draw_context,
                                 command.state,
                             )
                         } else {
@@ -534,7 +593,7 @@ impl SoftwareRasterBackend {
                                     &mesh.vertices[indices[2] as usize],
                                 ],
                                 shader,
-                                command.material,
+                                command.draw_context,
                                 command.state,
                             )
                         }
@@ -547,7 +606,7 @@ impl SoftwareRasterBackend {
                         if *cache_vertices {
                             let transformed = &vertex_cache[&VertexCacheKey {
                                 shader_index: command.shader_index,
-                                draw_context: material_context_identity(command.material),
+                                draw_context: command.vertex_context_identity,
                                 source: VertexSourceKey::Vertices(vertices.as_ptr() as usize),
                             }];
                             self.prepare_shaded_vertices(
@@ -559,7 +618,7 @@ impl SoftwareRasterBackend {
                                     transformed[indices[2] as usize],
                                 ],
                                 shader,
-                                command.material,
+                                command.draw_context,
                                 command.state,
                             )
                         } else {
@@ -572,7 +631,7 @@ impl SoftwareRasterBackend {
                                     &vertices[indices[2] as usize],
                                 ],
                                 shader,
-                                command.material,
+                                command.draw_context,
                                 command.state,
                             )
                         }
@@ -582,7 +641,7 @@ impl SoftwareRasterBackend {
                         height,
                         [&vertices[0], &vertices[1], &vertices[2]],
                         shader,
-                        command.material,
+                        command.draw_context,
                         command.state,
                     ),
                 }
@@ -590,8 +649,7 @@ impl SoftwareRasterBackend {
         let contains_mesh = commands
             .iter()
             .any(|command| matches!(command.geometry, RenderGeometry::Mesh(_)));
-        let prepared: Vec<PreparedTriangle<'_, S::Varying, S, Option<&Material>>> = if contains_mesh
-        {
+        let prepared: Vec<PreparedTriangle<'_, S::Varying, S, C>> = if contains_mesh {
             let mut triangle_ends = Vec::with_capacity(commands.len());
             let mut triangle_count = 0;
             for command in &commands {
@@ -642,42 +700,44 @@ impl SoftwareRasterBackend {
         }
     }
 
-    fn prepare_vertices<'a, S>(
+    fn prepare_vertices<'shader, S, C>(
         &self,
         width: usize,
         height: usize,
         vertices: [&Vertex; 3],
-        shader: &'a S,
-        material: Option<&'a Material>,
+        shader: &'shader S,
+        draw_context: C,
         state: GraphicsPipelineState,
-    ) -> PreparedBatch<'a, S::Varying, S>
+    ) -> PreparedBatch<'shader, S::Varying, S, C>
     where
-        S: Shader<Option<&'a Material>>,
+        S: Shader<C>,
+        C: Copy + Send + Sync,
     {
-        let (pos0, var0) = shader.vertex(vertices[0], material);
-        let (pos1, var1) = shader.vertex(vertices[1], material);
-        let (pos2, var2) = shader.vertex(vertices[2], material);
+        let (pos0, var0) = shader.vertex(vertices[0], draw_context);
+        let (pos1, var1) = shader.vertex(vertices[1], draw_context);
+        let (pos2, var2) = shader.vertex(vertices[2], draw_context);
         self.prepare_shaded_vertices(
             width,
             height,
             [(pos0, var0), (pos1, var1), (pos2, var2)],
             shader,
-            material,
+            draw_context,
             state,
         )
     }
 
-    fn prepare_shaded_vertices<'a, S>(
+    fn prepare_shaded_vertices<'shader, S, C>(
         &self,
         width: usize,
         height: usize,
         vertices: [(Vector4<f32>, S::Varying); 3],
-        shader: &'a S,
-        material: Option<&'a Material>,
+        shader: &'shader S,
+        draw_context: C,
         state: GraphicsPipelineState,
-    ) -> PreparedBatch<'a, S::Varying, S>
+    ) -> PreparedBatch<'shader, S::Varying, S, C>
     where
-        S: Shader<Option<&'a Material>>,
+        S: Shader<C>,
+        C: Copy + Send + Sync,
     {
         self.rasterizer.prepare_triangle::<S, _>(
             (width, height),
@@ -685,7 +745,7 @@ impl SoftwareRasterBackend {
             &[vertices[0].1, vertices[1].1, vertices[2].1],
             shader,
             state,
-            material,
+            draw_context,
         )
     }
 }

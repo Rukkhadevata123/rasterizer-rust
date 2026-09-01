@@ -35,28 +35,77 @@ impl Interpolatable for ShadowVarying {
     }
 }
 
-pub struct ShadowShader {
-    mvp_matrix: Matrix4<f32>,
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowFrameBindings {
+    light_space_matrix: Matrix4<f32>,
 }
 
-impl ShadowShader {
-    pub fn new(model: Matrix4<f32>, view: Matrix4<f32>, projection: Matrix4<f32>) -> Self {
+impl ShadowFrameBindings {
+    pub fn new(view: Matrix4<f32>, projection: Matrix4<f32>) -> Self {
         Self {
-            mvp_matrix: projection * view * model,
+            light_space_matrix: projection * view,
         }
     }
 }
 
-impl<'a> Shader<Option<&'a Material>> for ShadowShader {
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowObjectBindings {
+    model_matrix: Matrix4<f32>,
+}
+
+impl ShadowObjectBindings {
+    pub fn new(model_matrix: Matrix4<f32>) -> Self {
+        Self { model_matrix }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowMaterialBindings<'a> {
+    material: Option<&'a Material>,
+}
+
+impl<'a> ShadowMaterialBindings<'a> {
+    pub fn new(material: Option<&'a Material>) -> Self {
+        Self { material }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ShadowDrawContext<'a> {
+    frame: &'a ShadowFrameBindings,
+    object: &'a ShadowObjectBindings,
+    material: ShadowMaterialBindings<'a>,
+}
+
+impl<'a> ShadowDrawContext<'a> {
+    pub fn new(
+        frame: &'a ShadowFrameBindings,
+        object: &'a ShadowObjectBindings,
+        material: ShadowMaterialBindings<'a>,
+    ) -> Self {
+        Self {
+            frame,
+            object,
+            material,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ShadowShader;
+
+impl Shader<ShadowDrawContext<'_>> for ShadowShader {
     type Varying = ShadowVarying;
 
     fn vertex(
         &self,
         vertex: &Vertex,
-        _material: Option<&'a Material>,
+        context: ShadowDrawContext<'_>,
     ) -> (Vector4<f32>, Self::Varying) {
         (
-            self.mvp_matrix * vertex.position.to_homogeneous(),
+            context.frame.light_space_matrix
+                * context.object.model_matrix
+                * vertex.position.to_homogeneous(),
             ShadowVarying {
                 uvs: vertex.texcoords,
             },
@@ -66,10 +115,10 @@ impl<'a> Shader<Option<&'a Material>> for ShadowShader {
     fn fragment(
         &self,
         input: FragmentInput<Self::Varying>,
-        material: Option<&'a Material>,
+        context: ShadowDrawContext<'_>,
     ) -> FragmentOutput {
         let varying = input.varying;
-        let pbr_material = material.map(|material| match material {
+        let pbr_material = context.material.material.map(|material| match material {
             Material::Pbr(material) => material,
         });
         let alpha = pbr_material.map_or(1.0, |material| material.alpha);

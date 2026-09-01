@@ -1,20 +1,8 @@
 use super::*;
 
-fn depth_only_pipeline_state() -> GraphicsPipelineState {
-    GraphicsPipelineState {
-        color_target: None,
-        ..test_pipeline_state()
-    }
-}
-
 #[test]
 fn masked_shadow_fragments_respect_material_alpha() {
     let mut renderer = TestRenderHarness::new(32, 32, 1);
-    let shader = ShadowShader::new(
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity(),
-    );
     let mesh = triangle(0.0, Vector4::zeros());
     let discarded = Material::Pbr(PbrMaterial {
         alpha: 0.25,
@@ -22,12 +10,12 @@ fn masked_shadow_fragments_respect_material_alpha() {
         ..Default::default()
     });
 
-    draw_mesh(
+    draw_shadow_mesh(
         &mut renderer,
         &mesh,
-        &shader,
         Some(&discarded),
-        depth_only_pipeline_state(),
+        Matrix4::identity(),
+        ObjectBindingId::from_pass_index(0),
     );
     assert!(
         renderer
@@ -43,12 +31,12 @@ fn masked_shadow_fragments_respect_material_alpha() {
         alpha_mode: AlphaMode::Mask(0.5),
         ..Default::default()
     });
-    draw_mesh(
+    draw_shadow_mesh(
         &mut renderer,
         &mesh,
-        &shader,
         Some(&visible),
-        depth_only_pipeline_state(),
+        Matrix4::identity(),
+        ObjectBindingId::from_pass_index(1),
     );
     assert!((renderer.framebuffer().sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
 }
@@ -79,23 +67,18 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
         ..Default::default()
     });
     let mut renderer = TestRenderHarness::new(32, 32, 1);
-    let shader = ShadowShader::new(
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity(),
-    );
     let mut mesh = triangle(0.0, Vector4::zeros());
     for vertex in &mut mesh.vertices {
         vertex.texcoords[0] = Vector2::new(0.25, 0.5);
         vertex.texcoords[1] = Vector2::new(0.75, 0.5);
     }
 
-    draw_mesh(
+    draw_shadow_mesh(
         &mut renderer,
         &mesh,
-        &shader,
         Some(&material),
-        depth_only_pipeline_state(),
+        Matrix4::identity(),
+        ObjectBindingId::from_pass_index(0),
     );
 
     assert!(
@@ -108,6 +91,63 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
     );
 }
 
+#[test]
+fn shadow_draw_context_applies_distinct_object_bindings() {
+    let vertices = vec![
+        Vertex::new(
+            Point3::new(-0.25, -0.8, 0.0),
+            Vector3::z(),
+            Vector2::zeros(),
+        ),
+        Vertex::new(Point3::new(0.25, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+    ];
+    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 1], 0);
+    let frame = ShadowFrameBindings::new(Matrix4::identity(), Matrix4::identity());
+    let object_bindings = [
+        ShadowObjectBindings::new(Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0))),
+        ShadowObjectBindings::new(Matrix4::new_translation(&Vector3::new(0.5, 0.0, 0.0))),
+    ];
+    let mut phase = RenderPhase::with_capacity(2);
+    for (index, object) in object_bindings.iter().enumerate() {
+        phase.push_with_context(
+            0,
+            RenderGeometry::Mesh(&mesh),
+            ShadowDrawContext::new(&frame, object, ShadowMaterialBindings::new(None)),
+            ObjectBindingId::from_pass_index(index),
+            GraphicsPipelineState {
+                color_target: None,
+                ..test_pipeline_state()
+            },
+            0.0,
+        );
+    }
+    let shader = ShadowShader;
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
+
+    renderer.backend.execute_phase(
+        renderer.target.render_target_mut(),
+        &phase,
+        std::slice::from_ref(&shader),
+    );
+
+    assert!(
+        renderer
+            .framebuffer()
+            .sample(8, 16)
+            .unwrap()
+            .depth
+            .is_finite()
+    );
+    assert!(
+        renderer
+            .framebuffer()
+            .sample(24, 16)
+            .unwrap()
+            .depth
+            .is_finite()
+    );
+}
 #[test]
 fn blended_materials_do_not_write_shadow_depth() {
     let material = Material::Pbr(PbrMaterial {

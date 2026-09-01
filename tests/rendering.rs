@@ -12,11 +12,14 @@ use rasterizer_rust::pipeline::passes::{
     render_main_pass, render_shadow_pass,
 };
 use rasterizer_rust::pipeline::renderer::{
-    FrameResources, MainHdrTarget, PresentBuffer, RenderGeometry, RenderPhase, RenderTarget,
-    SoftwareRasterBackend,
+    FrameResources, MainHdrTarget, ObjectBindingId, PresentBuffer, RenderGeometry, RenderPhase,
+    RenderTarget, SoftwareRasterBackend,
 };
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
-use rasterizer_rust::pipeline::shaders::shadow::ShadowShader;
+use rasterizer_rust::pipeline::shaders::shadow::{
+    ShadowDrawContext, ShadowFrameBindings, ShadowMaterialBindings, ShadowObjectBindings,
+    ShadowShader,
+};
 use rasterizer_rust::scene::camera::Camera;
 use rasterizer_rust::scene::context::{RenderScene, ShadowLight};
 use rasterizer_rust::scene::light::Light;
@@ -250,35 +253,28 @@ impl<'a, 'material> Shader<Option<&'material Material>> for CountingShader<'a> {
     }
 }
 
-struct MaterialContextShader<'a> {
+#[derive(Clone, Copy)]
+struct TransformDrawContext<'a> {
+    transform: &'a Matrix4<f32>,
+    color: Vector4<f32>,
     vertex_calls: &'a AtomicUsize,
 }
 
-impl<'shader, 'material> Shader<Option<&'material Material>> for MaterialContextShader<'shader> {
+struct TransformContextShader;
+
+impl Shader<TransformDrawContext<'_>> for TransformContextShader {
     type Varying = ColorVarying;
 
     fn vertex(
         &self,
         vertex: &Vertex,
-        material: Option<&'material Material>,
+        context: TransformDrawContext<'_>,
     ) -> (Vector4<f32>, Self::Varying) {
-        self.vertex_calls.fetch_add(1, Ordering::Relaxed);
-        let material = material.expect("test draw should bind a material");
-        let Material::Pbr(material) = material;
-        let x_offset = if material.albedo.x > material.albedo.y {
-            -0.5
-        } else {
-            0.5
-        };
+        context.vertex_calls.fetch_add(1, Ordering::Relaxed);
         (
-            Vector4::new(
-                vertex.position.x + x_offset,
-                vertex.position.y,
-                vertex.position.z,
-                1.0,
-            ),
+            context.transform * vertex.position.to_homogeneous(),
             ColorVarying {
-                color: material.albedo.push(1.0),
+                color: context.color,
             },
         )
     }
@@ -286,9 +282,8 @@ impl<'shader, 'material> Shader<Option<&'material Material>> for MaterialContext
     fn fragment(
         &self,
         input: FragmentInput<Self::Varying>,
-        material: Option<&'material Material>,
+        _context: TransformDrawContext<'_>,
     ) -> FragmentOutput {
-        assert!(material.is_some());
         FragmentOutput::Color(input.varying.color)
     }
 }
@@ -386,6 +381,35 @@ fn draw_mesh<'a, S>(
     );
 }
 
+fn draw_shadow_mesh(
+    renderer: &mut TestRenderHarness,
+    mesh: &Mesh,
+    material: Option<&Material>,
+    model: Matrix4<f32>,
+    vertex_context_identity: ObjectBindingId,
+) {
+    let frame = ShadowFrameBindings::new(Matrix4::identity(), Matrix4::identity());
+    let object = ShadowObjectBindings::new(model);
+    let context = ShadowDrawContext::new(&frame, &object, ShadowMaterialBindings::new(material));
+    let shader = ShadowShader;
+    let mut phase = RenderPhase::default();
+    phase.push_with_context(
+        0,
+        RenderGeometry::Mesh(mesh),
+        context,
+        vertex_context_identity,
+        GraphicsPipelineState {
+            color_target: None,
+            ..test_pipeline_state()
+        },
+        0.0,
+    );
+    renderer.backend.execute_phase(
+        renderer.target.render_target_mut(),
+        &phase,
+        std::slice::from_ref(&shader),
+    );
+}
 fn shadow_test_camera() -> Camera {
     Camera::new_orthographic(
         Point3::new(0.0, 0.0, 2.0),

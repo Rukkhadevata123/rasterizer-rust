@@ -33,9 +33,7 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
 #[test]
 fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
     let calls = AtomicUsize::new(0);
-    let shader = MaterialContextShader {
-        vertex_calls: &calls,
-    };
+    let shader = TransformContextShader;
     let vertices = vec![
         Vertex::new(Point3::new(-0.3, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
         Vertex::new(Point3::new(0.3, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
@@ -43,33 +41,40 @@ fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
         Vertex::new(Point3::new(-0.3, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
     ];
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
-    let red = Material::Pbr(PbrMaterial {
-        albedo: Vector3::x(),
-        ..Default::default()
-    });
-    let green = Material::Pbr(PbrMaterial {
-        albedo: Vector3::y(),
-        ..Default::default()
-    });
-    let mut phase = RenderPhase::with_capacity(2);
-    phase.push(
+    let left_transform = Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0));
+    let right_transform = Matrix4::new_translation(&Vector3::new(0.5, 0.0, 0.0));
+    let left = TransformDrawContext {
+        transform: &left_transform,
+        color: Vector4::new(1.0, 0.0, 0.0, 1.0),
+        vertex_calls: &calls,
+    };
+    let right = TransformDrawContext {
+        transform: &right_transform,
+        color: Vector4::new(0.0, 1.0, 0.0, 1.0),
+        vertex_calls: &calls,
+    };
+    let mut phase = RenderPhase::with_capacity(3);
+    phase.push_with_context(
         0,
         RenderGeometry::Mesh(&mesh),
-        Some(&red),
+        left,
+        ObjectBindingId::from_pass_index(0),
         test_pipeline_state(),
         0.0,
     );
-    phase.push(
+    phase.push_with_context(
         0,
         RenderGeometry::Mesh(&mesh),
-        Some(&red),
+        left,
+        ObjectBindingId::from_pass_index(0),
         test_pipeline_state(),
         0.0,
     );
-    phase.push(
+    phase.push_with_context(
         0,
         RenderGeometry::Mesh(&mesh),
-        Some(&green),
+        right,
+        ObjectBindingId::from_pass_index(1),
         test_pipeline_state(),
         0.0,
     );
@@ -91,7 +96,6 @@ fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
         Vector3::y(),
     );
 }
-
 #[test]
 fn one_backend_executes_different_sized_targets_sequentially() {
     let mesh = triangle(0.0, Vector4::new(1.0, 0.5, 0.25, 1.0));

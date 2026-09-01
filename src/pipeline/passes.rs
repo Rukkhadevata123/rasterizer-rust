@@ -7,12 +7,15 @@ use crate::core::pipeline_state::{
 use crate::error::{AssetError, ResolveTonemapError};
 use crate::io::config::Config;
 use crate::pipeline::renderer::{
-    BackgroundPass, BackgroundSource, FrameResources, LoadOp, MainHdrTarget, Operations,
-    PresentBuffer, RenderGeometry, RenderPassDescriptor, RenderPhase, RenderTarget,
+    BackgroundPass, BackgroundSource, FrameResources, LoadOp, MainHdrTarget, ObjectBindingId,
+    Operations, PresentBuffer, RenderGeometry, RenderPassDescriptor, RenderPhase, RenderTarget,
     SoftwareRasterBackend,
 };
 use crate::pipeline::shaders::pbr::PbrShader;
-use crate::pipeline::shaders::shadow::ShadowShader;
+use crate::pipeline::shaders::shadow::{
+    ShadowDrawContext, ShadowFrameBindings, ShadowMaterialBindings, ShadowObjectBindings,
+    ShadowShader,
+};
 use crate::scene::context::RenderScene;
 use crate::scene::material::{AlphaMode, Material};
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
@@ -239,10 +242,12 @@ pub fn render_shadow_pass_profiled(
         color_target: None,
         ..Default::default()
     };
-    let shaders: Vec<ShadowShader> = context
+    let shadow_shader = ShadowShader;
+    let frame_bindings = ShadowFrameBindings::new(light_view, light_projection);
+    let object_bindings: Vec<_> = context
         .scene_objects
         .iter()
-        .map(|object| ShadowShader::new(object.transform(), light_view, light_projection))
+        .map(|object| ShadowObjectBindings::new(object.transform()))
         .collect();
     let pass_setup = initial_setup + setup_started.elapsed();
 
@@ -255,7 +260,7 @@ pub fn render_shadow_pass_profiled(
             .sum(),
     );
 
-    for (shader_index, object) in context.scene_objects.iter().enumerate() {
+    for (object_binding_id, object) in context.scene_objects.iter().enumerate() {
         for mesh in &object.model.meshes {
             let material = object.model.materials.get(mesh.material_id);
             let pbr_material = material.map(|material| match material {
@@ -276,18 +281,26 @@ pub fn render_shadow_pass_profiled(
                 },
                 ..shadow_state
             };
-            shadow_phase.push(
-                shader_index,
+            shadow_phase.push_with_context(
+                0,
                 RenderGeometry::Mesh(mesh),
-                material,
+                ShadowDrawContext::new(
+                    &frame_bindings,
+                    &object_bindings[object_binding_id],
+                    ShadowMaterialBindings::new(material),
+                ),
+                ObjectBindingId::from_pass_index(object_binding_id),
                 command_state,
                 0.0,
             );
         }
     }
     let recording = recording_started.elapsed();
-    let execution_timings =
-        shadow_backend.execute_phase_profiled(shadow_target, &shadow_phase, &shaders);
+    let execution_timings = shadow_backend.execute_phase_profiled(
+        shadow_target,
+        &shadow_phase,
+        std::slice::from_ref(&shadow_shader),
+    );
 
     let output = ShadowPassOutput {
         depth: Some(resources.shadow_depth_snapshot(shadow_target)),
