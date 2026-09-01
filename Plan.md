@@ -441,6 +441,10 @@ Difficulty: medium to high
 
 Goal: eliminate the per-object fully configured `PbrShader` vector and shader-index indirection.
 
+Completed slices:
+
+- [x] `3659114` (`pass draw context to shader stages`): changed the generic `Shader<C>` contract so both vertex and fragment stages receive the same copyable draw context; migrated PBR, shadow, backend, and external test shaders without a compatibility overload; renamed prepared-triangle storage from fragment context to draw context; and extended the pass-local transformed-vertex cache key with material-reference identity so shared geometry is reused for identical contexts but never reused across distinct contexts. The regression suite now contains 148 Rust tests, including a shader whose vertex position and varying depend on material context. Formatting, release Clippy with warnings denied, release tests/checks, and all 9 benchmark-script tests passed. A same-source-path reverse-order matrix with 3 warmups and 10 measured frames at 1/12 workers preserved all 14 output hashes and passed the 5% full-frame mean gate; the largest regression was +3.67% (`city-threads-1`). This is an interim identity scheme only: the remaining Phase 11.4 work must replace material pointer identity and `shader_index` with typed bindings and pass-local IDs.
+
 ### Data by update frequency
 
 ```text
@@ -463,7 +467,7 @@ MaterialBindings
   `- texture bindings
 ```
 
-- [ ] Change the shader/core boundary so the vertex stage can receive typed draw context as well as the fragment stage. One possible shape is `vertex(&self, vertex, context)` and `fragment(&self, input, context)` with a cheap copyable context.
+- [x] Change the shader/core boundary so the vertex stage receives the same cheap copyable typed draw context as the fragment stage.
 - [ ] Define typed PBR and shadow draw contexts containing references to frame, object, and material bindings.
 - [ ] Make PBR and shadow shader algorithm objects stateless or immutable.
 - [ ] Replace `shader_index` with a typed pipeline reference or pipeline key plus typed bindings.
