@@ -19,7 +19,7 @@ Schema v2 reports the following timing classes independently for the shadow and 
 - `rasterization`: ordered execution of prepared band bins. The main pass also retains opaque/masked and transparent rasterization subcolumns.
 - `submission_total`: inclusive synchronous submission duration. It contains backend preparation and rasterization, so these nested values must not be added to it.
 
-Scene loading, post-processing, complete-frame duration, and the stable FNV-1a output hash remain directly reported. Timings are wall-clock durations: categories identify ownership and need not sum exactly to `complete_frame` because framework overhead and clock sampling are not redistributed.
+Scene loading, the fused CPU resolve-tonemap pass (`post_processing_ms`), complete-frame duration, and the stable FNV-1a output hash remain directly reported. Timings are wall-clock durations: categories identify ownership and need not sum exactly to `complete_frame` because framework overhead and clock sampling are not redistributed.
 
 Run the representative scenario matrix:
 

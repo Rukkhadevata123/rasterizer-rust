@@ -3,8 +3,13 @@ use crate::core::pipeline_state::{CullMode, GraphicsPipelineState, PolygonMode, 
 use crate::error::{ApplicationError, WindowError};
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
 use crate::io::image::save_buffer_to_image;
-use crate::pipeline::passes::{post_process_to_buffer, render_main_pass, render_shadow_pass};
-use crate::pipeline::renderer::{FrameResources, RenderTarget, SoftwareRasterBackend};
+use crate::pipeline::passes::{
+    ResolveTonemapPassDescriptor, TonemapOperator, execute_resolve_tonemap_pass, render_main_pass,
+    render_shadow_pass,
+};
+use crate::pipeline::renderer::{
+    FrameResources, MainHdrTarget, PresentBuffer, RenderTarget, SoftwareRasterBackend,
+};
 use crate::scene::loader::{build_lights_from_config, init_scene_resources, update_scene_objects};
 use crate::ui::input::CameraController;
 use log::{debug, info, warn};
@@ -90,7 +95,7 @@ fn apply_hot_reload_render_settings(
     mut render: RenderConfig,
     window_width: usize,
     window_height: usize,
-    target: &mut RenderTarget,
+    target: &mut MainHdrTarget,
     shadow_target: &mut RenderTarget,
 ) -> HotReloadRenderSettings {
     let supersample_scale_rejected =
@@ -100,7 +105,7 @@ fn apply_hot_reload_render_settings(
         render.supersample_scale = target.framebuffer().supersample_scale;
     } else if target.framebuffer().supersample_scale != render.supersample_scale {
         if let Ok(new_target) =
-            RenderTarget::new(window_width, window_height, render.supersample_scale)
+            MainHdrTarget::new(window_width, window_height, render.supersample_scale)
         {
             *target = new_target;
         } else {
@@ -166,7 +171,7 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
 
     let mut backend = SoftwareRasterBackend::new();
     let mut target =
-        RenderTarget::new(width, height, config.render.supersample_scale).map_err(|reason| {
+        MainHdrTarget::new(width, height, config.render.supersample_scale).map_err(|reason| {
             ApplicationError::RenderInitialization {
                 target: "main framebuffer",
                 reason,
@@ -200,7 +205,12 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         ..Default::default()
     };
 
-    let mut buffer = vec![0u32; width * height];
+    let mut present = PresentBuffer::new(width, height).map_err(|reason| {
+        ApplicationError::RenderInitialization {
+            target: "present buffer",
+            reason,
+        }
+    })?;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let now = Instant::now();
@@ -307,9 +317,19 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
             pipeline_state,
         )?;
 
-        post_process_to_buffer(&target, &mut buffer, &config);
+        execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+            label: Some("present"),
+            source: &target,
+            destination: &mut present,
+            exposure: config.render.exposure,
+            tonemap: if config.render.use_aces {
+                TonemapOperator::Aces
+            } else {
+                TonemapOperator::None
+            },
+        })?;
         window
-            .update_with_buffer(&buffer, width, height)
+            .update_with_buffer(present.pixels(), present.width(), present.height())
             .map_err(|source| WindowError::Present { source })?;
 
         window.set_title(&format!(
@@ -342,7 +362,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     let start_time = Instant::now();
 
     let mut backend = SoftwareRasterBackend::new();
-    let mut target = RenderTarget::new(
+    let mut target = MainHdrTarget::new(
         config.render.width,
         config.render.height,
         config.render.supersample_scale,
@@ -394,12 +414,28 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
 
     let output_path = config.resolve_path(&config.render.output);
     info!("Saving output to '{}'...", output_path.display());
-    let mut buffer = vec![0u32; config.render.width * config.render.height];
-    post_process_to_buffer(&target, &mut buffer, &config);
+    let mut present =
+        PresentBuffer::new(config.render.width, config.render.height).map_err(|reason| {
+            ApplicationError::RenderInitialization {
+                target: "present buffer",
+                reason,
+            }
+        })?;
+    execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+        label: Some("png-output"),
+        source: &target,
+        destination: &mut present,
+        exposure: config.render.exposure,
+        tonemap: if config.render.use_aces {
+            TonemapOperator::Aces
+        } else {
+            TonemapOperator::None
+        },
+    })?;
     save_buffer_to_image(
-        &buffer,
-        config.render.width,
-        config.render.height,
+        present.pixels(),
+        present.width(),
+        present.height(),
         &output_path,
     )?;
     info!("Done.");
@@ -479,7 +515,7 @@ mod tests {
 
     #[test]
     fn hot_reload_rebuilds_main_and_shadow_targets() {
-        let mut target = RenderTarget::new(80, 45, 1).expect("test dimensions should be valid");
+        let mut target = MainHdrTarget::new(80, 45, 1).expect("test dimensions should be valid");
         let mut shadow_target =
             RenderTarget::new(64, 64, 1).expect("test dimensions should be valid");
         let render = RenderConfig {
@@ -506,7 +542,7 @@ mod tests {
 
     #[test]
     fn hot_reload_keeps_window_size_when_no_resize_is_requested() {
-        let mut target = RenderTarget::new(80, 45, 1).expect("test dimensions should be valid");
+        let mut target = MainHdrTarget::new(80, 45, 1).expect("test dimensions should be valid");
         let mut shadow_target =
             RenderTarget::new(64, 64, 1).expect("test dimensions should be valid");
         let render = RenderConfig {
@@ -529,7 +565,7 @@ mod tests {
     }
     #[test]
     fn hot_reload_rejects_zero_sized_render_resources() {
-        let mut target = RenderTarget::new(80, 45, 2).expect("test dimensions should be valid");
+        let mut target = MainHdrTarget::new(80, 45, 2).expect("test dimensions should be valid");
         let mut shadow_target =
             RenderTarget::new(64, 64, 1).expect("test dimensions should be valid");
         let render = RenderConfig {

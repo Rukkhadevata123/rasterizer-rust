@@ -13,6 +13,8 @@ pub enum ApplicationError {
     Window(#[from] WindowError),
     #[error(transparent)]
     Benchmark(#[from] BenchmarkError),
+    #[error(transparent)]
+    ResolveTonemap(#[from] ResolveTonemapError),
     #[error("invalid runtime configuration: {reason}")]
     InvalidConfiguration { reason: String },
     #[error("failed to initialize {target}: {reason}")]
@@ -22,6 +24,23 @@ pub enum ApplicationError {
     },
 }
 
+#[derive(Debug, Error, PartialEq)]
+pub enum ResolveTonemapError {
+    #[error(
+        "resolve-tonemap pass '{label}' source dimensions {source_width}x{source_height} do not match destination dimensions {destination_width}x{destination_height}"
+    )]
+    DimensionMismatch {
+        label: String,
+        source_width: usize,
+        source_height: usize,
+        destination_width: usize,
+        destination_height: usize,
+    },
+    #[error(
+        "resolve-tonemap pass '{label}' exposure must be finite and non-negative, got {exposure}"
+    )]
+    InvalidExposure { label: String, exposure: f32 },
+}
 #[derive(Debug, Error)]
 pub enum BenchmarkError {
     #[error("invalid benchmark options: {reason}")]

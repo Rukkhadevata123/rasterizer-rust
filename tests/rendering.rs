@@ -8,10 +8,12 @@ use rasterizer_rust::core::pipeline_state::{
 };
 use rasterizer_rust::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use rasterizer_rust::pipeline::passes::{
-    ShadowPassOutput, post_process_to_buffer, render_main_pass, render_shadow_pass,
+    ResolveTonemapPassDescriptor, ShadowPassOutput, TonemapOperator, execute_resolve_tonemap_pass,
+    render_main_pass, render_shadow_pass,
 };
 use rasterizer_rust::pipeline::renderer::{
-    FrameResources, RenderGeometry, RenderPhase, RenderTarget, SoftwareRasterBackend,
+    FrameResources, MainHdrTarget, PresentBuffer, RenderGeometry, RenderPhase, RenderTarget,
+    SoftwareRasterBackend,
 };
 use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
 use rasterizer_rust::pipeline::shaders::shadow::ShadowShader;
@@ -280,7 +282,7 @@ fn test_pipeline_state() -> GraphicsPipelineState {
 
 struct TestRenderHarness {
     backend: SoftwareRasterBackend,
-    target: RenderTarget,
+    target: MainHdrTarget,
     resources: FrameResources,
 }
 
@@ -288,7 +290,7 @@ impl TestRenderHarness {
     fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
         Self {
             backend: SoftwareRasterBackend::new(),
-            target: RenderTarget::new(width, height, supersample_scale)
+            target: MainHdrTarget::new(width, height, supersample_scale)
                 .expect("test dimensions should be valid"),
             resources: FrameResources::new(),
         }
@@ -310,9 +312,11 @@ fn draw_mesh<'a, S>(
 {
     let mut phase = RenderPhase::default();
     phase.push(0, RenderGeometry::Mesh(mesh), material, state, 0.0);
-    renderer
-        .backend
-        .execute_phase(&mut renderer.target, &phase, std::slice::from_ref(shader));
+    renderer.backend.execute_phase(
+        renderer.target.render_target_mut(),
+        &phase,
+        std::slice::from_ref(shader),
+    );
 }
 
 fn shadow_test_camera() -> Camera {

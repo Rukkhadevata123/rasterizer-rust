@@ -97,7 +97,7 @@ The stable rendering façade is expected to contain these capability groups.
 
 - safe render-target creation and read-only output/readback operations;
 - public mesh, texture, sampler, and binding types through canonical façade paths or the public `scene` module;
-- `PresentBuffer` or the equivalent packed output view once introduced.
+- `MainHdrTarget`, `PresentBuffer`, and the validated fused CPU resolve-tonemap pass.
 
 Resource-owning and command types keep their fields private. Construction goes through validated constructors, descriptors, or encoders. Data containers intended for authoring, such as configuration values and mesh vertex/index data, may retain public fields when mutation is part of their supported use.
 

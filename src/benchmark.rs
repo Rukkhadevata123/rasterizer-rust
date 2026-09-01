@@ -2,9 +2,12 @@ use crate::core::pipeline_state::{CullMode, GraphicsPipelineState, PolygonMode, 
 use crate::error::{ApplicationError, BenchmarkError};
 use crate::io::config::{Config, CullModeConfig};
 use crate::pipeline::passes::{
-    post_process_to_buffer, render_main_pass_profiled, render_shadow_pass_profiled,
+    ResolveTonemapPassDescriptor, TonemapOperator, execute_resolve_tonemap_pass,
+    render_main_pass_profiled, render_shadow_pass_profiled,
 };
-use crate::pipeline::renderer::{FrameResources, RenderTarget, SoftwareRasterBackend};
+use crate::pipeline::renderer::{
+    FrameResources, MainHdrTarget, PresentBuffer, RenderTarget, SoftwareRasterBackend,
+};
 use crate::scene::loader::init_scene_resources;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -179,7 +182,7 @@ pub fn run_benchmark(
     let scene_loading = scene_loading_started.elapsed();
 
     let mut backend = SoftwareRasterBackend::new();
-    let mut target = RenderTarget::new(
+    let mut target = MainHdrTarget::new(
         config.render.width,
         config.render.height,
         config.render.supersample_scale,
@@ -198,7 +201,13 @@ pub fn run_benchmark(
         reason,
     })?;
     let mut frame_resources = FrameResources::new();
-    let mut buffer = vec![0u32; config.render.width * config.render.height];
+    let mut present =
+        PresentBuffer::new(config.render.width, config.render.height).map_err(|reason| {
+            ApplicationError::RenderInitialization {
+                target: "present buffer",
+                reason,
+            }
+        })?;
     let pipeline_state = GraphicsPipelineState {
         primitive: PrimitiveState {
             cull_mode: match config.render.cull_mode {
@@ -223,7 +232,7 @@ pub fn run_benchmark(
             &mut backend,
             (&mut shadow_target, &mut target),
             &mut frame_resources,
-            &mut buffer,
+            &mut present,
             pipeline_state,
         )?;
     }
@@ -237,10 +246,10 @@ pub fn run_benchmark(
             &mut backend,
             (&mut shadow_target, &mut target),
             &mut frame_resources,
-            &mut buffer,
+            &mut present,
             pipeline_state,
         )?);
-        let hash = fnv1a_hash(&buffer);
+        let hash = fnv1a_hash(present.pixels());
         if let Some(expected) = output_hash
             && hash != expected
         {
@@ -272,9 +281,9 @@ fn render_profiled_frame(
     config: &Config,
     context: &crate::scene::context::RenderScene,
     backend: &mut SoftwareRasterBackend,
-    targets: (&mut RenderTarget, &mut RenderTarget),
+    targets: (&mut RenderTarget, &mut MainHdrTarget),
     resources: &mut FrameResources,
-    buffer: &mut [u32],
+    present: &mut PresentBuffer,
     pipeline_state: GraphicsPipelineState,
 ) -> Result<FrameTimings, ApplicationError> {
     let frame_started = Instant::now();
@@ -291,7 +300,17 @@ fn render_profiled_frame(
         pipeline_state,
     )?;
     let post_started = Instant::now();
-    post_process_to_buffer(target, buffer, config);
+    execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+        label: Some("benchmark-present"),
+        source: target,
+        destination: present,
+        exposure: config.render.exposure,
+        tonemap: if config.render.use_aces {
+            TonemapOperator::Aces
+        } else {
+            TonemapOperator::None
+        },
+    })?;
     let post_processing = post_started.elapsed();
 
     Ok(FrameTimings {

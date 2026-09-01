@@ -25,7 +25,7 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
 
     renderer
         .backend
-        .execute_phase(&mut renderer.target, &phase, &[shader]);
+        .execute_phase(renderer.target.render_target_mut(), &phase, &[shader]);
 
     assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len());
 }
@@ -83,7 +83,7 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
     let mut renderer = TestRenderHarness::new(32, 32, 1);
 
     renderer.backend.execute_phases(
-        &mut renderer.target,
+        renderer.target.render_target_mut(),
         &[&empty_phase, &visible_phase],
         &shaders,
     );

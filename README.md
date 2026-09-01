@@ -52,12 +52,12 @@ The project follows a clean, modular architecture separating core engine logic f
 src
 ├── core               # The Engine Kernel
 │   ├── rasterizer.rs  # Banded rasterization & clipping logic
-│   ├── framebuffer.rs # Safe color/depth sample storage and resolve
+│   ├── framebuffer.rs # Safe HDR color/depth sample storage
 │   ├── geometry.rs    # Vertex layout & geometric primitives
 │   └── math           # Transform factories & interpolation helpers
 ├── pipeline           # The Rendering Pipeline
-│   ├── passes.rs      # High-level Render Passes (Shadow & Main)
-│   ├── renderer.rs    # Render orchestrator & clear logic
+│   ├── passes.rs      # Shadow, main, and fused resolve-tonemap passes
+│   ├── renderer.rs    # Software backend, render targets, and frame resources
 │   └── shaders        # Programmable PBR & Shadow shaders
 ├── scene              # Scene Graph & Assets
 │   ├── material.rs    # PBR Material & Alpha Mode definitions

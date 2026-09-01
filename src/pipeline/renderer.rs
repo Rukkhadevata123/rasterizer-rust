@@ -201,6 +201,72 @@ impl RenderTarget {
     }
 }
 
+pub struct MainHdrTarget {
+    target: RenderTarget,
+}
+
+impl MainHdrTarget {
+    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Result<Self, String> {
+        Ok(Self {
+            target: RenderTarget::new(width, height, supersample_scale)?,
+        })
+    }
+
+    pub fn framebuffer(&self) -> &FrameBuffer {
+        self.target.framebuffer()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn framebuffer_mut(&mut self) -> &mut FrameBuffer {
+        self.target.framebuffer_mut()
+    }
+
+    pub fn render_target_mut(&mut self) -> &mut RenderTarget {
+        &mut self.target
+    }
+}
+
+pub struct PresentBuffer {
+    width: usize,
+    height: usize,
+    pixels: Vec<u32>,
+}
+
+impl PresentBuffer {
+    pub fn new(width: usize, height: usize) -> Result<Self, String> {
+        if width == 0 || height == 0 {
+            return Err("present dimensions must be greater than zero".to_string());
+        }
+        let pixel_count = width
+            .checked_mul(height)
+            .ok_or_else(|| "present buffer pixel count overflows usize".to_string())?;
+        pixel_count
+            .checked_mul(std::mem::size_of::<u32>())
+            .ok_or_else(|| "present buffer allocation size overflows usize".to_string())?;
+
+        Ok(Self {
+            width,
+            height,
+            pixels: vec![0; pixel_count],
+        })
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn pixels(&self) -> &[u32] {
+        &self.pixels
+    }
+
+    pub(crate) fn pixels_mut(&mut self) -> &mut [u32] {
+        &mut self.pixels
+    }
+}
 pub struct FrameResources {
     cached_background: Option<CachedBackgroundTexture>,
     shadow_snapshot: Arc<Vec<f32>>,
@@ -847,5 +913,17 @@ mod tests {
             .expect("the first sample should remain addressable");
         assert_eq!(sample.color, original_color);
         assert_eq!(sample.depth, 0.25);
+    }
+    #[test]
+    fn present_buffer_validates_dimensions_and_storage() {
+        let present = PresentBuffer::new(3, 2).expect("present dimensions should be valid");
+        assert_eq!(present.width(), 3);
+        assert_eq!(present.height(), 2);
+        assert_eq!(present.pixels().len(), 6);
+        assert!(present.pixels().iter().all(|pixel| *pixel == 0));
+
+        assert!(PresentBuffer::new(0, 1).is_err());
+        assert!(PresentBuffer::new(1, 0).is_err());
+        assert!(PresentBuffer::new(usize::MAX, 2).is_err());
     }
 }

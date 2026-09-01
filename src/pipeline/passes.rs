@@ -4,11 +4,12 @@ use crate::core::pipeline_state::{
     BlendState, ColorTargetState, CullMode, DepthStencilState, GraphicsPipelineState,
     PrimitiveState,
 };
-use crate::error::AssetError;
+use crate::error::{AssetError, ResolveTonemapError};
 use crate::io::config::Config;
 use crate::pipeline::renderer::{
-    BackgroundPass, BackgroundSource, FrameResources, LoadOp, Operations, RenderGeometry,
-    RenderPassDescriptor, RenderPhase, RenderTarget, SoftwareRasterBackend,
+    BackgroundPass, BackgroundSource, FrameResources, LoadOp, MainHdrTarget, Operations,
+    PresentBuffer, RenderGeometry, RenderPassDescriptor, RenderPhase, RenderTarget,
+    SoftwareRasterBackend,
 };
 use crate::pipeline::shaders::pbr::PbrShader;
 use crate::pipeline::shaders::shadow::ShadowShader;
@@ -311,7 +312,7 @@ pub fn render_main_pass(
     config: &Config,
     context: &RenderScene,
     backend: &mut SoftwareRasterBackend,
-    target: &mut RenderTarget,
+    target: &mut MainHdrTarget,
     resources: &mut FrameResources,
     shadow: &ShadowPassOutput,
     state: GraphicsPipelineState,
@@ -324,7 +325,7 @@ pub fn render_main_pass_profiled(
     config: &Config,
     context: &RenderScene,
     backend: &mut SoftwareRasterBackend,
-    target: &mut RenderTarget,
+    target: &mut MainHdrTarget,
     resources: &mut FrameResources,
     shadow: &ShadowPassOutput,
     state: GraphicsPipelineState,
@@ -381,7 +382,7 @@ pub fn render_main_pass_profiled(
         .initialize_render_pass(
             RenderPassDescriptor {
                 label: Some("main-loads"),
-                target,
+                target: target.render_target_mut(),
                 color_ops,
                 depth_ops: Some(Operations {
                     load: LoadOp::Clear(f32::INFINITY),
@@ -545,12 +546,16 @@ pub fn render_main_pass_profiled(
     }
     let mut recording = recording_started.elapsed();
 
-    let opaque_masked =
-        backend.execute_phases_profiled(target, &[&opaque_phase, &masked_phase], &shaders);
+    let opaque_masked = backend.execute_phases_profiled(
+        target.render_target_mut(),
+        &[&opaque_phase, &masked_phase],
+        &shaders,
+    );
     let sorting_started = Instant::now();
     transparent_phase.sort_transparent();
     recording += sorting_started.elapsed();
-    let transparent = backend.execute_phase_profiled(target, &transparent_phase, &shaders);
+    let transparent =
+        backend.execute_phase_profiled(target.render_target_mut(), &transparent_phase, &shaders);
 
     Ok(MainPassTimings {
         pass_setup,
@@ -563,20 +568,56 @@ pub fn render_main_pass_profiled(
     })
 }
 
-/// Post-processing: Tone Mapping -> Gamma Correction -> u32 Buffer.
-pub fn post_process_to_buffer(target: &RenderTarget, buffer: &mut [u32], config: &Config) {
-    let framebuffer = target.framebuffer();
-    buffer
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TonemapOperator {
+    None,
+    Aces,
+}
+
+pub struct ResolveTonemapPassDescriptor<'a> {
+    pub label: Option<&'a str>,
+    pub source: &'a MainHdrTarget,
+    pub destination: &'a mut PresentBuffer,
+    pub exposure: f32,
+    pub tonemap: TonemapOperator,
+}
+
+pub fn execute_resolve_tonemap_pass(
+    descriptor: ResolveTonemapPassDescriptor<'_>,
+) -> Result<(), ResolveTonemapError> {
+    let ResolveTonemapPassDescriptor {
+        label,
+        source,
+        destination,
+        exposure,
+        tonemap,
+    } = descriptor;
+    let label = label.unwrap_or("<unnamed>").to_owned();
+    let framebuffer = source.framebuffer();
+    if (framebuffer.width, framebuffer.height) != (destination.width(), destination.height()) {
+        return Err(ResolveTonemapError::DimensionMismatch {
+            label,
+            source_width: framebuffer.width,
+            source_height: framebuffer.height,
+            destination_width: destination.width(),
+            destination_height: destination.height(),
+        });
+    }
+    if !exposure.is_finite() || exposure < 0.0 {
+        return Err(ResolveTonemapError::InvalidExposure { label, exposure });
+    }
+
+    destination
+        .pixels_mut()
         .par_chunks_mut(framebuffer.width)
         .enumerate()
         .for_each(|(y, row)| {
             for (x, pixel) in row.iter_mut().enumerate() {
                 if let Some(color) = framebuffer.get_pixel(x, y) {
-                    let exposed = color * config.render.exposure;
-                    let mapped = if config.render.use_aces {
-                        aces_tone_mapping(exposed)
-                    } else {
-                        exposed
+                    let exposed = color * exposure;
+                    let mapped = match tonemap {
+                        TonemapOperator::None => exposed,
+                        TonemapOperator::Aces => aces_tone_mapping(exposed),
                     };
                     let srgb = linear_to_srgb(mapped);
 
@@ -590,4 +631,112 @@ pub fn post_process_to_buffer(target: &RenderTarget, buffer: &mut [u32], config:
                 }
             }
         });
+    Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::ResolveTonemapError;
+    use crate::pipeline::renderer::PresentBuffer;
+
+    fn pack(color: Vector3<f32>) -> u32 {
+        let r = (color.x.clamp(0.0, 1.0) * 255.0) as u32;
+        let g = (color.y.clamp(0.0, 1.0) * 255.0) as u32;
+        let b = (color.z.clamp(0.0, 1.0) * 255.0) as u32;
+        (255 << 24) | (r << 16) | (g << 8) | b
+    }
+
+    #[test]
+    fn resolve_tonemap_pass_resolves_exposes_and_packs_in_one_pass() {
+        let mut source = MainHdrTarget::new(1, 1, 2).expect("HDR target should be valid");
+        let samples = source.framebuffer_mut().samples_mut();
+        samples[0].color = Vector3::new(0.0, 0.0, 0.0);
+        samples[1].color = Vector3::new(0.5, 0.0, 0.0);
+        samples[2].color = Vector3::new(0.0, 0.5, 0.0);
+        samples[3].color = Vector3::new(0.5, 0.5, 1.0);
+        let mut destination = PresentBuffer::new(1, 1).expect("present target should be valid");
+
+        execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+            label: Some("resolve-test"),
+            source: &source,
+            destination: &mut destination,
+            exposure: 2.0,
+            tonemap: TonemapOperator::None,
+        })
+        .expect("resolve-tonemap pass should succeed");
+
+        let expected_linear = Vector3::new(0.5, 0.5, 0.5);
+        assert_eq!(
+            destination.pixels(),
+            &[pack(linear_to_srgb(expected_linear))]
+        );
+    }
+
+    #[test]
+    fn resolve_tonemap_pass_applies_aces_when_requested() {
+        let mut source = MainHdrTarget::new(1, 1, 1).expect("HDR target should be valid");
+        source.framebuffer_mut().samples_mut()[0].color = Vector3::new(2.0, 1.0, 0.5);
+        let mut destination = PresentBuffer::new(1, 1).expect("present target should be valid");
+
+        execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+            label: Some("aces-test"),
+            source: &source,
+            destination: &mut destination,
+            exposure: 1.0,
+            tonemap: TonemapOperator::Aces,
+        })
+        .expect("ACES pass should succeed");
+
+        let expected = linear_to_srgb(aces_tone_mapping(Vector3::new(2.0, 1.0, 0.5)));
+        assert_eq!(destination.pixels(), &[pack(expected)]);
+    }
+
+    #[test]
+    fn resolve_tonemap_validation_happens_before_destination_writes() {
+        let source = MainHdrTarget::new(2, 1, 1).expect("HDR target should be valid");
+        let mut destination = PresentBuffer::new(1, 1).expect("present target should be valid");
+
+        let error = execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+            label: Some("mismatch"),
+            source: &source,
+            destination: &mut destination,
+            exposure: 1.0,
+            tonemap: TonemapOperator::None,
+        })
+        .expect_err("mismatched dimensions should be rejected");
+        assert!(matches!(
+            error,
+            ResolveTonemapError::DimensionMismatch { label, .. } if label == "mismatch"
+        ));
+        assert_eq!(destination.pixels(), &[0]);
+
+        let source = MainHdrTarget::new(1, 1, 1).expect("HDR target should be valid");
+        let error = execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+            label: Some("invalid-exposure"),
+            source: &source,
+            destination: &mut destination,
+            exposure: f32::NAN,
+            tonemap: TonemapOperator::None,
+        })
+        .expect_err("non-finite exposure should be rejected");
+        assert!(matches!(
+            error,
+            ResolveTonemapError::InvalidExposure { label, .. } if label == "invalid-exposure"
+        ));
+        assert_eq!(destination.pixels(), &[0]);
+
+        let error = execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+            label: Some("negative-exposure"),
+            source: &source,
+            destination: &mut destination,
+            exposure: -1.0,
+            tonemap: TonemapOperator::None,
+        })
+        .expect_err("negative exposure should be rejected");
+        assert!(matches!(
+            error,
+            ResolveTonemapError::InvalidExposure { label, .. } if label == "negative-exposure"
+        ));
+        assert_eq!(destination.pixels(), &[0]);
+    }
 }

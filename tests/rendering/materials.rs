@@ -61,10 +61,17 @@ fn headless_pbr_triangle_produces_visible_output() {
     config.render.width = 32;
     config.render.height = 32;
     config.render.use_aces = false;
-    let mut output = vec![0; 32 * 32];
-    post_process_to_buffer(&renderer.target, &mut output, &config);
+    let mut present = PresentBuffer::new(32, 32).expect("present dimensions should be valid");
+    execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+        label: Some("test-present"),
+        source: &renderer.target,
+        destination: &mut present,
+        exposure: config.render.exposure,
+        tonemap: TonemapOperator::None,
+    })
+    .expect("resolve-tonemap pass should succeed");
 
-    assert_ne!(output[16 * 32 + 16] & 0x00ff_ffff, 0);
+    assert_ne!(present.pixels()[16 * 32 + 16] & 0x00ff_ffff, 0);
 }
 
 #[test]
@@ -278,9 +285,11 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
     phase.push(0, RenderGeometry::Mesh(&near), Some(&material), state, 0.5);
     phase.push(0, RenderGeometry::Mesh(&far), Some(&material), state, -0.5);
     phase.sort_transparent();
-    renderer
-        .backend
-        .execute_phase(&mut renderer.target, &phase, std::slice::from_ref(&shader));
+    renderer.backend.execute_phase(
+        renderer.target.render_target_mut(),
+        &phase,
+        std::slice::from_ref(&shader),
+    );
 
     for y in [8, 24, 40, 56] {
         assert_vec3_approx(
@@ -380,7 +389,7 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 let (width, height) = (96, 80);
                 let mut renderer = TestRenderHarness::new(width, height, 1);
                 renderer.backend.execute_phase(
-                    &mut renderer.target,
+                    renderer.target.render_target_mut(),
                     &phase,
                     std::slice::from_ref(&shader),
                 );
@@ -390,9 +399,20 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 config.render.height = height;
                 config.render.exposure = 1.0;
                 config.render.use_aces = false;
-                let mut output = vec![0; width * height];
-                post_process_to_buffer(&renderer.target, &mut output, &config);
-                (output, renderer.framebuffer().depth_values())
+                let mut present =
+                    PresentBuffer::new(width, height).expect("present dimensions should be valid");
+                execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
+                    label: Some("determinism-present"),
+                    source: &renderer.target,
+                    destination: &mut present,
+                    exposure: config.render.exposure,
+                    tonemap: TonemapOperator::None,
+                })
+                .expect("resolve-tonemap pass should succeed");
+                (
+                    present.pixels().to_vec(),
+                    renderer.framebuffer().depth_values(),
+                )
             })
     };
 
