@@ -176,6 +176,265 @@ impl RenderPassDescriptor<'_> {
     }
 }
 
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum CommandError {
+    #[error("command encoder '{encoder}' already has an active render pass")]
+    PassAlreadyActive { encoder: String },
+    #[error("command encoder '{encoder}' already contains a finished render pass")]
+    PassAlreadyRecorded { encoder: String },
+    #[error("command encoder '{encoder}' cannot finish while a render pass is active")]
+    PassNotEnded { encoder: String },
+    #[error("command encoder '{encoder}' contains no render pass")]
+    MissingPass { encoder: String },
+    #[error("render pass '{pass}' cannot draw without a selected pipeline")]
+    MissingPipeline { pass: String },
+    #[error("render pass '{pass}' cannot draw without typed draw bindings")]
+    MissingBindings { pass: String },
+    #[error("render pass '{pass}' is invalid: {reason}")]
+    InvalidPass { pass: String, reason: String },
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum RenderError {
+    #[error(transparent)]
+    Command(#[from] CommandError),
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SubmissionReport {
+    pub attachment_processing: Duration,
+    pub backend_preparation: Duration,
+    pub rasterization: Duration,
+    /// Preserves the schema-v2 backend submission definition: preparation plus rasterization.
+    pub submission_total: Duration,
+}
+
+#[derive(Default)]
+pub struct RenderDevice;
+
+impl RenderDevice {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn create_command_encoder<'a, S, C>(
+        &self,
+        label: impl Into<String>,
+    ) -> CommandEncoder<'a, S, C> {
+        CommandEncoder {
+            label: label.into(),
+            pass_active: false,
+            pass: None,
+        }
+    }
+}
+
+pub struct CommandEncoder<'a, S, C> {
+    label: String,
+    pass_active: bool,
+    pass: Option<EncodedRenderPass<'a, S, C>>,
+}
+
+impl<'a, S, C> CommandEncoder<'a, S, C> {
+    pub fn begin_render_pass<'encoder>(
+        &'encoder mut self,
+        descriptor: RenderPassDescriptor<'a>,
+        background: Option<BackgroundPass<'a>>,
+    ) -> Result<RenderPassEncoder<'encoder, 'a, S, C>, CommandError> {
+        if self.pass_active {
+            return Err(CommandError::PassAlreadyActive {
+                encoder: self.label.clone(),
+            });
+        }
+        if self.pass.is_some() {
+            return Err(CommandError::PassAlreadyRecorded {
+                encoder: self.label.clone(),
+            });
+        }
+        descriptor
+            .validate(background.is_some())
+            .map_err(|error| CommandError::InvalidPass {
+                pass: descriptor.label.unwrap_or("<unnamed>").to_owned(),
+                reason: error.to_string(),
+            })?;
+        let RenderPassDescriptor {
+            label,
+            target,
+            color_ops,
+            depth_ops,
+        } = descriptor;
+        self.pass_active = true;
+        Ok(RenderPassEncoder {
+            parent: self,
+            label: label.unwrap_or("<unnamed>").to_owned(),
+            target: Some(target),
+            color_ops,
+            depth_ops,
+            background,
+            phase: RenderPhase::default(),
+            pipeline: None,
+            bindings: None,
+            ended: false,
+        })
+    }
+
+    pub fn finish(mut self) -> Result<CommandBuffer<'a, S, C>, CommandError> {
+        if self.pass_active {
+            return Err(CommandError::PassNotEnded {
+                encoder: self.label,
+            });
+        }
+        let pass = self.pass.take().ok_or_else(|| CommandError::MissingPass {
+            encoder: self.label.clone(),
+        })?;
+        Ok(CommandBuffer {
+            label: self.label,
+            pass,
+        })
+    }
+}
+
+pub struct RenderPassEncoder<'encoder, 'a, S, C> {
+    parent: &'encoder mut CommandEncoder<'a, S, C>,
+    label: String,
+    target: Option<&'a mut RenderTarget>,
+    color_ops: Option<Operations<Vector3<f32>>>,
+    depth_ops: Option<Operations<f32>>,
+    background: Option<BackgroundPass<'a>>,
+    phase: RenderPhase<'a, S, C>,
+    pipeline: Option<&'a GraphicsPipeline<S>>,
+    bindings: Option<(C, ObjectBindingId)>,
+    ended: bool,
+}
+
+impl<'encoder, 'a, S, C> RenderPassEncoder<'encoder, 'a, S, C>
+where
+    C: Copy,
+{
+    pub fn set_pipeline(&mut self, pipeline: &'a GraphicsPipeline<S>) {
+        self.pipeline = Some(pipeline);
+    }
+
+    pub fn set_draw_bindings(&mut self, context: C, object_binding_id: ObjectBindingId) {
+        self.bindings = Some((context, object_binding_id));
+    }
+
+    pub fn draw_mesh(&mut self, mesh: &'a Mesh, sort_depth: f32) -> Result<(), CommandError> {
+        self.draw(RenderGeometry::Mesh(mesh), sort_depth)
+    }
+
+    pub fn draw(
+        &mut self,
+        geometry: RenderGeometry<'a>,
+        sort_depth: f32,
+    ) -> Result<(), CommandError> {
+        let pipeline = self.pipeline.ok_or_else(|| CommandError::MissingPipeline {
+            pass: self.label.clone(),
+        })?;
+        let (context, object_binding_id) =
+            self.bindings.ok_or_else(|| CommandError::MissingBindings {
+                pass: self.label.clone(),
+            })?;
+        self.phase
+            .push(pipeline, geometry, context, object_binding_id, sort_depth);
+        Ok(())
+    }
+
+    pub fn sort_transparent(&mut self) {
+        self.phase.sort_transparent();
+    }
+
+    pub fn end(mut self) -> Result<(), CommandError> {
+        let pass = EncodedRenderPass {
+            label: std::mem::take(&mut self.label),
+            target: self
+                .target
+                .take()
+                .expect("active render pass retains its target"),
+            color_ops: self.color_ops,
+            depth_ops: self.depth_ops,
+            background: self.background.take(),
+            phase: std::mem::take(&mut self.phase),
+        };
+        self.parent.pass = Some(pass);
+        self.parent.pass_active = false;
+        self.ended = true;
+        Ok(())
+    }
+}
+
+struct EncodedRenderPass<'a, S, C> {
+    label: String,
+    target: &'a mut RenderTarget,
+    color_ops: Option<Operations<Vector3<f32>>>,
+    depth_ops: Option<Operations<f32>>,
+    background: Option<BackgroundPass<'a>>,
+    phase: RenderPhase<'a, S, C>,
+}
+
+pub struct CommandBuffer<'a, S, C> {
+    label: String,
+    pass: EncodedRenderPass<'a, S, C>,
+}
+
+impl<S, C> CommandBuffer<'_, S, C> {
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+pub struct GraphicsQueue<'backend> {
+    backend: &'backend mut SoftwareRasterBackend,
+}
+
+impl<'backend> GraphicsQueue<'backend> {
+    pub fn new(backend: &'backend mut SoftwareRasterBackend) -> Self {
+        Self { backend }
+    }
+
+    /// Executes all recorded work synchronously and returns only after rasterization completes.
+    pub fn submit<'a, S, C>(
+        &mut self,
+        command_buffer: CommandBuffer<'a, S, C>,
+    ) -> Result<SubmissionReport, RenderError>
+    where
+        S: Shader<C>,
+        C: Copy + Send + Sync,
+    {
+        let submission_started = Instant::now();
+        let EncodedRenderPass {
+            label,
+            target,
+            color_ops,
+            depth_ops,
+            background,
+            phase,
+        } = command_buffer.pass;
+        let attachment_started = Instant::now();
+        self.backend
+            .initialize_render_pass(
+                RenderPassDescriptor {
+                    label: Some(&label),
+                    target,
+                    color_ops,
+                    depth_ops,
+                },
+                background,
+            )
+            .map_err(|error| CommandError::InvalidPass {
+                pass: label,
+                reason: error.to_string(),
+            })?;
+        let attachment_processing = attachment_started.elapsed();
+        let timings = self.backend.execute_phase_profiled(target, &phase);
+        Ok(SubmissionReport {
+            attachment_processing,
+            backend_preparation: timings.backend_preparation,
+            rasterization: timings.rasterization,
+            submission_total: submission_started.elapsed(),
+        })
+    }
+}
 pub enum BackgroundSource<'a> {
     Gradient {
         top: Vector3<f32>,

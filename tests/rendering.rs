@@ -12,8 +12,9 @@ use rasterizer_rust::pipeline::passes::{
     render_main_pass, render_shadow_pass,
 };
 use rasterizer_rust::pipeline::renderer::{
-    FrameResources, MainHdrTarget, ObjectBindingId, PresentBuffer, RenderGeometry, RenderPhase,
-    RenderTarget, SoftwareRasterBackend,
+    CommandEncoder, CommandError, FrameResources, GraphicsQueue, LoadOp, MainHdrTarget,
+    ObjectBindingId, Operations, PresentBuffer, RenderDevice, RenderGeometry, RenderPassDescriptor,
+    RenderPhase, RenderTarget, SoftwareRasterBackend,
 };
 use rasterizer_rust::pipeline::shaders::pbr::{
     PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader, PbrVarying,
@@ -576,6 +577,8 @@ fn shadow_test_camera() -> Camera {
     )
 }
 
+#[path = "rendering/commands.rs"]
+mod commands;
 #[path = "rendering/materials.rs"]
 mod materials;
 #[path = "rendering/rasterization.rs"]

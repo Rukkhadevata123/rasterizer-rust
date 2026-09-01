@@ -515,6 +515,8 @@ Difficulty: medium to high
 
 Goal: record one typed render pass, finish it, and submit it synchronously through the software queue.
 
+Completed slices:
+
 ### First command-buffer model
 
 The required first version records one concrete pass family per command buffer:
@@ -533,16 +535,16 @@ let shadow_report = queue.submit(encoder.finish()?)?;
 
 After `submit` returns, the shadow target is no longer mutably borrowed. The main pass can then borrow shadow output read-only and the main target mutably.
 
-- [ ] Add `RenderDevice::create_command_encoder(label)`.
-- [ ] Add a typed `RenderPassEncoder` that records draw packets without executing.
-- [ ] Require a selected pipeline and all required typed bindings before a draw is accepted.
-- [ ] Prevent nested render passes through borrowing and validate unfinished passes in `finish()`.
-- [ ] Prefer explicit `end(self) -> Result<..., CommandError>`. `Drop` may clean up internal state but must not panic or hide an error.
-- [ ] Make `finish()` consume the encoder and return an immutable command buffer.
-- [ ] Add `GraphicsQueue::submit(&mut self, command_buffer) -> Result<SubmissionReport, RenderError>`.
-- [ ] Document that `submit` completes all work before returning; do not return a fake fence or submission future.
-- [ ] Preserve pass and draw order exactly.
-- [ ] Return structured errors containing resource/pass/pipeline labels where possible.
+- [x] Add `RenderDevice::create_command_encoder(label)`.
+- [x] Add a typed `RenderPassEncoder` that records draw packets without executing.
+- [x] Require a selected pipeline and all required typed bindings before a draw is accepted.
+- [x] Prevent nested render passes through borrowing and validate unfinished passes in `finish()`.
+- [x] Prefer explicit `end(self) -> Result<..., CommandError>`. `Drop` does not panic or hide an error.
+- [x] Make `finish()` consume the encoder and return an immutable command buffer.
+- [x] Add `GraphicsQueue::submit(&mut self, command_buffer) -> Result<SubmissionReport, RenderError>`.
+- [x] Document that `submit` completes all work before returning; do not return a fake fence or submission future.
+- [x] Preserve pass and draw order exactly.
+- [x] Return structured errors containing resource/pass/pipeline labels where possible.
 
 ### Sorting boundary
 
@@ -553,15 +555,15 @@ After `submit` returns, the shadow target is no longer mutably borrowed. The mai
 
 ### Heterogeneous pass policy
 
-- [ ] Do not use `dyn Shader` merely to put shadow and PBR passes in one vector.
-- [ ] Do not introduce a closed `enum Command::Shadow/Pbr` in the required path unless a non-generic public command buffer is proven more valuable than extensibility.
+- [x] Do not use `dyn Shader` merely to put shadow and PBR passes in one vector.
+- [x] Do not introduce a closed `enum Command::Shadow/Pbr` in the required path unless a non-generic public command buffer is proven more valuable than extensibility.
 - [ ] Keep separate shadow and main submissions in the first version.
-- [ ] Treat a frame-wide heterogeneous command stream as Phase 11.6 scope because it needs persistent handles, an explicit pass enum, or measured type erasure.
+- [x] Treat a frame-wide heterogeneous command stream as Phase 11.6 scope because it needs persistent handles, an explicit pass enum, or measured type erasure.
 
 ### Profiling
 
 - [ ] Add recording and synchronous submission totals without changing the definition of existing rasterization timings.
-- [ ] Report nested preparation/rasterization durations in `SubmissionReport`.
+- [x] Report nested preparation/rasterization durations in `SubmissionReport`.
 - [ ] Update benchmark CSV schema/version and scripts together.
 - [ ] Measure command allocation and validation overhead separately from raster work.
 

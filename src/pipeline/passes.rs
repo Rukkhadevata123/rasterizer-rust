@@ -7,9 +7,9 @@ use crate::core::pipeline_state::{
 use crate::error::{AssetError, ResolveTonemapError};
 use crate::io::config::Config;
 use crate::pipeline::renderer::{
-    BackgroundPass, BackgroundSource, FrameResources, LoadOp, MainHdrTarget, ObjectBindingId,
-    Operations, PresentBuffer, RenderGeometry, RenderPassDescriptor, RenderPhase, RenderTarget,
-    SoftwareRasterBackend,
+    BackgroundPass, BackgroundSource, FrameResources, GraphicsQueue, LoadOp, MainHdrTarget,
+    ObjectBindingId, Operations, PresentBuffer, RenderDevice, RenderGeometry, RenderPassDescriptor,
+    RenderPhase, RenderTarget, SoftwareRasterBackend,
 };
 use crate::pipeline::shaders::pbr::{
     PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader,
@@ -214,22 +214,6 @@ pub fn render_shadow_pass_profiled(
     let light_space_matrix = light_projection * light_view;
 
     let initial_setup = pass_started.elapsed();
-    let attachment_started = Instant::now();
-    shadow_backend
-        .initialize_render_pass(
-            RenderPassDescriptor {
-                label: Some("shadow"),
-                target: shadow_target,
-                color_ops: None,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Clear(f32::INFINITY),
-                }),
-            },
-            None,
-        )
-        .expect("the built-in shadow pass descriptor must remain valid");
-    let attachment_processing = attachment_started.elapsed();
-
     let setup_started = Instant::now();
     let shadow_state = GraphicsPipelineState {
         color_target: None,
@@ -267,48 +251,64 @@ pub fn render_shadow_pass_profiled(
     let pass_setup = initial_setup + setup_started.elapsed();
 
     let recording_started = Instant::now();
-    let mut shadow_phase = RenderPhase::with_capacity(
-        context
-            .scene_objects
-            .iter()
-            .map(|object| object.model.meshes.len())
-            .sum(),
-    );
+    let device = RenderDevice::new();
+    let mut encoder = device.create_command_encoder("shadow");
+    {
+        let mut pass = encoder
+            .begin_render_pass(
+                RenderPassDescriptor {
+                    label: Some("shadow"),
+                    target: shadow_target,
+                    color_ops: None,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(f32::INFINITY),
+                    }),
+                },
+                None,
+            )
+            .expect("the built-in shadow pass descriptor must remain valid");
 
-    for (object_binding_index, object) in context.scene_objects.iter().enumerate() {
-        for mesh in &object.model.meshes {
-            let material = object.model.materials.get(mesh.material_id);
-            let pbr_material = material.map(|material| match material {
-                Material::Pbr(material) => material,
-            });
-            if matches!(pbr_material, Some(material) if material.alpha_mode == AlphaMode::Blend) {
-                continue;
+        for (object_binding_index, object) in context.scene_objects.iter().enumerate() {
+            for mesh in &object.model.meshes {
+                let material = object.model.materials.get(mesh.material_id);
+                let pbr_material = material.map(|material| match material {
+                    Material::Pbr(material) => material,
+                });
+                if matches!(pbr_material, Some(material) if material.alpha_mode == AlphaMode::Blend)
+                {
+                    continue;
+                }
+                let command_state = pipeline_state_for_material(
+                    shadow_state,
+                    object.front_face(),
+                    pbr_material.is_some_and(|material| material.double_sided),
+                );
+                let pipeline_index =
+                    usize::from(command_state.primitive.front_face == FrontFace::Clockwise)
+                        + 2 * usize::from(command_state.primitive.cull_mode == CullMode::None);
+                pass.set_pipeline(&shadow_pipelines[pipeline_index]);
+                pass.set_draw_bindings(
+                    ShadowDrawContext::new(
+                        &frame_bindings,
+                        &object_bindings[object_binding_index],
+                        ShadowMaterialBindings::new(material),
+                    ),
+                    ObjectBindingId::from_pass_index(object_binding_index),
+                );
+                pass.draw_mesh(mesh, 0.0)
+                    .expect("the built-in shadow draw must remain valid");
             }
-            let command_state = pipeline_state_for_material(
-                shadow_state,
-                object.front_face(),
-                pbr_material.is_some_and(|material| material.double_sided),
-            );
-            let pipeline_index =
-                usize::from(command_state.primitive.front_face == FrontFace::Clockwise)
-                    + 2 * usize::from(command_state.primitive.cull_mode == CullMode::None);
-            let pipeline = &shadow_pipelines[pipeline_index];
-            shadow_phase.push(
-                pipeline,
-                RenderGeometry::Mesh(mesh),
-                ShadowDrawContext::new(
-                    &frame_bindings,
-                    &object_bindings[object_binding_index],
-                    ShadowMaterialBindings::new(material),
-                ),
-                ObjectBindingId::from_pass_index(object_binding_index),
-                0.0,
-            );
         }
+        pass.end()
+            .expect("the built-in shadow pass must end successfully");
     }
+    let command_buffer = encoder
+        .finish()
+        .expect("the built-in shadow command buffer must be complete");
     let recording = recording_started.elapsed();
-    let execution_timings = shadow_backend.execute_phase_profiled(shadow_target, &shadow_phase);
-
+    let submission = GraphicsQueue::new(shadow_backend)
+        .submit(command_buffer)
+        .expect("the built-in shadow submission must succeed");
     let output = ShadowPassOutput {
         depth: Some(resources.shadow_depth_snapshot(shadow_target)),
         size: shadow_target.framebuffer().width,
@@ -320,10 +320,10 @@ pub fn render_shadow_pass_profiled(
         ShadowPassTimings {
             pass_setup,
             recording,
-            attachment_processing,
-            backend_preparation: execution_timings.backend_preparation,
-            rasterization: execution_timings.rasterization,
-            submission_total: execution_timings.submission_total,
+            attachment_processing: submission.attachment_processing,
+            backend_preparation: submission.backend_preparation,
+            rasterization: submission.rasterization,
+            submission_total: submission.submission_total,
         },
     )
 }
