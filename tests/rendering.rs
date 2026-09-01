@@ -459,7 +459,6 @@ fn test_pipeline_state() -> GraphicsPipelineState {
 }
 
 struct TestRenderHarness {
-    backend: SoftwareRasterBackend,
     queue: GraphicsQueue,
     target: MainHdrTarget,
     resources: FrameResources,
@@ -468,7 +467,6 @@ struct TestRenderHarness {
 impl TestRenderHarness {
     fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
         Self {
-            backend: SoftwareRasterBackend::new(),
             queue: RenderDevice::new().create_queue(),
             target: MainHdrTarget::new(width, height, supersample_scale)
                 .expect("test dimensions should be valid"),
@@ -481,6 +479,65 @@ impl TestRenderHarness {
     }
 }
 
+struct BackendTestHarness {
+    backend: SoftwareRasterBackend,
+    target: MainHdrTarget,
+}
+
+impl BackendTestHarness {
+    fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
+        Self {
+            backend: SoftwareRasterBackend::new(),
+            target: MainHdrTarget::new(width, height, supersample_scale)
+                .expect("test dimensions should be valid"),
+        }
+    }
+
+    fn framebuffer(&self) -> &FrameBuffer {
+        self.target.framebuffer()
+    }
+}
+
+fn submit_test_mesh<'a, S, C>(
+    queue: &mut GraphicsQueue,
+    target: &'a mut RenderTarget,
+    pipeline: &'a GraphicsPipeline<S>,
+    mesh: &'a Mesh,
+    context: C,
+    object_binding_id: ObjectBindingId,
+) where
+    S: Shader<C>,
+    C: Copy + Send + Sync,
+{
+    let device = RenderDevice::new();
+    let mut encoder = device.create_command_encoder("test-draw");
+    {
+        let mut pass = encoder
+            .begin_render_pass(
+                RenderPassDescriptor {
+                    label: Some("test-draw"),
+                    target,
+                    color_ops: Some(Operations { load: LoadOp::Load }),
+                    depth_ops: Some(Operations { load: LoadOp::Load }),
+                },
+                None,
+            )
+            .expect("the test render pass should be valid");
+        pass.set_pipeline(pipeline);
+        pass.set_draw_bindings(context, object_binding_id);
+        pass.draw_mesh(mesh, 0.0)
+            .expect("the test draw should record");
+        pass.end().expect("the test render pass should end");
+    }
+    queue
+        .submit(
+            encoder
+                .finish()
+                .expect("the test command buffer should finish"),
+        )
+        .expect("the test command buffer should submit");
+}
+
 fn draw_mesh<'a, S>(
     renderer: &mut TestRenderHarness,
     mesh: &'a Mesh,
@@ -491,17 +548,14 @@ fn draw_mesh<'a, S>(
     S: Shader<Option<&'a Material>> + Copy,
 {
     let pipeline = GraphicsPipeline::new(*shader, state, VertexProgramId::from_pass_index(0));
-    let mut phase = RenderPhase::default();
-    phase.push(
+    submit_test_mesh(
+        &mut renderer.queue,
+        renderer.target.render_target_mut(),
         &pipeline,
-        RenderGeometry::Mesh(mesh),
+        mesh,
         material,
         ObjectBindingId::from_pass_index(0),
-        0.0,
     );
-    renderer
-        .backend
-        .execute_phase(renderer.target.render_target_mut(), &phase);
 }
 
 fn draw_pbr_mesh(
@@ -524,17 +578,14 @@ fn draw_pbr_mesh(
         PbrMaterialBindings::new(material, &fallback),
     );
     let pipeline = GraphicsPipeline::new(PbrShader, state, VertexProgramId::from_pass_index(0));
-    let mut phase = RenderPhase::default();
-    phase.push(
+    submit_test_mesh(
+        &mut renderer.queue,
+        renderer.target.render_target_mut(),
         &pipeline,
-        RenderGeometry::Mesh(mesh),
+        mesh,
         context,
         ObjectBindingId::from_pass_index(0),
-        0.0,
     );
-    renderer
-        .backend
-        .execute_phase(renderer.target.render_target_mut(), &phase);
 }
 
 fn draw_shadow_mesh(
@@ -555,17 +606,14 @@ fn draw_shadow_mesh(
         },
         VertexProgramId::from_pass_index(0),
     );
-    let mut phase = RenderPhase::default();
-    phase.push(
+    submit_test_mesh(
+        &mut renderer.queue,
+        renderer.target.render_target_mut(),
         &pipeline,
-        RenderGeometry::Mesh(mesh),
+        mesh,
         context,
         object_binding_id,
-        0.0,
     );
-    renderer
-        .backend
-        .execute_phase(renderer.target.render_target_mut(), &phase);
 }
 fn shadow_test_camera() -> Camera {
     Camera::new_orthographic(

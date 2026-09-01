@@ -119,7 +119,7 @@ fn pbr_draw_context_applies_distinct_object_and_material_bindings() {
             0.0,
         );
     }
-    let mut renderer = TestRenderHarness::new(64, 32, 1);
+    let mut renderer = BackendTestHarness::new(64, 32, 1);
 
     renderer
         .backend
@@ -324,7 +324,7 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
         alpha_mode: AlphaMode::Blend,
         ..Default::default()
     });
-    let mut renderer = TestRenderHarness::new(64, 64, 1);
+    let mut renderer = BackendTestHarness::new(64, 64, 1);
     let state = GraphicsPipelineState {
         color_target: Some(ColorTargetState {
             blend: Some(BlendState::Alpha),
@@ -457,7 +457,7 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 phase.sort_transparent();
 
                 let (width, height) = (96, 80);
-                let mut renderer = TestRenderHarness::new(width, height, 1);
+                let mut renderer = BackendTestHarness::new(width, height, 1);
                 renderer
                     .backend
                     .execute_phase(renderer.target.render_target_mut(), &phase);

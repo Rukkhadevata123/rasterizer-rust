@@ -135,19 +135,18 @@ fn invalid_render_pass_descriptor_returns_a_labeled_command_error() {
 #[test]
 fn recording_does_not_execute_attachment_or_draw_work() {
     let device = RenderDevice::new();
-    let mut backend = SoftwareRasterBackend::new();
+    let mut queue = device.create_queue();
     let mut target = RenderTarget::new(16, 16, 1).expect("target should be valid");
     let initial_mesh = triangle(0.0, Vector4::new(1.0, 0.0, 0.0, 1.0));
     let initial_pipeline = command_pipeline(ClipSpaceShader);
-    let mut initial_phase = RenderPhase::default();
-    initial_phase.push(
+    submit_test_mesh(
+        &mut queue,
+        &mut target,
         &initial_pipeline,
-        RenderGeometry::Mesh(&initial_mesh),
+        &initial_mesh,
         None,
         ObjectBindingId::from_pass_index(0),
-        0.0,
     );
-    backend.execute_phase(&mut target, &initial_phase);
     assert_vec3_approx(target.framebuffer().get_pixel(8, 8).unwrap(), Vector3::x());
 
     let recorded_mesh = triangle(0.0, Vector4::new(0.0, 1.0, 0.0, 1.0));

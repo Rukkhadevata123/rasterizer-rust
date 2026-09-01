@@ -13,7 +13,7 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
         Vertex::new(Point3::new(-0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
     ];
     let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
-    let mut renderer = TestRenderHarness::new(32, 32, 1);
+    let mut renderer = BackendTestHarness::new(32, 32, 1);
     let pipeline = GraphicsPipeline::new(
         shader,
         test_pipeline_state(),
@@ -59,7 +59,7 @@ fn vertex_cache_is_scoped_to_each_camera_submission() {
     let object_transform = Matrix4::identity();
     let left_camera = Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0));
     let right_camera = Matrix4::new_translation(&Vector3::new(0.5, 0.0, 0.0));
-    let mut renderer = TestRenderHarness::new(64, 32, 1);
+    let mut renderer = BackendTestHarness::new(64, 32, 1);
 
     for (camera, color) in [
         (&left_camera, Vector4::new(1.0, 0.0, 0.0, 1.0)),
@@ -146,7 +146,7 @@ fn vertex_cache_isolates_distinct_tangent_frame_bindings() {
             0.0,
         );
     }
-    let mut renderer = TestRenderHarness::new(64, 32, 1);
+    let mut renderer = BackendTestHarness::new(64, 32, 1);
 
     renderer
         .backend
@@ -204,7 +204,7 @@ fn transparent_world_vertices_use_a_distinct_source_domain() {
         object_binding_id,
         0.0,
     );
-    let mut renderer = TestRenderHarness::new(32, 32, 1);
+    let mut renderer = BackendTestHarness::new(32, 32, 1);
 
     renderer
         .backend
@@ -260,7 +260,7 @@ fn vertex_cache_reuses_across_raster_only_pipeline_variants() {
         object_binding_id,
         0.0,
     );
-    let mut renderer = TestRenderHarness::new(32, 32, 1);
+    let mut renderer = BackendTestHarness::new(32, 32, 1);
 
     renderer
         .backend
@@ -317,7 +317,7 @@ fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
         ObjectBindingId::from_pass_index(1),
         0.0,
     );
-    let mut renderer = TestRenderHarness::new(64, 32, 1);
+    let mut renderer = BackendTestHarness::new(64, 32, 1);
 
     renderer
         .backend
@@ -382,7 +382,7 @@ fn vertex_cache_distinguishes_vertex_program_ids() {
         ObjectBindingId::from_pass_index(0),
         0.0,
     );
-    let mut renderer = TestRenderHarness::new(64, 32, 1);
+    let mut renderer = BackendTestHarness::new(64, 32, 1);
 
     renderer
         .backend
@@ -456,7 +456,7 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
         ObjectBindingId::from_pass_index(0),
         0.0,
     );
-    let mut renderer = TestRenderHarness::new(32, 32, 1);
+    let mut renderer = BackendTestHarness::new(32, 32, 1);
 
     renderer.backend.execute_phases(
         renderer.target.render_target_mut(),

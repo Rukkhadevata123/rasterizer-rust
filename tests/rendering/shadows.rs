@@ -126,7 +126,7 @@ fn shadow_draw_context_applies_distinct_object_bindings() {
             0.0,
         );
     }
-    let mut renderer = TestRenderHarness::new(32, 32, 1);
+    let mut renderer = BackendTestHarness::new(32, 32, 1);
 
     renderer
         .backend
