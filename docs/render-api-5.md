@@ -181,6 +181,8 @@ Replacing the math vocabulary is outside Phase 11 and would require its own migr
 
 The first command buffer is typed and may contain one concrete render-pass family. Shadow and main work are submitted separately and synchronously.
 
+A typed render pass may seal multiple ordered draw phases before it ends. Attachment and background operations still run once for the pass; `GraphicsQueue` executes the sealed phases in order and returns both aggregate timings and labeled per-phase reports. Sorting applies only to the currently recorded phase, so the built-in main pass keeps opaque/masked draws in recorded order and finalizes back-to-front transparent order before the command buffer becomes immutable.
+
 This is a public capability limitation, not a built-in-pipeline limitation:
 
 - custom pipeline types can use the same typed encoder and queue path;

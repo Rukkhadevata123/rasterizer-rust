@@ -170,11 +170,13 @@ fn recording_does_not_execute_attachment_or_draw_work() {
     assert_vec3_approx(target.framebuffer().get_pixel(8, 8).unwrap(), Vector3::x());
 }
 #[test]
-fn queue_submission_is_synchronous_and_preserves_draw_order() {
+fn queue_submission_is_synchronous_and_preserves_ordered_phase_boundaries() {
     let device = RenderDevice::new();
     let mut target = RenderTarget::new(32, 32, 1).expect("target should be valid");
-    let far = triangle(0.5, Vector4::new(1.0, 0.0, 0.0, 0.5));
-    let near = triangle(-0.5, Vector4::new(0.0, 0.0, 1.0, 0.5));
+    let first = triangle(0.75, Vector4::new(1.0, 0.0, 0.0, 0.5));
+    let second = triangle(0.5, Vector4::new(0.0, 1.0, 0.0, 0.5));
+    let transparent_near = triangle(-0.5, Vector4::new(0.0, 0.0, 1.0, 0.5));
+    let transparent_far = triangle(0.25, Vector4::new(1.0, 1.0, 0.0, 0.5));
     let material = Material::Pbr(PbrMaterial {
         alpha_mode: AlphaMode::Blend,
         ..Default::default()
@@ -198,8 +200,17 @@ fn queue_submission_is_synchronous_and_preserves_draw_order() {
             .expect("descriptor should be valid");
         pass.set_pipeline(&pipeline);
         pass.set_draw_bindings(Some(&material), ObjectBindingId::from_pass_index(0));
-        pass.draw_mesh(&far, -0.5).expect("far draw should record");
-        pass.draw_mesh(&near, 0.5).expect("near draw should record");
+        pass.draw_mesh(&first, 1.0)
+            .expect("first draw should record");
+        pass.draw_mesh(&second, -1.0)
+            .expect("second draw should record");
+        pass.finish_phase("recorded-order");
+        pass.draw_mesh(&transparent_near, 0.5)
+            .expect("near transparent draw should record");
+        pass.draw_mesh(&transparent_far, -0.5)
+            .expect("far transparent draw should record");
+        pass.sort_transparent();
+        pass.finish_phase("transparent");
         pass.end().expect("pass should end");
     }
     let command_buffer = encoder.finish().expect("command buffer should finish");
@@ -212,9 +223,14 @@ fn queue_submission_is_synchronous_and_preserves_draw_order() {
 
     assert_vec3_approx(
         target.framebuffer().get_pixel(16, 16).unwrap(),
-        Vector3::new(0.25, 0.0, 0.5),
+        Vector3::new(0.3125, 0.375, 0.5),
     );
+    assert_eq!(report.phases.len(), 2);
+    assert_eq!(report.phases[0].label, "recorded-order");
+    assert_eq!(report.phases[1].label, "transparent");
     assert!(report.submission_total >= report.backend_preparation);
     assert!(report.submission_total >= report.attachment_processing);
     assert!(report.submission_total >= report.rasterization);
+    assert!(report.submission_total >= report.phases[0].execution_total);
+    assert!(report.submission_total >= report.phases[1].execution_total);
 }

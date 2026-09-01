@@ -113,6 +113,14 @@ impl<'a, S, C> RenderPhase<'a, S, C> {
         });
     }
 
+    fn reserve(&mut self, additional: usize) {
+        self.commands.reserve(additional);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+    }
+
     /// Sorts transparent work back-to-front for the renderer's view-space convention.
     ///
     /// Visible view-space Z values are negative, so ascending Z visits farther draws first.
@@ -200,13 +208,29 @@ pub enum RenderError {
     Command(#[from] CommandError),
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PhaseSubmissionReport {
+    pub label: String,
+    pub backend_preparation: Duration,
+    pub rasterization: Duration,
+    pub execution_total: Duration,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SubmissionReport {
     pub attachment_processing: Duration,
     pub backend_preparation: Duration,
     pub rasterization: Duration,
-    /// Preserves the schema-v2 backend submission definition: preparation plus rasterization.
+    /// Inclusive synchronous queue submission duration, including attachment processing and every
+    /// recorded phase. Nested timing fields must not be added to this value.
     pub submission_total: Duration,
+    pub phases: Vec<PhaseSubmissionReport>,
+}
+
+impl SubmissionReport {
+    pub fn phase(&self, label: &str) -> Option<&PhaseSubmissionReport> {
+        self.phases.iter().find(|phase| phase.label == label)
+    }
 }
 
 #[derive(Default)]
@@ -271,6 +295,7 @@ impl<'a, S, C> CommandEncoder<'a, S, C> {
             color_ops,
             depth_ops,
             background,
+            phases: Vec::new(),
             phase: RenderPhase::default(),
             pipeline: None,
             bindings: None,
@@ -301,6 +326,7 @@ pub struct RenderPassEncoder<'encoder, 'a, S, C> {
     color_ops: Option<Operations<Vector3<f32>>>,
     depth_ops: Option<Operations<f32>>,
     background: Option<BackgroundPass<'a>>,
+    phases: Vec<EncodedPhase<'a, S, C>>,
     phase: RenderPhase<'a, S, C>,
     pipeline: Option<&'a GraphicsPipeline<S>>,
     bindings: Option<(C, ObjectBindingId)>,
@@ -317,6 +343,10 @@ where
 
     pub fn set_draw_bindings(&mut self, context: C, object_binding_id: ObjectBindingId) {
         self.bindings = Some((context, object_binding_id));
+    }
+
+    pub fn reserve_draws(&mut self, additional: usize) {
+        self.phase.reserve(additional);
     }
 
     pub fn draw_mesh(&mut self, mesh: &'a Mesh, sort_depth: f32) -> Result<(), CommandError> {
@@ -344,7 +374,20 @@ where
         self.phase.sort_transparent();
     }
 
+    pub fn finish_phase(&mut self, label: impl Into<String>) {
+        self.phases.push(EncodedPhase {
+            label: label.into(),
+            phase: std::mem::take(&mut self.phase),
+        });
+    }
+
     pub fn end(mut self) -> Result<(), CommandError> {
+        if self.phases.is_empty() || !self.phase.is_empty() {
+            self.phases.push(EncodedPhase {
+                label: self.label.clone(),
+                phase: std::mem::take(&mut self.phase),
+            });
+        }
         let pass = EncodedRenderPass {
             label: std::mem::take(&mut self.label),
             target: self
@@ -354,7 +397,7 @@ where
             color_ops: self.color_ops,
             depth_ops: self.depth_ops,
             background: self.background.take(),
-            phase: std::mem::take(&mut self.phase),
+            phases: std::mem::take(&mut self.phases),
         };
         self.parent.pass = Some(pass);
         self.parent.pass_active = false;
@@ -363,13 +406,18 @@ where
     }
 }
 
+struct EncodedPhase<'a, S, C> {
+    label: String,
+    phase: RenderPhase<'a, S, C>,
+}
+
 struct EncodedRenderPass<'a, S, C> {
     label: String,
     target: &'a mut RenderTarget,
     color_ops: Option<Operations<Vector3<f32>>>,
     depth_ops: Option<Operations<f32>>,
     background: Option<BackgroundPass<'a>>,
-    phase: RenderPhase<'a, S, C>,
+    phases: Vec<EncodedPhase<'a, S, C>>,
 }
 
 pub struct CommandBuffer<'a, S, C> {
@@ -408,7 +456,7 @@ impl<'backend> GraphicsQueue<'backend> {
             color_ops,
             depth_ops,
             background,
-            phase,
+            phases,
         } = command_buffer.pass;
         let attachment_started = Instant::now();
         self.backend
@@ -426,12 +474,26 @@ impl<'backend> GraphicsQueue<'backend> {
                 reason: error.to_string(),
             })?;
         let attachment_processing = attachment_started.elapsed();
-        let timings = self.backend.execute_phase_profiled(target, &phase);
+        let mut phase_reports = Vec::with_capacity(phases.len());
+        let mut backend_preparation = Duration::ZERO;
+        let mut rasterization = Duration::ZERO;
+        for EncodedPhase { label, phase } in phases {
+            let timings = self.backend.execute_phase_profiled(target, &phase);
+            backend_preparation += timings.backend_preparation;
+            rasterization += timings.rasterization;
+            phase_reports.push(PhaseSubmissionReport {
+                label,
+                backend_preparation: timings.backend_preparation,
+                rasterization: timings.rasterization,
+                execution_total: timings.submission_total,
+            });
+        }
         Ok(SubmissionReport {
             attachment_processing,
-            backend_preparation: timings.backend_preparation,
-            rasterization: timings.rasterization,
+            backend_preparation,
+            rasterization,
             submission_total: submission_started.elapsed(),
+            phases: phase_reports,
         })
     }
 }

@@ -9,7 +9,7 @@ use crate::io::config::Config;
 use crate::pipeline::renderer::{
     BackgroundPass, BackgroundSource, FrameResources, GraphicsQueue, LoadOp, MainHdrTarget,
     ObjectBindingId, Operations, PresentBuffer, RenderDevice, RenderGeometry, RenderPassDescriptor,
-    RenderPhase, RenderTarget, SoftwareRasterBackend,
+    RenderTarget, SoftwareRasterBackend,
 };
 use crate::pipeline::shaders::pbr::{
     PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader,
@@ -394,25 +394,9 @@ pub fn render_main_pass_profiled(
     };
 
     let initial_setup = pass_started.elapsed();
-    let attachment_started = Instant::now();
     let color_ops = background.is_none().then_some(Operations {
         load: LoadOp::Clear(color),
     });
-    backend
-        .initialize_render_pass(
-            RenderPassDescriptor {
-                label: Some("main-loads"),
-                target: target.render_target_mut(),
-                color_ops,
-                depth_ops: Some(Operations {
-                    load: LoadOp::Clear(f32::INFINITY),
-                }),
-            },
-            background,
-        )
-        .expect("the built-in main pass descriptor must remain valid");
-    let attachment_processing = attachment_started.elapsed();
-
     let setup_started = Instant::now();
     let opaque_state = GraphicsPipelineState {
         color_target: Some(ColorTargetState { blend: None }),
@@ -496,135 +480,154 @@ pub fn render_main_pass_profiled(
     let pass_setup = initial_setup + setup_started.elapsed();
 
     let recording_started = Instant::now();
-    let mut opaque_phase = RenderPhase::with_capacity(phase_counts[0]);
-    let mut masked_phase = RenderPhase::with_capacity(phase_counts[1]);
-    let mut transparent_phase = RenderPhase::with_capacity(phase_counts[2]);
-
-    for (object_binding_index, obj) in context.scene_objects.iter().enumerate() {
-        let object_binding_id = ObjectBindingId::from_pass_index(object_binding_index);
-        for (mesh_index, mesh) in obj.model.meshes.iter().enumerate() {
-            let material = if mesh.material_id < obj.model.materials.len() {
-                Some(&obj.model.materials[mesh.material_id])
-            } else {
-                None
-            };
-
-            let pbr_material = material.map(|material| match material {
-                Material::Pbr(material) => material,
-            });
-            let alpha_mode = pbr_material.map_or(AlphaMode::Opaque, |material| material.alpha_mode);
-            let command_state = |state: GraphicsPipelineState| GraphicsPipelineState {
-                primitive: PrimitiveState {
-                    cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
-                        CullMode::None
-                    } else {
-                        state.primitive.cull_mode
-                    },
-                    front_face: obj.front_face(),
-                    ..state.primitive
+    let device = RenderDevice::new();
+    let mut encoder = device.create_command_encoder("main");
+    {
+        let mut pass = encoder
+            .begin_render_pass(
+                RenderPassDescriptor {
+                    label: Some("main"),
+                    target: target.render_target_mut(),
+                    color_ops,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Clear(f32::INFINITY),
+                    }),
                 },
-                ..state
-            };
-            let material_bindings = PbrMaterialBindings::new(material, &fallback_material);
-            let pipeline_state = if alpha_mode == AlphaMode::Blend {
-                command_state(transparent_state)
-            } else {
-                command_state(opaque_state)
-            };
-            let blend_index = usize::from(alpha_mode == AlphaMode::Blend);
-            let front_face_index = usize::from(obj.front_face() == FrontFace::Clockwise);
-            let double_sided_index =
-                usize::from(pbr_material.is_some_and(|material| material.double_sided));
-            let pipeline = &pbr_pipelines[blend_index][front_face_index][double_sided_index];
-            debug_assert_eq!(pipeline.state(), pipeline_state);
+                background,
+            )
+            .expect("the built-in main pass descriptor must remain valid");
+        pass.reserve_draws(phase_counts[0] + phase_counts[1]);
 
-            if alpha_mode == AlphaMode::Blend {
-                let view_matrix = context.camera.view_matrix();
+        for record_masked in [false, true] {
+            for (object_binding_index, obj) in context.scene_objects.iter().enumerate() {
+                let object_binding_id = ObjectBindingId::from_pass_index(object_binding_index);
+                for mesh in &obj.model.meshes {
+                    let material = obj.model.materials.get(mesh.material_id);
+                    let pbr_material = material.map(|material| match material {
+                        Material::Pbr(material) => material,
+                    });
+                    let alpha_mode =
+                        pbr_material.map_or(AlphaMode::Opaque, |material| material.alpha_mode);
+                    let selected = if record_masked {
+                        matches!(alpha_mode, AlphaMode::Mask(_))
+                    } else {
+                        alpha_mode == AlphaMode::Opaque
+                    };
+                    if !selected {
+                        continue;
+                    }
+
+                    let front_face_index = usize::from(obj.front_face() == FrontFace::Clockwise);
+                    let double_sided = pbr_material.is_some_and(|material| material.double_sided);
+                    let pipeline = &pbr_pipelines[0][front_face_index][usize::from(double_sided)];
+                    debug_assert_eq!(
+                        pipeline.state(),
+                        pipeline_state_for_material(opaque_state, obj.front_face(), double_sided)
+                    );
+                    pass.set_pipeline(pipeline);
+                    pass.set_draw_bindings(
+                        PbrDrawContext::new(
+                            &frame_bindings,
+                            &object_bindings[object_binding_index],
+                            PbrMaterialBindings::new(material, &fallback_material),
+                        ),
+                        object_binding_id,
+                    );
+                    pass.draw_mesh(mesh, 0.0)
+                        .expect("the built-in opaque or masked draw must remain valid");
+                }
+            }
+        }
+        pass.finish_phase("opaque-masked");
+        pass.reserve_draws(phase_counts[2]);
+
+        let view_matrix = context.camera.view_matrix();
+        for obj in &context.scene_objects {
+            for (mesh_index, mesh) in obj.model.meshes.iter().enumerate() {
+                let Some(material) = obj.model.materials.get(mesh.material_id) else {
+                    continue;
+                };
+                let Material::Pbr(pbr_material) = material;
+                if pbr_material.alpha_mode != AlphaMode::Blend {
+                    continue;
+                }
+
+                let front_face_index = usize::from(obj.front_face() == FrontFace::Clockwise);
+                let pipeline =
+                    &pbr_pipelines[1][front_face_index][usize::from(pbr_material.double_sided)];
+                debug_assert_eq!(
+                    pipeline.state(),
+                    pipeline_state_for_material(
+                        transparent_state,
+                        obj.front_face(),
+                        pbr_material.double_sided,
+                    )
+                );
+                pass.set_pipeline(pipeline);
+                pass.set_draw_bindings(
+                    PbrDrawContext::new(
+                        &frame_bindings,
+                        &transparent_object_binding,
+                        PbrMaterialBindings::new(Some(material), &fallback_material),
+                    ),
+                    transparent_object_binding_id,
+                );
+
                 let world_vertices = obj
                     .transparent_world_vertices(mesh_index)
                     .expect("transparent meshes cache world-space vertices");
-
                 for chunk in mesh.indices.chunks(3) {
                     if chunk.len() < 3 {
                         continue;
                     }
-                    // Use transformed vertices directly.
                     let indices = [chunk[0], chunk[1], chunk[2]];
                     let v0_world = world_vertices[indices[0] as usize];
                     let v1_world = world_vertices[indices[1] as usize];
                     let v2_world = world_vertices[indices[2] as usize];
-
-                    if material.is_some() {
-                        // Calculate Z in View Space using the centroid of World Space vertices.
-                        let centroid_world = (v0_world.position.coords
-                            + v1_world.position.coords
-                            + v2_world.position.coords)
-                            / 3.0;
-                        let centroid_view =
-                            view_matrix * Point3::from(centroid_world).to_homogeneous();
-
-                        transparent_phase.push(
-                            pipeline,
-                            RenderGeometry::IndexedTriangle {
-                                vertices: world_vertices,
-                                indices,
-                                cache_vertices: mesh.reuses_vertices(),
-                            },
-                            PbrDrawContext::new(
-                                &frame_bindings,
-                                &transparent_object_binding,
-                                material_bindings,
-                            ),
-                            transparent_object_binding_id,
-                            centroid_view.z,
-                        );
-                    }
+                    let centroid_world = (v0_world.position.coords
+                        + v1_world.position.coords
+                        + v2_world.position.coords)
+                        / 3.0;
+                    let centroid_view = view_matrix * Point3::from(centroid_world).to_homogeneous();
+                    pass.draw(
+                        RenderGeometry::IndexedTriangle {
+                            vertices: world_vertices,
+                            indices,
+                            cache_vertices: mesh.reuses_vertices(),
+                        },
+                        centroid_view.z,
+                    )
+                    .expect("the built-in transparent draw must remain valid");
                 }
-            } else if matches!(alpha_mode, AlphaMode::Mask(_)) {
-                masked_phase.push(
-                    pipeline,
-                    RenderGeometry::Mesh(mesh),
-                    PbrDrawContext::new(
-                        &frame_bindings,
-                        &object_bindings[object_binding_index],
-                        material_bindings,
-                    ),
-                    object_binding_id,
-                    0.0,
-                );
-            } else {
-                opaque_phase.push(
-                    pipeline,
-                    RenderGeometry::Mesh(mesh),
-                    PbrDrawContext::new(
-                        &frame_bindings,
-                        &object_bindings[object_binding_index],
-                        material_bindings,
-                    ),
-                    object_binding_id,
-                    0.0,
-                );
             }
         }
+        pass.sort_transparent();
+        pass.finish_phase("transparent");
+        pass.end()
+            .expect("the built-in main pass must end successfully");
     }
-    let mut recording = recording_started.elapsed();
-
-    let opaque_masked = backend
-        .execute_phases_profiled(target.render_target_mut(), &[&opaque_phase, &masked_phase]);
-    let sorting_started = Instant::now();
-    transparent_phase.sort_transparent();
-    recording += sorting_started.elapsed();
-    let transparent =
-        backend.execute_phase_profiled(target.render_target_mut(), &transparent_phase);
+    let command_buffer = encoder
+        .finish()
+        .expect("the built-in main command buffer must be complete");
+    let recording = recording_started.elapsed();
+    let submission = GraphicsQueue::new(backend)
+        .submit(command_buffer)
+        .expect("the built-in main submission must succeed");
+    let opaque_masked = submission
+        .phase("opaque-masked")
+        .expect("the main submission must report its opaque/masked phase");
+    let transparent = submission
+        .phase("transparent")
+        .expect("the main submission must report its transparent phase");
 
     Ok(MainPassTimings {
         pass_setup,
         recording,
-        attachment_processing,
-        backend_preparation: opaque_masked.backend_preparation + transparent.backend_preparation,
+        attachment_processing: submission.attachment_processing,
+        backend_preparation: submission.backend_preparation,
         opaque_masked_rasterization: opaque_masked.rasterization,
         transparent_rasterization: transparent.rasterization,
-        submission_total: opaque_masked.submission_total + transparent.submission_total,
+        submission_total: submission.submission_total,
     })
 }
 
