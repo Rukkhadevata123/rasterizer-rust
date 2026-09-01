@@ -590,6 +590,10 @@ Difficulty: low to medium
 
 Goal: remove transitional implementation surfaces, align tests with the approved public boundary, and strengthen weak coverage before optional features begin. This is a correctness and maintainability gate, not a target to minimize the number of tests.
 
+Completed slices:
+
+- [x] `55ce0d9` (`own backend in graphics queue`): made `GraphicsQueue` own its `SoftwareRasterBackend`, added `RenderDevice::create_queue`, migrated application, GUI/CLI, benchmark, shadow, main, and high-level integration-pass callers to retain and submit through the queue, and removed the borrowed-backend queue constructor instead of preserving a compatibility path. Backend-specific integration tests remain temporarily direct until their separate private-test migration. Formatting, release Clippy with warnings denied, 164 release Rust tests, 9 benchmark-script tests, and release checks pass. All 14 benchmark hashes remained stable. Repeated same-machine measurements exposed large run-order and thermal noise; the only remaining aggregate-matrix outlier (`image-background-threads-1`) passed an adjacent reverse-order 500-frame check at +0.11% (18.210 ms old, 18.230 ms new) without a threshold exception.
+
 ### Production code and API cleanup
 
 - [ ] Search the repository for superseded type names, module paths, methods, fields, aliases, adapters, and comments introduced by the 4.0 execution model. Remove obsolete paths rather than deprecating or forwarding them inside 5.0.
