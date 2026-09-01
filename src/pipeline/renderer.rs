@@ -251,6 +251,13 @@ impl RenderDevice {
             pass: None,
         }
     }
+
+    /// Creates a submission queue that owns its software execution backend.
+    pub fn create_queue(&self) -> GraphicsQueue {
+        GraphicsQueue {
+            backend: SoftwareRasterBackend::new(),
+        }
+    }
 }
 
 pub struct CommandEncoder<'a, S, C> {
@@ -431,15 +438,11 @@ impl<S, C> CommandBuffer<'_, S, C> {
     }
 }
 
-pub struct GraphicsQueue<'backend> {
-    backend: &'backend mut SoftwareRasterBackend,
+pub struct GraphicsQueue {
+    backend: SoftwareRasterBackend,
 }
 
-impl<'backend> GraphicsQueue<'backend> {
-    pub fn new(backend: &'backend mut SoftwareRasterBackend) -> Self {
-        Self { backend }
-    }
-
+impl GraphicsQueue {
     /// Executes all recorded work synchronously and returns only after rasterization completes.
     pub fn submit<'a, S, C>(
         &mut self,

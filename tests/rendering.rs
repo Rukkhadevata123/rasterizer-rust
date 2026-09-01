@@ -460,6 +460,7 @@ fn test_pipeline_state() -> GraphicsPipelineState {
 
 struct TestRenderHarness {
     backend: SoftwareRasterBackend,
+    queue: GraphicsQueue,
     target: MainHdrTarget,
     resources: FrameResources,
 }
@@ -468,6 +469,7 @@ impl TestRenderHarness {
     fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
         Self {
             backend: SoftwareRasterBackend::new(),
+            queue: RenderDevice::new().create_queue(),
             target: MainHdrTarget::new(width, height, supersample_scale)
                 .expect("test dimensions should be valid"),
             resources: FrameResources::new(),

@@ -181,6 +181,8 @@ Replacing the math vocabulary is outside Phase 11 and would require its own migr
 
 The first command buffer is typed and may contain one concrete render-pass family. Shadow and main work are submitted separately and synchronously.
 
+A `GraphicsQueue` is created by `RenderDevice` and owns the software execution backend used for submission. Application code, pass builders, and other public callers record work and submit it through the queue; they do not construct, borrow, or pass a `SoftwareRasterBackend` alongside it.
+
 A typed render pass may seal multiple ordered draw phases before it ends. Attachment and background operations still run once for the pass; `GraphicsQueue` executes the sealed phases in order and returns both aggregate timings and labeled per-phase reports. Sorting applies only to the currently recorded phase, so the built-in main pass keeps opaque/masked draws in recorded order and finalizes back-to-front transparent order before the command buffer becomes immutable.
 
 This is a public capability limitation, not a built-in-pipeline limitation:

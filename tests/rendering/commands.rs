@@ -216,8 +216,8 @@ fn queue_submission_is_synchronous_and_preserves_ordered_phase_boundaries() {
     let command_buffer = encoder.finish().expect("command buffer should finish");
     assert_eq!(command_buffer.label(), "ordered");
 
-    let mut backend = SoftwareRasterBackend::new();
-    let report = GraphicsQueue::new(&mut backend)
+    let mut queue = device.create_queue();
+    let report = queue
         .submit(command_buffer)
         .expect("submission should succeed");
 

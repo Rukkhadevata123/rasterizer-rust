@@ -8,7 +8,7 @@ use crate::pipeline::passes::{
     render_shadow_pass,
 };
 use crate::pipeline::renderer::{
-    FrameResources, MainHdrTarget, PresentBuffer, RenderTarget, SoftwareRasterBackend,
+    FrameResources, MainHdrTarget, PresentBuffer, RenderDevice, RenderTarget,
 };
 use crate::scene::loader::{build_lights_from_config, init_scene_resources, update_scene_objects};
 use crate::ui::input::CameraController;
@@ -169,7 +169,7 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
 
     let mut context = init_scene_resources(&config)?;
 
-    let mut backend = SoftwareRasterBackend::new();
+    let mut queue = RenderDevice::new().create_queue();
     let mut target =
         MainHdrTarget::new(width, height, config.render.supersample_scale).map_err(|reason| {
             ApplicationError::RenderInitialization {
@@ -303,14 +303,14 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         let shadow = render_shadow_pass(
             &config,
             &context,
-            &mut backend,
+            &mut queue,
             &mut shadow_target,
             &mut frame_resources,
         );
         render_main_pass(
             &config,
             &context,
-            &mut backend,
+            &mut queue,
             &mut target,
             &mut frame_resources,
             &shadow,
@@ -361,7 +361,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     let context = init_scene_resources(&config)?;
     let start_time = Instant::now();
 
-    let mut backend = SoftwareRasterBackend::new();
+    let mut queue = RenderDevice::new().create_queue();
     let mut target = MainHdrTarget::new(
         config.render.width,
         config.render.height,
@@ -393,7 +393,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     let shadow = render_shadow_pass(
         &config,
         &context,
-        &mut backend,
+        &mut queue,
         &mut shadow_target,
         &mut frame_resources,
     );
@@ -403,7 +403,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     render_main_pass(
         &config,
         &context,
-        &mut backend,
+        &mut queue,
         &mut target,
         &mut frame_resources,
         &shadow,

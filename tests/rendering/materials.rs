@@ -198,7 +198,7 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
     render_main_pass(
         &config,
         &context,
-        &mut renderer.backend,
+        &mut renderer.queue,
         &mut renderer.target,
         &mut renderer.resources,
         &shadow,
@@ -301,7 +301,7 @@ fn double_sided_material_disables_culling_per_command() {
         render_main_pass(
             &config,
             &context,
-            &mut renderer.backend,
+            &mut renderer.queue,
             &mut renderer.target,
             &mut renderer.resources,
             &shadow,

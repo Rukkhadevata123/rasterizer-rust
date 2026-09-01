@@ -6,7 +6,7 @@ use crate::pipeline::passes::{
     render_main_pass_profiled, render_shadow_pass_profiled,
 };
 use crate::pipeline::renderer::{
-    FrameResources, MainHdrTarget, PresentBuffer, RenderTarget, SoftwareRasterBackend,
+    FrameResources, GraphicsQueue, MainHdrTarget, PresentBuffer, RenderDevice, RenderTarget,
 };
 use crate::scene::loader::init_scene_resources;
 use std::fmt::Write as _;
@@ -181,7 +181,7 @@ pub fn run_benchmark(
     let context = init_scene_resources(&config)?;
     let scene_loading = scene_loading_started.elapsed();
 
-    let mut backend = SoftwareRasterBackend::new();
+    let mut queue = RenderDevice::new().create_queue();
     let mut target = MainHdrTarget::new(
         config.render.width,
         config.render.height,
@@ -229,7 +229,7 @@ pub fn run_benchmark(
         let _ = render_profiled_frame(
             &config,
             &context,
-            &mut backend,
+            &mut queue,
             (&mut shadow_target, &mut target),
             &mut frame_resources,
             &mut present,
@@ -243,7 +243,7 @@ pub fn run_benchmark(
         frames.push(render_profiled_frame(
             &config,
             &context,
-            &mut backend,
+            &mut queue,
             (&mut shadow_target, &mut target),
             &mut frame_resources,
             &mut present,
@@ -280,7 +280,7 @@ pub fn run_benchmark(
 fn render_profiled_frame(
     config: &Config,
     context: &crate::scene::context::RenderScene,
-    backend: &mut SoftwareRasterBackend,
+    queue: &mut GraphicsQueue,
     targets: (&mut RenderTarget, &mut MainHdrTarget),
     resources: &mut FrameResources,
     present: &mut PresentBuffer,
@@ -289,11 +289,11 @@ fn render_profiled_frame(
     let frame_started = Instant::now();
     let (shadow_target, target) = targets;
     let (shadow, shadow_timings) =
-        render_shadow_pass_profiled(config, context, backend, shadow_target, resources);
+        render_shadow_pass_profiled(config, context, queue, shadow_target, resources);
     let main_timings = render_main_pass_profiled(
         config,
         context,
-        backend,
+        queue,
         target,
         resources,
         &shadow,

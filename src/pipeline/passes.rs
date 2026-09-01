@@ -9,7 +9,7 @@ use crate::io::config::Config;
 use crate::pipeline::renderer::{
     BackgroundPass, BackgroundSource, FrameResources, GraphicsQueue, LoadOp, MainHdrTarget,
     ObjectBindingId, Operations, PresentBuffer, RenderDevice, RenderGeometry, RenderPassDescriptor,
-    RenderTarget, SoftwareRasterBackend,
+    RenderTarget,
 };
 use crate::pipeline::shaders::pbr::{
     PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader,
@@ -164,17 +164,17 @@ fn shadow_camera(
 pub fn render_shadow_pass(
     config: &Config,
     context: &RenderScene,
-    shadow_backend: &mut SoftwareRasterBackend,
+    queue: &mut GraphicsQueue,
     shadow_target: &mut RenderTarget,
     resources: &mut FrameResources,
 ) -> ShadowPassOutput {
-    render_shadow_pass_profiled(config, context, shadow_backend, shadow_target, resources).0
+    render_shadow_pass_profiled(config, context, queue, shadow_target, resources).0
 }
 
 pub fn render_shadow_pass_profiled(
     config: &Config,
     context: &RenderScene,
-    shadow_backend: &mut SoftwareRasterBackend,
+    queue: &mut GraphicsQueue,
     shadow_target: &mut RenderTarget,
     resources: &mut FrameResources,
 ) -> (ShadowPassOutput, ShadowPassTimings) {
@@ -306,7 +306,7 @@ pub fn render_shadow_pass_profiled(
         .finish()
         .expect("the built-in shadow command buffer must be complete");
     let recording = recording_started.elapsed();
-    let submission = GraphicsQueue::new(shadow_backend)
+    let submission = queue
         .submit(command_buffer)
         .expect("the built-in shadow submission must succeed");
     let output = ShadowPassOutput {
@@ -331,20 +331,19 @@ pub fn render_shadow_pass_profiled(
 pub fn render_main_pass(
     config: &Config,
     context: &RenderScene,
-    backend: &mut SoftwareRasterBackend,
+    queue: &mut GraphicsQueue,
     target: &mut MainHdrTarget,
     resources: &mut FrameResources,
     shadow: &ShadowPassOutput,
     state: GraphicsPipelineState,
 ) -> Result<(), AssetError> {
-    render_main_pass_profiled(config, context, backend, target, resources, shadow, state)
-        .map(|_| ())
+    render_main_pass_profiled(config, context, queue, target, resources, shadow, state).map(|_| ())
 }
 
 pub fn render_main_pass_profiled(
     config: &Config,
     context: &RenderScene,
-    backend: &mut SoftwareRasterBackend,
+    queue: &mut GraphicsQueue,
     target: &mut MainHdrTarget,
     resources: &mut FrameResources,
     shadow: &ShadowPassOutput,
@@ -610,7 +609,7 @@ pub fn render_main_pass_profiled(
         .finish()
         .expect("the built-in main command buffer must be complete");
     let recording = recording_started.elapsed();
-    let submission = GraphicsQueue::new(backend)
+    let submission = queue
         .submit(command_buffer)
         .expect("the built-in main submission must succeed");
     let opaque_masked = submission
