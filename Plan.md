@@ -150,7 +150,7 @@ Recommended names (public visibility is defined separately in Phase 11.0):
 | `PreparedTriangle` | Clipped screen-space raster input | `RasterPrimitive` if the rename improves internal readability |
 | `ClearOptions` | Clear values plus generated background | Attachment operations plus `BackgroundPass` |
 | `ShadowPassOutput` | Shadow view/snapshot and transform metadata | `ShadowMap` |
-| `post_process_to_buffer` | Resolve, tonemap, transfer conversion, packing | `execute_tonemap_pass` or `resolve_and_tonemap` |
+| removed 4.x post-process helper | Resolve, tonemap, transfer conversion, packing | `execute_resolve_tonemap_pass` |
 | `draw_queues_profiled` | Prepare/bin/rasterize draw lists | Backend `execute_phases_profiled` |
 | `shared_depth_values` | Copy-on-write depth snapshot | `snapshot_depth_attachment` |
 
@@ -378,6 +378,7 @@ Completed slices:
 - [x] `327a07c` (`separate background generation`): removed `ClearOptions` and `clear_with_options` rather than retaining a compatibility route; represented solid backgrounds as constant color attachment clears and gradients/images as explicit `BackgroundPass` inputs; and kept `depth clear -> BackgroundPass` fused into one row-parallel framebuffer traversal. Existing attachment/background timing remains one inclusive `attachment_processing` bucket. All matrix output hashes remained stable, the full release suite and image-background CLI path passed, and the repeated same-machine 30-frame matrix (including gradient backgrounds) passed the 5% mean gate in all 12 scenarios. This left the dedicated image-background performance comparison completed by `c0abd97` below.
 - [x] `c0abd97` (`benchmark image backgrounds`): added a tracked deterministic 8x8 PNG and an off-screen-geometry image-background scenario to the standard matrix, expanding it to 14 scenarios at 1 and 12 workers. A same-path 30-frame comparison between the old `c71c66c` single-traversal implementation and the `BackgroundPass` implementation preserved the image hash (`ff2d93a1e4445e9f`) and passed the full 5% mean gate. The isolated image case changed by -11.55% at one worker and +1.02% at 12 workers, providing direct evidence that logical pass separation did not add another framebuffer traversal.
 - [x] `bf89faf` (`validate render pass descriptors`): added one internal `RenderPassError` path and validates framebuffer dimensions, supersampling layout, sample count, and the presence of at least one declared color/depth/background operation before any attachment write. Immediate initialization now returns `Result`; built-in shadow/main descriptors handle failure as an internal invariant, while Phase 11.5 can reuse the same validation rather than retaining an unchecked path. One combined regression test covers both invalid forms and proves rejection happens before writes, bringing the full release suite to 143 tests. All 14 output hashes remained stable. Because saved and repeated matrices showed large non-code drift, the performance audit used freshly built adjacent old/new implementations plus a reverse-order run; the reverse comparison passed the 5% full-frame mean gate in every scenario, with no credible validation-related regression.
+- [x] `254427e` (`name resolve and tonemap pass`): introduces explicit `MainHdrTarget` and `PresentBuffer` types plus a validated `ResolveTonemapPassDescriptor`. GUI, CLI, benchmark, and rendering tests use the same named CPU pass; the former `post_process_to_buffer` entry point is removed. Resolve, exposure, optional ACES, transfer conversion, and packing remain fused in one Rayon traversal. Benchmark schema v2 retains `post_processing_ms`; all 14 output hashes remained unchanged, 147 Rust tests and 9 Node benchmark tests passed, and the same-path five-frame performance gate passed every scenario with a largest mean regression of +2.63%.
 
 ### Initial descriptor
 
@@ -419,10 +420,10 @@ pub struct RenderPassDescriptor<'a> {
 
 ### Resolve and tonemap
 
-- [ ] Package SSAA resolve, exposure, optional ACES, linear-to-sRGB conversion, and `u32` packing as a named CPU pass.
-- [ ] Use explicit `MainHdrTarget` and `PresentBuffer` inputs/outputs in the high-level API.
-- [ ] Do not label this work as compute unless a genuine compute abstraction exists.
-- [ ] Keep the fused implementation if splitting resolve and tonemap regresses performance or adds no reuse.
+- [x] Package SSAA resolve, exposure, optional ACES, linear-to-sRGB conversion, and `u32` packing as a named CPU pass.
+- [x] Use explicit `MainHdrTarget` and `PresentBuffer` inputs/outputs in the high-level API.
+- [x] Keep the operation explicitly named as a CPU resolve-tonemap pass rather than a compute abstraction.
+- [x] Keep resolve, exposure, tonemapping, transfer conversion, and packing fused in one parallel output traversal.
 
 ### Exit Criteria
 
@@ -784,7 +785,7 @@ Use focused commits; split further when a reviewable boundary appears.
 6. `move reusable frame resources`
 7. `describe render pass target operations`
 8. `separate background generation`
-9. `name resolve and tonemap pass`
+9. `name resolve and tonemap pass` (`254427e`, completed)
 10. `split pbr frame object material bindings`
 11. `make shader algorithms reusable`
 12. `record typed render pass commands`
