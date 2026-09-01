@@ -36,6 +36,186 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
 }
 
 #[test]
+fn vertex_cache_is_scoped_to_each_camera_submission() {
+    let calls = AtomicUsize::new(0);
+    let pipeline = GraphicsPipeline::new(
+        FrameObjectContextShader,
+        test_pipeline_state(),
+        VertexProgramId::from_pass_index(0),
+    );
+    let mesh = Mesh::new(
+        vec![
+            Vertex::new(
+                Point3::new(-0.25, -0.8, 0.0),
+                Vector3::z(),
+                Vector2::zeros(),
+            ),
+            Vertex::new(Point3::new(0.25, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
+            Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        ],
+        vec![0, 1, 2, 0, 2, 1],
+        0,
+    );
+    let object_transform = Matrix4::identity();
+    let left_camera = Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0));
+    let right_camera = Matrix4::new_translation(&Vector3::new(0.5, 0.0, 0.0));
+    let mut renderer = TestRenderHarness::new(64, 32, 1);
+
+    for (camera, color) in [
+        (&left_camera, Vector4::new(1.0, 0.0, 0.0, 1.0)),
+        (&right_camera, Vector4::new(0.0, 1.0, 0.0, 1.0)),
+    ] {
+        let mut phase = RenderPhase::default();
+        phase.push(
+            &pipeline,
+            RenderGeometry::Mesh(&mesh),
+            FrameObjectDrawContext {
+                frame_transform: camera,
+                object_transform: &object_transform,
+                color,
+                vertex_calls: &calls,
+            },
+            ObjectBindingId::from_pass_index(0),
+            0.0,
+        );
+        renderer
+            .backend
+            .execute_phase(renderer.target.render_target_mut(), &phase);
+    }
+
+    assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len() * 2);
+    assert_vec3_approx(
+        renderer.framebuffer().get_pixel(16, 16).unwrap(),
+        Vector3::x(),
+    );
+    assert_vec3_approx(
+        renderer.framebuffer().get_pixel(48, 16).unwrap(),
+        Vector3::y(),
+    );
+}
+
+#[test]
+fn vertex_cache_isolates_distinct_tangent_frame_bindings() {
+    let calls = AtomicUsize::new(0);
+    let pipeline = GraphicsPipeline::new(
+        TangentContextShader,
+        test_pipeline_state(),
+        VertexProgramId::from_pass_index(0),
+    );
+    let mut mesh = Mesh::new(
+        vec![
+            Vertex::new(
+                Point3::new(-0.25, -0.8, 0.0),
+                Vector3::z(),
+                Vector2::zeros(),
+            ),
+            Vertex::new(Point3::new(0.25, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
+            Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        ],
+        vec![0, 1, 2, 0, 2, 1],
+        0,
+    );
+    for vertex in &mut mesh.vertices {
+        vertex.tangent = Vector4::new(1.0, 0.0, 0.0, 1.0);
+    }
+    let left_clip = Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0));
+    let right_clip = Matrix4::new_translation(&Vector3::new(0.5, 0.0, 0.0));
+    let red_tangent = Matrix4::identity();
+    let green_tangent = Matrix4::new(
+        0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    );
+    let contexts = [
+        TangentDrawContext {
+            clip_transform: &left_clip,
+            tangent_transform: &red_tangent,
+            vertex_calls: &calls,
+        },
+        TangentDrawContext {
+            clip_transform: &right_clip,
+            tangent_transform: &green_tangent,
+            vertex_calls: &calls,
+        },
+    ];
+    let mut phase = RenderPhase::with_capacity(2);
+    for (index, context) in contexts.into_iter().enumerate() {
+        phase.push(
+            &pipeline,
+            RenderGeometry::Mesh(&mesh),
+            context,
+            ObjectBindingId::from_pass_index(index),
+            0.0,
+        );
+    }
+    let mut renderer = TestRenderHarness::new(64, 32, 1);
+
+    renderer
+        .backend
+        .execute_phase(renderer.target.render_target_mut(), &phase);
+
+    assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len() * 2);
+    assert_vec3_approx(
+        renderer.framebuffer().get_pixel(16, 16).unwrap(),
+        Vector3::x(),
+    );
+    assert_vec3_approx(
+        renderer.framebuffer().get_pixel(48, 16).unwrap(),
+        Vector3::y(),
+    );
+}
+
+#[test]
+fn transparent_world_vertices_use_a_distinct_source_domain() {
+    let calls = AtomicUsize::new(0);
+    let pipeline = GraphicsPipeline::new(
+        CountingShader {
+            vertex_calls: &calls,
+        },
+        test_pipeline_state(),
+        VertexProgramId::from_pass_index(0),
+    );
+    let mesh = Mesh::new(
+        vec![
+            Vertex::new(Point3::new(-0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
+            Vertex::new(Point3::new(0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
+            Vertex::new(Point3::new(0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+            Vertex::new(Point3::new(-0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        ],
+        vec![0, 1, 2, 0, 2, 3],
+        0,
+    );
+    let world_vertices = mesh.vertices.clone();
+    let object_binding_id = ObjectBindingId::from_pass_index(0);
+    let mut phase = RenderPhase::with_capacity(2);
+    phase.push(
+        &pipeline,
+        RenderGeometry::Mesh(&mesh),
+        None,
+        object_binding_id,
+        0.0,
+    );
+    phase.push(
+        &pipeline,
+        RenderGeometry::IndexedTriangle {
+            vertices: &world_vertices,
+            indices: [0, 1, 2],
+            cache_vertices: true,
+        },
+        None,
+        object_binding_id,
+        0.0,
+    );
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
+
+    renderer
+        .backend
+        .execute_phase(renderer.target.render_target_mut(), &phase);
+
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        mesh.vertices.len() + world_vertices.len()
+    );
+}
+#[test]
 fn vertex_cache_reuses_across_raster_only_pipeline_variants() {
     let calls = AtomicUsize::new(0);
     let shader = CountingShader {

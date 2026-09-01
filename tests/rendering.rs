@@ -262,6 +262,77 @@ impl<'a, 'material> Shader<Option<&'material Material>> for CountingShader<'a> {
 }
 
 #[derive(Clone, Copy)]
+struct FrameObjectDrawContext<'a> {
+    frame_transform: &'a Matrix4<f32>,
+    object_transform: &'a Matrix4<f32>,
+    color: Vector4<f32>,
+    vertex_calls: &'a AtomicUsize,
+}
+
+#[derive(Clone, Copy)]
+struct FrameObjectContextShader;
+
+impl Shader<FrameObjectDrawContext<'_>> for FrameObjectContextShader {
+    type Varying = ColorVarying;
+
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        context: FrameObjectDrawContext<'_>,
+    ) -> (Vector4<f32>, Self::Varying) {
+        context.vertex_calls.fetch_add(1, Ordering::Relaxed);
+        (
+            context.frame_transform * context.object_transform * vertex.position.to_homogeneous(),
+            ColorVarying {
+                color: context.color,
+            },
+        )
+    }
+
+    fn fragment(
+        &self,
+        input: FragmentInput<Self::Varying>,
+        _context: FrameObjectDrawContext<'_>,
+    ) -> FragmentOutput {
+        FragmentOutput::Color(input.varying.color)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TangentDrawContext<'a> {
+    clip_transform: &'a Matrix4<f32>,
+    tangent_transform: &'a Matrix4<f32>,
+    vertex_calls: &'a AtomicUsize,
+}
+
+#[derive(Clone, Copy)]
+struct TangentContextShader;
+
+impl Shader<TangentDrawContext<'_>> for TangentContextShader {
+    type Varying = ColorVarying;
+
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        context: TangentDrawContext<'_>,
+    ) -> (Vector4<f32>, Self::Varying) {
+        context.vertex_calls.fetch_add(1, Ordering::Relaxed);
+        let tangent = context.tangent_transform * vertex.tangent;
+        (
+            context.clip_transform * vertex.position.to_homogeneous(),
+            ColorVarying { color: tangent },
+        )
+    }
+
+    fn fragment(
+        &self,
+        input: FragmentInput<Self::Varying>,
+        _context: TangentDrawContext<'_>,
+    ) -> FragmentOutput {
+        FragmentOutput::Color(input.varying.color)
+    }
+}
+#[derive(Clone, Copy)]
 struct TransformDrawContext<'a> {
     transform: &'a Matrix4<f32>,
     color: Vector4<f32>,
