@@ -1,8 +1,8 @@
 use crate::core::color::{aces_tone_mapping, linear_to_srgb};
 use crate::core::math::transform::TransformFactory;
 use crate::core::pipeline_state::{
-    BlendState, ColorTargetState, CullMode, DepthStencilState, GraphicsPipelineState,
-    PrimitiveState,
+    BlendState, ColorTargetState, CullMode, DepthStencilState, FrontFace, GraphicsPipeline,
+    GraphicsPipelineState, PrimitiveState, VertexProgramId,
 };
 use crate::error::{AssetError, ResolveTonemapError};
 use crate::io::config::Config;
@@ -19,7 +19,7 @@ use crate::pipeline::shaders::shadow::{
     ShadowShader,
 };
 use crate::scene::context::RenderScene;
-use crate::scene::material::{AlphaMode, Material};
+use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
 use std::sync::Arc;
@@ -53,6 +53,24 @@ pub struct MainPassTimings {
     pub submission_total: Duration,
 }
 
+fn pipeline_state_for_material(
+    state: GraphicsPipelineState,
+    front_face: FrontFace,
+    double_sided: bool,
+) -> GraphicsPipelineState {
+    GraphicsPipelineState {
+        primitive: PrimitiveState {
+            cull_mode: if double_sided {
+                CullMode::None
+            } else {
+                state.primitive.cull_mode
+            },
+            front_face,
+            ..state.primitive
+        },
+        ..state
+    }
+}
 struct ShadowCamera {
     view: Matrix4<f32>,
     projection: Matrix4<f32>,
@@ -224,6 +242,28 @@ pub fn render_shadow_pass_profiled(
         .iter()
         .map(|object| ShadowObjectBindings::new(object.transform()))
         .collect();
+    let shadow_pipelines = [
+        GraphicsPipeline::new(
+            shadow_shader,
+            pipeline_state_for_material(shadow_state, FrontFace::CounterClockwise, false),
+            VertexProgramId::from_pass_index(0),
+        ),
+        GraphicsPipeline::new(
+            shadow_shader,
+            pipeline_state_for_material(shadow_state, FrontFace::Clockwise, false),
+            VertexProgramId::from_pass_index(0),
+        ),
+        GraphicsPipeline::new(
+            shadow_shader,
+            pipeline_state_for_material(shadow_state, FrontFace::CounterClockwise, true),
+            VertexProgramId::from_pass_index(0),
+        ),
+        GraphicsPipeline::new(
+            shadow_shader,
+            pipeline_state_for_material(shadow_state, FrontFace::Clockwise, true),
+            VertexProgramId::from_pass_index(0),
+        ),
+    ];
     let pass_setup = initial_setup + setup_started.elapsed();
 
     let recording_started = Instant::now();
@@ -235,7 +275,7 @@ pub fn render_shadow_pass_profiled(
             .sum(),
     );
 
-    for (object_binding_id, object) in context.scene_objects.iter().enumerate() {
+    for (object_binding_index, object) in context.scene_objects.iter().enumerate() {
         for mesh in &object.model.meshes {
             let material = object.model.materials.get(mesh.material_id);
             let pbr_material = material.map(|material| match material {
@@ -244,38 +284,30 @@ pub fn render_shadow_pass_profiled(
             if matches!(pbr_material, Some(material) if material.alpha_mode == AlphaMode::Blend) {
                 continue;
             }
-            let command_state = GraphicsPipelineState {
-                primitive: PrimitiveState {
-                    cull_mode: if pbr_material.is_some_and(|material| material.double_sided) {
-                        CullMode::None
-                    } else {
-                        shadow_state.primitive.cull_mode
-                    },
-                    front_face: object.front_face(),
-                    ..shadow_state.primitive
-                },
-                ..shadow_state
-            };
-            shadow_phase.push_with_context(
-                0,
+            let command_state = pipeline_state_for_material(
+                shadow_state,
+                object.front_face(),
+                pbr_material.is_some_and(|material| material.double_sided),
+            );
+            let pipeline_index =
+                usize::from(command_state.primitive.front_face == FrontFace::Clockwise)
+                    + 2 * usize::from(command_state.primitive.cull_mode == CullMode::None);
+            let pipeline = &shadow_pipelines[pipeline_index];
+            shadow_phase.push(
+                pipeline,
                 RenderGeometry::Mesh(mesh),
                 ShadowDrawContext::new(
                     &frame_bindings,
-                    &object_bindings[object_binding_id],
+                    &object_bindings[object_binding_index],
                     ShadowMaterialBindings::new(material),
                 ),
-                ObjectBindingId::from_pass_index(object_binding_id),
-                command_state,
+                ObjectBindingId::from_pass_index(object_binding_index),
                 0.0,
             );
         }
     }
     let recording = recording_started.elapsed();
-    let execution_timings = shadow_backend.execute_phase_profiled(
-        shadow_target,
-        &shadow_phase,
-        std::slice::from_ref(&shadow_shader),
-    );
+    let execution_timings = shadow_backend.execute_phase_profiled(shadow_target, &shadow_phase);
 
     let output = ShadowPassOutput {
         depth: Some(resources.shadow_depth_snapshot(shadow_target)),
@@ -428,8 +460,18 @@ pub fn render_main_pass_profiled(
         .collect();
     let transparent_object_binding = PbrObjectBindings::new(Matrix4::identity());
     let transparent_object_binding_id = ObjectBindingId::from_pass_index(object_bindings.len());
-    let fallback_material = crate::scene::material::PbrMaterial::default();
-
+    let fallback_material = PbrMaterial::default();
+    let pbr_pipelines = [opaque_state, transparent_state].map(|base_state| {
+        [FrontFace::CounterClockwise, FrontFace::Clockwise].map(|front_face| {
+            [false, true].map(|double_sided| {
+                GraphicsPipeline::new(
+                    pbr_shader,
+                    pipeline_state_for_material(base_state, front_face, double_sided),
+                    VertexProgramId::from_pass_index(0),
+                )
+            })
+        })
+    });
     let phase_counts = context
         .scene_objects
         .iter()
@@ -484,6 +526,17 @@ pub fn render_main_pass_profiled(
                 ..state
             };
             let material_bindings = PbrMaterialBindings::new(material, &fallback_material);
+            let pipeline_state = if alpha_mode == AlphaMode::Blend {
+                command_state(transparent_state)
+            } else {
+                command_state(opaque_state)
+            };
+            let blend_index = usize::from(alpha_mode == AlphaMode::Blend);
+            let front_face_index = usize::from(obj.front_face() == FrontFace::Clockwise);
+            let double_sided_index =
+                usize::from(pbr_material.is_some_and(|material| material.double_sided));
+            let pipeline = &pbr_pipelines[blend_index][front_face_index][double_sided_index];
+            debug_assert_eq!(pipeline.state(), pipeline_state);
 
             if alpha_mode == AlphaMode::Blend {
                 let view_matrix = context.camera.view_matrix();
@@ -510,8 +563,8 @@ pub fn render_main_pass_profiled(
                         let centroid_view =
                             view_matrix * Point3::from(centroid_world).to_homogeneous();
 
-                        transparent_phase.push_with_context(
-                            0,
+                        transparent_phase.push(
+                            pipeline,
                             RenderGeometry::IndexedTriangle {
                                 vertices: world_vertices,
                                 indices,
@@ -523,14 +576,13 @@ pub fn render_main_pass_profiled(
                                 material_bindings,
                             ),
                             transparent_object_binding_id,
-                            command_state(transparent_state),
                             centroid_view.z,
                         );
                     }
                 }
             } else if matches!(alpha_mode, AlphaMode::Mask(_)) {
-                masked_phase.push_with_context(
-                    0,
+                masked_phase.push(
+                    pipeline,
                     RenderGeometry::Mesh(mesh),
                     PbrDrawContext::new(
                         &frame_bindings,
@@ -538,12 +590,11 @@ pub fn render_main_pass_profiled(
                         material_bindings,
                     ),
                     object_binding_id,
-                    command_state(opaque_state),
                     0.0,
                 );
             } else {
-                opaque_phase.push_with_context(
-                    0,
+                opaque_phase.push(
+                    pipeline,
                     RenderGeometry::Mesh(mesh),
                     PbrDrawContext::new(
                         &frame_bindings,
@@ -551,7 +602,6 @@ pub fn render_main_pass_profiled(
                         material_bindings,
                     ),
                     object_binding_id,
-                    command_state(opaque_state),
                     0.0,
                 );
             }
@@ -559,19 +609,13 @@ pub fn render_main_pass_profiled(
     }
     let mut recording = recording_started.elapsed();
 
-    let opaque_masked = backend.execute_phases_profiled(
-        target.render_target_mut(),
-        &[&opaque_phase, &masked_phase],
-        std::slice::from_ref(&pbr_shader),
-    );
+    let opaque_masked = backend
+        .execute_phases_profiled(target.render_target_mut(), &[&opaque_phase, &masked_phase]);
     let sorting_started = Instant::now();
     transparent_phase.sort_transparent();
     recording += sorting_started.elapsed();
-    let transparent = backend.execute_phase_profiled(
-        target.render_target_mut(),
-        &transparent_phase,
-        std::slice::from_ref(&pbr_shader),
-    );
+    let transparent =
+        backend.execute_phase_profiled(target.render_target_mut(), &transparent_phase);
 
     Ok(MainPassTimings {
         pass_setup,

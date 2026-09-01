@@ -108,28 +108,29 @@ fn shadow_draw_context_applies_distinct_object_bindings() {
         ShadowObjectBindings::new(Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0))),
         ShadowObjectBindings::new(Matrix4::new_translation(&Vector3::new(0.5, 0.0, 0.0))),
     ];
+    let pipeline = GraphicsPipeline::new(
+        ShadowShader,
+        GraphicsPipelineState {
+            color_target: None,
+            ..test_pipeline_state()
+        },
+        VertexProgramId::from_pass_index(0),
+    );
     let mut phase = RenderPhase::with_capacity(2);
     for (index, object) in object_bindings.iter().enumerate() {
-        phase.push_with_context(
-            0,
+        phase.push(
+            &pipeline,
             RenderGeometry::Mesh(&mesh),
             ShadowDrawContext::new(&frame, object, ShadowMaterialBindings::new(None)),
             ObjectBindingId::from_pass_index(index),
-            GraphicsPipelineState {
-                color_target: None,
-                ..test_pipeline_state()
-            },
             0.0,
         );
     }
-    let shader = ShadowShader;
     let mut renderer = TestRenderHarness::new(32, 32, 1);
 
-    renderer.backend.execute_phase(
-        renderer.target.render_target_mut(),
-        &phase,
-        std::slice::from_ref(&shader),
-    );
+    renderer
+        .backend
+        .execute_phase(renderer.target.render_target_mut(), &phase);
 
     assert!(
         renderer

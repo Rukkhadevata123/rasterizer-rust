@@ -100,10 +100,15 @@ fn pbr_draw_context_applies_distinct_object_and_material_bindings() {
             ..Default::default()
         },
     ];
+    let pipeline = GraphicsPipeline::new(
+        PbrShader,
+        test_pipeline_state(),
+        VertexProgramId::from_pass_index(0),
+    );
     let mut phase = RenderPhase::with_capacity(2);
     for index in 0..2 {
-        phase.push_with_context(
-            0,
+        phase.push(
+            &pipeline,
             RenderGeometry::Mesh(&mesh),
             PbrDrawContext::new(
                 &frame,
@@ -111,17 +116,14 @@ fn pbr_draw_context_applies_distinct_object_and_material_bindings() {
                 PbrMaterialBindings::from_pbr(&materials[index]),
             ),
             ObjectBindingId::from_pass_index(index),
-            test_pipeline_state(),
             0.0,
         );
     }
     let mut renderer = TestRenderHarness::new(64, 32, 1);
 
-    renderer.backend.execute_phase(
-        renderer.target.render_target_mut(),
-        &phase,
-        std::slice::from_ref(&PbrShader),
-    );
+    renderer
+        .backend
+        .execute_phase(renderer.target.render_target_mut(), &phase);
 
     assert_vec3_approx(
         renderer.framebuffer().get_pixel(16, 16).unwrap(),
@@ -333,15 +335,26 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
         }),
         ..test_pipeline_state()
     };
+    let pipeline = GraphicsPipeline::new(shader, state, VertexProgramId::from_pass_index(0));
     let mut phase = RenderPhase::default();
-    phase.push(0, RenderGeometry::Mesh(&near), Some(&material), state, 0.5);
-    phase.push(0, RenderGeometry::Mesh(&far), Some(&material), state, -0.5);
-    phase.sort_transparent();
-    renderer.backend.execute_phase(
-        renderer.target.render_target_mut(),
-        &phase,
-        std::slice::from_ref(&shader),
+    phase.push(
+        &pipeline,
+        RenderGeometry::Mesh(&near),
+        Some(&material),
+        ObjectBindingId::from_pass_index(0),
+        0.5,
     );
+    phase.push(
+        &pipeline,
+        RenderGeometry::Mesh(&far),
+        Some(&material),
+        ObjectBindingId::from_pass_index(0),
+        -0.5,
+    );
+    phase.sort_transparent();
+    renderer
+        .backend
+        .execute_phase(renderer.target.render_target_mut(), &phase);
 
     for y in [8, 24, 40, 56] {
         assert_vec3_approx(
@@ -350,32 +363,36 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
         );
     }
 }
-
 #[test]
 fn transparent_phase_uses_insertion_id_to_break_depth_ties() {
     let first = triangle(0.0, Vector4::zeros());
     let second = triangle(0.0, Vector4::zeros());
     let third = triangle(0.0, Vector4::zeros());
-    let mut phase = RenderPhase::default();
+    let pipeline = GraphicsPipeline::new(
+        ClipSpaceShader,
+        test_pipeline_state(),
+        VertexProgramId::from_pass_index(0),
+    );
+    let mut phase: RenderPhase<'_, ClipSpaceShader, Option<&Material>> = RenderPhase::default();
     phase.push(
-        0,
+        &pipeline,
         RenderGeometry::Mesh(&first),
         None,
-        test_pipeline_state(),
+        ObjectBindingId::from_pass_index(0),
         1.0,
     );
     phase.push(
-        0,
+        &pipeline,
         RenderGeometry::Mesh(&second),
         None,
-        test_pipeline_state(),
+        ObjectBindingId::from_pass_index(0),
         -1.0,
     );
     phase.push(
-        0,
+        &pipeline,
         RenderGeometry::Mesh(&third),
         None,
-        test_pipeline_state(),
+        ObjectBindingId::from_pass_index(0),
         1.0,
     );
 
@@ -388,7 +405,6 @@ fn transparent_phase_uses_insertion_id_to_break_depth_ties() {
         .collect();
     assert_eq!(ordering, vec![(-1.0, 1), (1.0, 0), (1.0, 2)]);
 }
-
 #[test]
 fn transparent_rendering_is_deterministic_across_worker_counts() {
     let render = |thread_count| {
@@ -412,6 +428,8 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                     }),
                     ..test_pipeline_state()
                 };
+                let pipeline =
+                    GraphicsPipeline::new(shader, state, VertexProgramId::from_pass_index(0));
                 let mut layers = [
                     (triangle(0.6, Vector4::new(1.0, 0.0, 0.0, 0.35)), -0.8),
                     (triangle(0.2, Vector4::new(0.0, 1.0, 0.0, 0.45)), 0.0),
@@ -429,10 +447,10 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 let mut phase = RenderPhase::with_capacity(layers.len());
                 for (mesh, sort_depth) in &layers {
                     phase.push(
-                        0,
+                        &pipeline,
                         RenderGeometry::Mesh(mesh),
                         Some(&material),
-                        state,
+                        ObjectBindingId::from_pass_index(0),
                         *sort_depth,
                     );
                 }
@@ -440,11 +458,9 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
 
                 let (width, height) = (96, 80);
                 let mut renderer = TestRenderHarness::new(width, height, 1);
-                renderer.backend.execute_phase(
-                    renderer.target.render_target_mut(),
-                    &phase,
-                    std::slice::from_ref(&shader),
-                );
+                renderer
+                    .backend
+                    .execute_phase(renderer.target.render_target_mut(), &phase);
 
                 let mut config = rasterizer_rust::io::config::Config::default();
                 config.render.width = width;
@@ -473,7 +489,6 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
     assert_eq!(single_worker.0, four_workers.0);
     assert_eq!(single_worker.1, four_workers.1);
 }
-
 #[test]
 fn pbr_material_texture_binding_selects_texcoord1() {
     let image = TextureImage::from_image(

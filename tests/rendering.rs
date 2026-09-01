@@ -4,7 +4,7 @@ use rasterizer_rust::core::framebuffer::FrameBuffer;
 use rasterizer_rust::core::geometry::Vertex;
 use rasterizer_rust::core::pipeline_state::{
     BlendState, ColorTargetState, CompareFunction, CullMode, DepthStencilState, FrontFace,
-    GraphicsPipelineState, PolygonMode, PrimitiveState,
+    GraphicsPipeline, GraphicsPipelineState, PolygonMode, PrimitiveState, VertexProgramId,
 };
 use rasterizer_rust::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
 use rasterizer_rust::pipeline::passes::{
@@ -95,6 +95,7 @@ impl Interpolatable for DualUvVarying {
     }
 }
 
+#[derive(Clone, Copy)]
 struct DualUvDensityShader;
 
 impl<'a> Shader<Option<&'a Material>> for DualUvDensityShader {
@@ -127,6 +128,7 @@ impl<'a> Shader<Option<&'a Material>> for DualUvDensityShader {
     }
 }
 
+#[derive(Clone, Copy)]
 struct ClipSpaceShader;
 
 impl<'a> Shader<Option<&'a Material>> for ClipSpaceShader {
@@ -162,6 +164,7 @@ impl<'a> Shader<Option<&'a Material>> for ClipSpaceShader {
     }
 }
 
+#[derive(Clone, Copy)]
 struct FacingShader;
 
 impl<'a> Shader<Option<&'a Material>> for FacingShader {
@@ -194,6 +197,7 @@ impl<'a> Shader<Option<&'a Material>> for FacingShader {
     }
 }
 
+#[derive(Clone, Copy)]
 struct AdditiveCoverageShader;
 
 impl<'a> Shader<Option<&'a Material>> for AdditiveCoverageShader {
@@ -221,10 +225,12 @@ impl<'a> Shader<Option<&'a Material>> for AdditiveCoverageShader {
     }
 }
 
+#[derive(Clone, Copy)]
 struct NonFiniteClipShader {
     clip: Vector4<f32>,
 }
 
+#[derive(Clone, Copy)]
 struct CountingShader<'a> {
     vertex_calls: &'a AtomicUsize,
 }
@@ -262,6 +268,42 @@ struct TransformDrawContext<'a> {
     vertex_calls: &'a AtomicUsize,
 }
 
+#[derive(Clone, Copy)]
+struct ProgramVariantShader<'a> {
+    x_offset: f32,
+    color: Vector4<f32>,
+    vertex_calls: &'a AtomicUsize,
+}
+
+impl Shader<Option<&Material>> for ProgramVariantShader<'_> {
+    type Varying = ColorVarying;
+
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        _context: Option<&Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
+        self.vertex_calls.fetch_add(1, Ordering::Relaxed);
+        (
+            Vector4::new(
+                vertex.position.x + self.x_offset,
+                vertex.position.y,
+                vertex.position.z,
+                1.0,
+            ),
+            ColorVarying { color: self.color },
+        )
+    }
+
+    fn fragment(
+        &self,
+        input: FragmentInput<Self::Varying>,
+        _context: Option<&Material>,
+    ) -> FragmentOutput {
+        FragmentOutput::Color(input.varying.color)
+    }
+}
+#[derive(Clone, Copy)]
 struct TransformContextShader;
 
 impl Shader<TransformDrawContext<'_>> for TransformContextShader {
@@ -372,15 +414,20 @@ fn draw_mesh<'a, S>(
     material: Option<&'a Material>,
     state: GraphicsPipelineState,
 ) where
-    S: Shader<Option<&'a Material>>,
+    S: Shader<Option<&'a Material>> + Copy,
 {
+    let pipeline = GraphicsPipeline::new(*shader, state, VertexProgramId::from_pass_index(0));
     let mut phase = RenderPhase::default();
-    phase.push(0, RenderGeometry::Mesh(mesh), material, state, 0.0);
-    renderer.backend.execute_phase(
-        renderer.target.render_target_mut(),
-        &phase,
-        std::slice::from_ref(shader),
+    phase.push(
+        &pipeline,
+        RenderGeometry::Mesh(mesh),
+        material,
+        ObjectBindingId::from_pass_index(0),
+        0.0,
     );
+    renderer
+        .backend
+        .execute_phase(renderer.target.render_target_mut(), &phase);
 }
 
 fn draw_pbr_mesh(
@@ -402,50 +449,49 @@ fn draw_pbr_mesh(
         &object,
         PbrMaterialBindings::new(material, &fallback),
     );
-    let shader = PbrShader;
+    let pipeline = GraphicsPipeline::new(PbrShader, state, VertexProgramId::from_pass_index(0));
     let mut phase = RenderPhase::default();
-    phase.push_with_context(
-        0,
+    phase.push(
+        &pipeline,
         RenderGeometry::Mesh(mesh),
         context,
         ObjectBindingId::from_pass_index(0),
-        state,
         0.0,
     );
-    renderer.backend.execute_phase(
-        renderer.target.render_target_mut(),
-        &phase,
-        std::slice::from_ref(&shader),
-    );
+    renderer
+        .backend
+        .execute_phase(renderer.target.render_target_mut(), &phase);
 }
+
 fn draw_shadow_mesh(
     renderer: &mut TestRenderHarness,
     mesh: &Mesh,
     material: Option<&Material>,
     model: Matrix4<f32>,
-    vertex_context_identity: ObjectBindingId,
+    object_binding_id: ObjectBindingId,
 ) {
     let frame = ShadowFrameBindings::new(Matrix4::identity(), Matrix4::identity());
     let object = ShadowObjectBindings::new(model);
     let context = ShadowDrawContext::new(&frame, &object, ShadowMaterialBindings::new(material));
-    let shader = ShadowShader;
-    let mut phase = RenderPhase::default();
-    phase.push_with_context(
-        0,
-        RenderGeometry::Mesh(mesh),
-        context,
-        vertex_context_identity,
+    let pipeline = GraphicsPipeline::new(
+        ShadowShader,
         GraphicsPipelineState {
             color_target: None,
             ..test_pipeline_state()
         },
+        VertexProgramId::from_pass_index(0),
+    );
+    let mut phase = RenderPhase::default();
+    phase.push(
+        &pipeline,
+        RenderGeometry::Mesh(mesh),
+        context,
+        object_binding_id,
         0.0,
     );
-    renderer.backend.execute_phase(
-        renderer.target.render_target_mut(),
-        &phase,
-        std::slice::from_ref(&shader),
-    );
+    renderer
+        .backend
+        .execute_phase(renderer.target.render_target_mut(), &phase);
 }
 fn shadow_test_camera() -> Camera {
     Camera::new_orthographic(

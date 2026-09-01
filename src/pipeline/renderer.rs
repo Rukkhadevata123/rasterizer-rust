@@ -1,9 +1,8 @@
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::geometry::Vertex;
-use crate::core::pipeline_state::GraphicsPipelineState;
+use crate::core::pipeline_state::{GraphicsPipeline, GraphicsPipelineState};
 use crate::core::rasterizer::{MAX_PREPARED_TRIANGLES, PreparedTriangle, Rasterizer};
 use crate::core::shader::Shader;
-use crate::scene::material::Material;
 use crate::scene::mesh::Mesh;
 use crate::scene::texture::{
     MinFilter, SamplerState, TexCoordSet, TextureBinding, TextureImage, TextureUsage,
@@ -43,13 +42,9 @@ enum VertexSourceKey {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct VertexCacheKey {
-    shader_index: usize,
-    draw_context: Option<ObjectBindingId>,
+    vertex_program_id: crate::core::pipeline_state::VertexProgramId,
+    object_binding_id: ObjectBindingId,
     source: VertexSourceKey,
-}
-
-fn material_context_identity(material: Option<&Material>) -> Option<ObjectBindingId> {
-    material.map(|material| ObjectBindingId(material as *const Material as usize))
 }
 
 struct CachedBackgroundTexture {
@@ -70,28 +65,27 @@ pub struct BackendExecutionTimings {
     pub submission_total: Duration,
 }
 
-pub struct DrawPacket<'a, C = Option<&'a Material>> {
+pub struct DrawPacket<'a, S, C> {
     pub insertion_id: u64,
-    pub shader_index: usize,
+    pub pipeline: &'a GraphicsPipeline<S>,
     pub geometry: RenderGeometry<'a>,
     pub draw_context: C,
-    vertex_context_identity: Option<ObjectBindingId>,
-    pub state: GraphicsPipelineState,
+    object_binding_id: ObjectBindingId,
     pub sort_depth: f32,
 }
 
-pub struct RenderPhase<'a, C = Option<&'a Material>> {
-    commands: Vec<DrawPacket<'a, C>>,
+pub struct RenderPhase<'a, S, C> {
+    commands: Vec<DrawPacket<'a, S, C>>,
     next_insertion_id: u64,
 }
 
-impl<'a, C> Default for RenderPhase<'a, C> {
+impl<'a, S, C> Default for RenderPhase<'a, S, C> {
     fn default() -> Self {
         Self::with_capacity(0)
     }
 }
 
-impl<'a, C> RenderPhase<'a, C> {
+impl<'a, S, C> RenderPhase<'a, S, C> {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             commands: Vec::with_capacity(capacity),
@@ -99,46 +93,26 @@ impl<'a, C> RenderPhase<'a, C> {
         }
     }
 
-    pub fn push_with_context(
+    pub fn push(
         &mut self,
-        shader_index: usize,
+        pipeline: &'a GraphicsPipeline<S>,
         geometry: RenderGeometry<'a>,
         draw_context: C,
         object_binding_id: ObjectBindingId,
-        state: GraphicsPipelineState,
-        sort_depth: f32,
-    ) {
-        self.push_with_context_identity(
-            shader_index,
-            geometry,
-            draw_context,
-            Some(object_binding_id),
-            state,
-            sort_depth,
-        );
-    }
-
-    fn push_with_context_identity(
-        &mut self,
-        shader_index: usize,
-        geometry: RenderGeometry<'a>,
-        draw_context: C,
-        vertex_context_identity: Option<ObjectBindingId>,
-        state: GraphicsPipelineState,
         sort_depth: f32,
     ) {
         let insertion_id = self.next_insertion_id;
         self.next_insertion_id += 1;
         self.commands.push(DrawPacket {
             insertion_id,
-            shader_index,
+            pipeline,
             geometry,
             draw_context,
-            vertex_context_identity,
-            state,
+            object_binding_id,
             sort_depth,
         });
     }
+
     /// Sorts transparent work back-to-front for the renderer's view-space convention.
     ///
     /// Visible view-space Z values are negative, so ascending Z visits farther draws first.
@@ -152,31 +126,10 @@ impl<'a, C> RenderPhase<'a, C> {
         });
     }
 
-    pub fn commands(&self) -> &[DrawPacket<'a, C>] {
+    pub fn commands(&self) -> &[DrawPacket<'a, S, C>] {
         &self.commands
     }
 }
-
-impl<'a> RenderPhase<'a, Option<&'a Material>> {
-    pub fn push(
-        &mut self,
-        shader_index: usize,
-        geometry: RenderGeometry<'a>,
-        material: Option<&'a Material>,
-        state: GraphicsPipelineState,
-        sort_depth: f32,
-    ) {
-        self.push_with_context_identity(
-            shader_index,
-            geometry,
-            material,
-            material_context_identity(material),
-            state,
-            sort_depth,
-        );
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LoadOp<T> {
     Load,
@@ -461,45 +414,41 @@ impl SoftwareRasterBackend {
     pub fn execute_phase<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
-        phase: &RenderPhase<'a, C>,
-        shaders: &[S],
+        phase: &RenderPhase<'a, S, C>,
     ) where
         S: Shader<C>,
         C: Copy + Send + Sync,
     {
-        let _ = self.execute_phases_profiled(target, &[phase], shaders);
+        let _ = self.execute_phases_profiled(target, &[phase]);
     }
 
     pub fn execute_phases<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
-        phases: &[&RenderPhase<'a, C>],
-        shaders: &[S],
+        phases: &[&RenderPhase<'a, S, C>],
     ) where
         S: Shader<C>,
         C: Copy + Send + Sync,
     {
-        let _ = self.execute_phases_profiled(target, phases, shaders);
+        let _ = self.execute_phases_profiled(target, phases);
     }
 
     pub fn execute_phase_profiled<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
-        phase: &RenderPhase<'a, C>,
-        shaders: &[S],
+        phase: &RenderPhase<'a, S, C>,
     ) -> BackendExecutionTimings
     where
         S: Shader<C>,
         C: Copy + Send + Sync,
     {
-        self.execute_phases_profiled(target, &[phase], shaders)
+        self.execute_phases_profiled(target, &[phase])
     }
 
     pub fn execute_phases_profiled<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
-        phases: &[&RenderPhase<'a, C>],
-        shaders: &[S],
+        phases: &[&RenderPhase<'a, S, C>],
     ) -> BackendExecutionTimings
     where
         S: Shader<C>,
@@ -534,13 +483,13 @@ impl SoftwareRasterBackend {
             };
             if let Some((source, vertices)) = source {
                 let key = VertexCacheKey {
-                    shader_index: command.shader_index,
-                    draw_context: command.vertex_context_identity,
+                    vertex_program_id: command.pipeline.vertex_program_id(),
+                    object_binding_id: command.object_binding_id,
                     source,
                 };
                 vertex_sources.entry(key).or_insert((
                     vertices,
-                    &shaders[command.shader_index],
+                    command.pipeline.shader(),
                     command.draw_context,
                 ));
             }
@@ -557,8 +506,8 @@ impl SoftwareRasterBackend {
             .collect();
 
         let prepare_draw_packet_triangle =
-            |command: &DrawPacket<'a, C>, local_triangle_index: usize| {
-                let shader = &shaders[command.shader_index];
+            |command: &DrawPacket<'a, S, C>, local_triangle_index: usize| {
+                let shader = command.pipeline.shader();
                 match &command.geometry {
                     RenderGeometry::Mesh(mesh) => {
                         let index_offset = local_triangle_index * 3;
@@ -567,8 +516,8 @@ impl SoftwareRasterBackend {
                         if indices.len() < 3 {
                             std::array::from_fn(|_| None)
                         } else if let Some(transformed) = vertex_cache.get(&VertexCacheKey {
-                            shader_index: command.shader_index,
-                            draw_context: command.vertex_context_identity,
+                            vertex_program_id: command.pipeline.vertex_program_id(),
+                            object_binding_id: command.object_binding_id,
                             source: VertexSourceKey::Mesh(*mesh as *const Mesh as usize),
                         }) {
                             self.prepare_shaded_vertices(
@@ -581,7 +530,7 @@ impl SoftwareRasterBackend {
                                 ],
                                 shader,
                                 command.draw_context,
-                                command.state,
+                                command.pipeline.state(),
                             )
                         } else {
                             self.prepare_vertices(
@@ -594,7 +543,7 @@ impl SoftwareRasterBackend {
                                 ],
                                 shader,
                                 command.draw_context,
-                                command.state,
+                                command.pipeline.state(),
                             )
                         }
                     }
@@ -605,8 +554,8 @@ impl SoftwareRasterBackend {
                     } => {
                         if *cache_vertices {
                             let transformed = &vertex_cache[&VertexCacheKey {
-                                shader_index: command.shader_index,
-                                draw_context: command.vertex_context_identity,
+                                vertex_program_id: command.pipeline.vertex_program_id(),
+                                object_binding_id: command.object_binding_id,
                                 source: VertexSourceKey::Vertices(vertices.as_ptr() as usize),
                             }];
                             self.prepare_shaded_vertices(
@@ -619,7 +568,7 @@ impl SoftwareRasterBackend {
                                 ],
                                 shader,
                                 command.draw_context,
-                                command.state,
+                                command.pipeline.state(),
                             )
                         } else {
                             self.prepare_vertices(
@@ -632,7 +581,7 @@ impl SoftwareRasterBackend {
                                 ],
                                 shader,
                                 command.draw_context,
-                                command.state,
+                                command.pipeline.state(),
                             )
                         }
                     }
@@ -642,7 +591,7 @@ impl SoftwareRasterBackend {
                         [&vertices[0], &vertices[1], &vertices[2]],
                         shader,
                         command.draw_context,
-                        command.state,
+                        command.pipeline.state(),
                     ),
                 }
             };

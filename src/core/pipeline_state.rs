@@ -113,6 +113,69 @@ impl Default for GraphicsPipelineState {
     }
 }
 
+/// Pass-local identity for shader variants that can change vertex output.
+#[derive(PartialEq, Eq, Copy, Clone, Debug, Hash)]
+pub struct VertexProgramId(usize);
+
+impl VertexProgramId {
+    pub fn from_pass_index(index: usize) -> Self {
+        Self(index)
+    }
+}
+
+/// Immutable shader algorithm and fixed-function state used by recorded draws.
+pub struct GraphicsPipeline<S> {
+    shader: S,
+    state: GraphicsPipelineState,
+    vertex_program_id: VertexProgramId,
+}
+
+impl<S> GraphicsPipeline<S> {
+    pub fn new(
+        shader: S,
+        state: GraphicsPipelineState,
+        vertex_program_id: VertexProgramId,
+    ) -> Self {
+        Self {
+            shader,
+            state,
+            vertex_program_id,
+        }
+    }
+
+    pub fn shader(&self) -> &S {
+        &self.shader
+    }
+
+    pub fn state(&self) -> GraphicsPipelineState {
+        self.state
+    }
+
+    pub fn vertex_program_id(&self) -> VertexProgramId {
+        self.vertex_program_id
+    }
+}
+#[cfg(test)]
+mod pipeline_tests {
+    use super::*;
+
+    #[test]
+    fn graphics_pipeline_keeps_immutable_state_and_vertex_program_identity() {
+        let state = GraphicsPipelineState {
+            primitive: PrimitiveState {
+                polygon_mode: PolygonMode::Line,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let vertex_program_id = VertexProgramId::from_pass_index(3);
+        let pipeline = GraphicsPipeline::new("shader", state, vertex_program_id);
+
+        assert_eq!(pipeline.shader(), &"shader");
+        assert_eq!(pipeline.state(), state);
+        assert_eq!(pipeline.vertex_program_id(), vertex_program_id);
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
