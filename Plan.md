@@ -517,6 +517,8 @@ Goal: record one typed render pass, finish it, and submit it synchronously throu
 
 Completed slices:
 
+- [x] `6ded6ea` (`record shadow render commands`): introduced typed `RenderDevice`, `CommandEncoder`, `RenderPassEncoder`, one-pass `CommandBuffer`, synchronous `GraphicsQueue`, `SubmissionReport`, and structured command/render errors. The shadow production path now records attachment operations and typed draws, finishes an immutable command buffer, and submits it synchronously; main rendering intentionally remains on the immediate backend path for the next slice. Focused tests cover missing pass/pipeline/bindings, unfinished and duplicate passes, invalid labeled descriptors, record-without-execute behavior, synchronous submission, and draw order. The release suite contains 164 Rust tests plus 9 benchmark-script tests. A same-machine 10-frame 1/12-worker matrix preserved all 14 hashes and passed the 5% full-frame mean gate, with the largest mean regression at +3.74% (`default-car-threads-12`).
+
 ### First command-buffer model
 
 The required first version records one concrete pass family per command buffer:
