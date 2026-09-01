@@ -31,6 +31,68 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
 }
 
 #[test]
+fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
+    let calls = AtomicUsize::new(0);
+    let shader = MaterialContextShader {
+        vertex_calls: &calls,
+    };
+    let vertices = vec![
+        Vertex::new(Point3::new(-0.3, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(0.3, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(0.3, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(-0.3, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+    ];
+    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
+    let red = Material::Pbr(PbrMaterial {
+        albedo: Vector3::x(),
+        ..Default::default()
+    });
+    let green = Material::Pbr(PbrMaterial {
+        albedo: Vector3::y(),
+        ..Default::default()
+    });
+    let mut phase = RenderPhase::with_capacity(2);
+    phase.push(
+        0,
+        RenderGeometry::Mesh(&mesh),
+        Some(&red),
+        test_pipeline_state(),
+        0.0,
+    );
+    phase.push(
+        0,
+        RenderGeometry::Mesh(&mesh),
+        Some(&red),
+        test_pipeline_state(),
+        0.0,
+    );
+    phase.push(
+        0,
+        RenderGeometry::Mesh(&mesh),
+        Some(&green),
+        test_pipeline_state(),
+        0.0,
+    );
+    let mut renderer = TestRenderHarness::new(64, 32, 1);
+
+    renderer.backend.execute_phase(
+        renderer.target.render_target_mut(),
+        &phase,
+        std::slice::from_ref(&shader),
+    );
+
+    assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len() * 2);
+    assert_vec3_approx(
+        renderer.framebuffer().get_pixel(16, 16).unwrap(),
+        Vector3::x(),
+    );
+    assert_vec3_approx(
+        renderer.framebuffer().get_pixel(48, 16).unwrap(),
+        Vector3::y(),
+    );
+}
+
+#[test]
 fn one_backend_executes_different_sized_targets_sequentially() {
     let mesh = triangle(0.0, Vector4::new(1.0, 0.5, 0.25, 1.0));
     let shaders = [ClipSpaceShader];

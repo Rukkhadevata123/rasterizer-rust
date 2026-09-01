@@ -58,11 +58,12 @@ where
     /// that vertex which will be interpolated across the primitive.
     ///
     /// # Arguments
-    /// - `vertex`: input vertex attributes (position, normal, uv, etc.)
+    /// - `vertex`: input vertex attributes (position, normal, uv, etc.).
+    /// - `context`: caller-defined state associated with the draw.
     ///
     /// # Returns
     /// - `(Vector4<f32>, Self::Varying)`: clip-space position and per-vertex varying.
-    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying);
+    fn vertex(&self, vertex: &Vertex, context: C) -> (Vector4<f32>, Self::Varying);
 
     /// Fragment shader stage.
     ///
@@ -74,7 +75,7 @@ where
     ///
     /// # Arguments
     /// - `input`: interpolated varying and non-interpolated fragment metadata.
-    /// - `context`: caller-defined state associated with the prepared triangle.
+    /// - `context`: the same caller-defined state provided to the vertex stage.
     ///
     /// # Returns
     /// - `FragmentOutput`: explicit discard or final RGBA color (linear space).

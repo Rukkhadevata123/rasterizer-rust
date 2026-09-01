@@ -95,7 +95,11 @@ struct DualUvDensityShader;
 impl<'a> Shader<Option<&'a Material>> for DualUvDensityShader {
     type Varying = DualUvVarying;
 
-    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        _material: Option<&'a Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
         (
             Vector4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0),
             DualUvVarying {
@@ -123,7 +127,11 @@ struct ClipSpaceShader;
 impl<'a> Shader<Option<&'a Material>> for ClipSpaceShader {
     type Varying = ColorVarying;
 
-    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        _material: Option<&'a Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
         (
             Vector4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0),
             ColorVarying {
@@ -154,7 +162,11 @@ struct FacingShader;
 impl<'a> Shader<Option<&'a Material>> for FacingShader {
     type Varying = ColorVarying;
 
-    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        _material: Option<&'a Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
         (
             Vector4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0),
             ColorVarying {
@@ -182,7 +194,11 @@ struct AdditiveCoverageShader;
 impl<'a> Shader<Option<&'a Material>> for AdditiveCoverageShader {
     type Varying = ColorVarying;
 
-    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        _material: Option<&'a Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
         (
             Vector4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0),
             ColorVarying {
@@ -211,7 +227,11 @@ struct CountingShader<'a> {
 impl<'a, 'material> Shader<Option<&'material Material>> for CountingShader<'a> {
     type Varying = ColorVarying;
 
-    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        _material: Option<&'material Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
         self.vertex_calls.fetch_add(1, Ordering::Relaxed);
         (
             vertex.position.to_homogeneous(),
@@ -230,10 +250,57 @@ impl<'a, 'material> Shader<Option<&'material Material>> for CountingShader<'a> {
     }
 }
 
+struct MaterialContextShader<'a> {
+    vertex_calls: &'a AtomicUsize,
+}
+
+impl<'shader, 'material> Shader<Option<&'material Material>> for MaterialContextShader<'shader> {
+    type Varying = ColorVarying;
+
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        material: Option<&'material Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
+        self.vertex_calls.fetch_add(1, Ordering::Relaxed);
+        let material = material.expect("test draw should bind a material");
+        let Material::Pbr(material) = material;
+        let x_offset = if material.albedo.x > material.albedo.y {
+            -0.5
+        } else {
+            0.5
+        };
+        (
+            Vector4::new(
+                vertex.position.x + x_offset,
+                vertex.position.y,
+                vertex.position.z,
+                1.0,
+            ),
+            ColorVarying {
+                color: material.albedo.push(1.0),
+            },
+        )
+    }
+
+    fn fragment(
+        &self,
+        input: FragmentInput<Self::Varying>,
+        material: Option<&'material Material>,
+    ) -> FragmentOutput {
+        assert!(material.is_some());
+        FragmentOutput::Color(input.varying.color)
+    }
+}
+
 impl<'a> Shader<Option<&'a Material>> for NonFiniteClipShader {
     type Varying = ColorVarying;
 
-    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        _material: Option<&'a Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
         (
             self.clip,
             ColorVarying {

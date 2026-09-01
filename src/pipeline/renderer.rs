@@ -32,6 +32,17 @@ enum VertexSourceKey {
     Vertices(usize),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct VertexCacheKey {
+    shader_index: usize,
+    draw_context: Option<usize>,
+    source: VertexSourceKey,
+}
+
+fn material_context_identity(material: Option<&Material>) -> Option<usize> {
+    material.map(|material| material as *const Material as usize)
+}
+
 struct CachedBackgroundTexture {
     path: PathBuf,
     use_mipmap: bool,
@@ -462,19 +473,25 @@ impl SoftwareRasterBackend {
                 }
                 | RenderGeometry::Triangle(_) => None,
             };
-            if let Some((source_key, vertices)) = source {
-                let key = (command.shader_index, source_key);
-                vertex_sources
-                    .entry(key)
-                    .or_insert((vertices, &shaders[command.shader_index]));
+            if let Some((source, vertices)) = source {
+                let key = VertexCacheKey {
+                    shader_index: command.shader_index,
+                    draw_context: material_context_identity(command.material),
+                    source,
+                };
+                vertex_sources.entry(key).or_insert((
+                    vertices,
+                    &shaders[command.shader_index],
+                    command.material,
+                ));
             }
         }
         let vertex_cache: HashMap<_, _> = vertex_sources
             .into_par_iter()
-            .map(|(key, (vertices, shader))| {
+            .map(|(key, (vertices, shader, draw_context))| {
                 let transformed = vertices
                     .par_iter()
-                    .map(|vertex| shader.vertex(vertex))
+                    .map(|vertex| shader.vertex(vertex, draw_context))
                     .collect::<Vec<_>>();
                 (key, transformed)
             })
@@ -490,10 +507,11 @@ impl SoftwareRasterBackend {
                             &mesh.indices[index_offset..(index_offset + 3).min(mesh.indices.len())];
                         if indices.len() < 3 {
                             std::array::from_fn(|_| None)
-                        } else if let Some(transformed) = vertex_cache.get(&(
-                            command.shader_index,
-                            VertexSourceKey::Mesh(*mesh as *const Mesh as usize),
-                        )) {
+                        } else if let Some(transformed) = vertex_cache.get(&VertexCacheKey {
+                            shader_index: command.shader_index,
+                            draw_context: material_context_identity(command.material),
+                            source: VertexSourceKey::Mesh(*mesh as *const Mesh as usize),
+                        }) {
                             self.prepare_shaded_vertices(
                                 width,
                                 height,
@@ -527,10 +545,11 @@ impl SoftwareRasterBackend {
                         cache_vertices,
                     } => {
                         if *cache_vertices {
-                            let transformed = &vertex_cache[&(
-                                command.shader_index,
-                                VertexSourceKey::Vertices(vertices.as_ptr() as usize),
-                            )];
+                            let transformed = &vertex_cache[&VertexCacheKey {
+                                shader_index: command.shader_index,
+                                draw_context: material_context_identity(command.material),
+                                source: VertexSourceKey::Vertices(vertices.as_ptr() as usize),
+                            }];
                             self.prepare_shaded_vertices(
                                 width,
                                 height,
@@ -635,9 +654,9 @@ impl SoftwareRasterBackend {
     where
         S: Shader<Option<&'a Material>>,
     {
-        let (pos0, var0) = shader.vertex(vertices[0]);
-        let (pos1, var1) = shader.vertex(vertices[1]);
-        let (pos2, var2) = shader.vertex(vertices[2]);
+        let (pos0, var0) = shader.vertex(vertices[0], material);
+        let (pos1, var1) = shader.vertex(vertices[1], material);
+        let (pos2, var2) = shader.vertex(vertices[2], material);
         self.prepare_shaded_vertices(
             width,
             height,

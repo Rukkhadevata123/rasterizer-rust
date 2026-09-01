@@ -50,7 +50,11 @@ impl ShadowShader {
 impl<'a> Shader<Option<&'a Material>> for ShadowShader {
     type Varying = ShadowVarying;
 
-    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        _material: Option<&'a Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
         (
             self.mvp_matrix * vertex.position.to_homogeneous(),
             ShadowVarying {

@@ -59,7 +59,7 @@ pub(crate) struct PreparedTriangle<'a, V, S, C> {
     varyings: [V; 3],
     shader: &'a S,
     state: GraphicsPipelineState,
-    fragment_context: C,
+    draw_context: C,
     front_facing: bool,
     uv_densities: [f32; SUPPORTED_TEXCOORD_SETS],
     edge_is_top_left: [bool; 3],
@@ -93,7 +93,7 @@ impl Rasterizer {
         varyings: &[S::Varying; 3],
         shader: &'a S,
         state: GraphicsPipelineState,
-        fragment_context: C,
+        draw_context: C,
     ) -> [Option<PreparedTriangle<'a, S::Varying, S, C>>; MAX_PREPARED_TRIANGLES]
     where
         S: Shader<C>,
@@ -148,7 +148,7 @@ impl Rasterizer {
                 &[first.1, second.1, third.1],
                 shader,
                 state,
-                fragment_context,
+                draw_context,
             ) {
                 prepared[prepared_len] = Some(triangle);
                 prepared_len += 1;
@@ -287,7 +287,7 @@ impl Rasterizer {
         varyings: &[V; 3],
         shader: &'a S,
         state: GraphicsPipelineState,
-        fragment_context: C,
+        draw_context: C,
     ) -> Option<PreparedTriangle<'a, V, S, C>>
     where
         V: Interpolatable + Copy,
@@ -419,7 +419,7 @@ impl Rasterizer {
             varyings: *varyings,
             shader,
             state,
-            fragment_context,
+            draw_context,
             front_facing,
             uv_densities,
             edge_is_top_left,
@@ -558,7 +558,7 @@ impl Rasterizer {
                             uv_densities: triangle.uv_densities,
                         };
                         let FragmentOutput::Color(color) =
-                            triangle.shader.fragment(input, triangle.fragment_context)
+                            triangle.shader.fragment(input, triangle.draw_context)
                         else {
                             break 'fragment;
                         };

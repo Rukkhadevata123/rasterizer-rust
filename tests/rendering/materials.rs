@@ -487,7 +487,7 @@ fn pbr_vertex_preserves_tangent_frame_under_mirrored_non_uniform_scale() {
     let mut vertex = Vertex::new(Point3::origin(), Vector3::z(), Vector2::zeros());
     vertex.tangent = Vector4::new(1.0, 1.0, 0.0, 1.0);
 
-    let (_, varying) = shader.vertex(&vertex);
+    let (_, varying) = shader.vertex(&vertex, None);
 
     assert_vec3_approx(varying.normal, Vector3::z());
     assert_vec3_approx(

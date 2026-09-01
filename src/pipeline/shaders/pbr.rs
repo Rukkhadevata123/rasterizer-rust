@@ -265,7 +265,11 @@ impl PbrShader<'_> {
 impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
     type Varying = PbrVarying;
 
-    fn vertex(&self, vertex: &Vertex) -> (Vector4<f32>, Self::Varying) {
+    fn vertex(
+        &self,
+        vertex: &Vertex,
+        _material: Option<&'material Material>,
+    ) -> (Vector4<f32>, Self::Varying) {
         let world_pos =
             Point3::from_homogeneous(self.model_matrix * vertex.position.to_homogeneous()).unwrap();
         let (world_normal, world_tangent) = self
