@@ -518,6 +518,7 @@ Goal: record one typed render pass, finish it, and submit it synchronously throu
 Completed slices:
 
 - [x] `6ded6ea` (`record shadow render commands`): introduced typed `RenderDevice`, `CommandEncoder`, `RenderPassEncoder`, one-pass `CommandBuffer`, synchronous `GraphicsQueue`, `SubmissionReport`, and structured command/render errors. The shadow production path now records attachment operations and typed draws, finishes an immutable command buffer, and submits it synchronously; main rendering intentionally remains on the immediate backend path for the next slice. Focused tests cover missing pass/pipeline/bindings, unfinished and duplicate passes, invalid labeled descriptors, record-without-execute behavior, synchronous submission, and draw order. The release suite contains 164 Rust tests plus 9 benchmark-script tests. A same-machine 10-frame 1/12-worker matrix preserved all 14 hashes and passed the 5% full-frame mean gate, with the largest mean regression at +3.74% (`default-car-threads-12`).
+- [x] `bed2207` (`record main render commands`): extended one typed render pass with ordered labeled draw phases and per-phase submission reports, then migrated main attachment/background, opaque, masked, and transparent work to `CommandEncoder` and synchronous `GraphicsQueue` submission. Opaque then masked recording order remains unchanged inside the first phase; transparent work has its own reserved phase and is sorted before the command buffer becomes immutable. Attachment/background processing still runs exactly once, and production pass builders no longer call backend initialization or immediate phase execution directly. The existing synchronous command test now also proves that transparent sorting cannot reorder an earlier phase, so the suite remains at 164 Rust tests plus 9 benchmark-script tests. Formatting, release Clippy with warnings denied, release tests/checks, and all benchmark-script tests pass. A fresh local 1/16-worker baseline, repeated candidate, and reverse adjacent `HEAD` run preserved all 14 hashes; the final old-to-new 10-frame comparison passed the 5% full-frame mean gate in every scenario, with the largest mean regression at +1.17% (`default-car-threads-16`).
 
 ### First command-buffer model
 
@@ -550,24 +551,24 @@ After `submit` returns, the shadow target is no longer mutably borrowed. The mai
 
 ### Sorting boundary
 
-- [ ] Keep phase construction and transparent sort policy in the high-level pass builder, not in `core::rasterizer`.
-- [ ] Finalize transparent sorting before the phase becomes immutable recorded work.
-- [ ] Keep insertion IDs as deterministic tie breakers.
-- [ ] If opaque sorting is explored, treat it as a separate benchmarked optimization and never apply it to transparent work unless depth order remains correct.
+- [x] Keep phase construction and transparent sort policy in the high-level pass builder, not in `core::rasterizer`.
+- [x] Finalize transparent sorting before the phase becomes immutable recorded work.
+- [x] Keep insertion IDs as deterministic tie breakers.
+- [x] No opaque sorting was introduced. Treat any future experiment as a separate benchmarked optimization and never apply it to transparent work unless depth order remains correct.
 
 ### Heterogeneous pass policy
 
 - [x] Do not use `dyn Shader` merely to put shadow and PBR passes in one vector.
 - [x] Do not introduce a closed `enum Command::Shadow/Pbr` in the required path unless a non-generic public command buffer is proven more valuable than extensibility.
-- [ ] Keep separate shadow and main submissions in the first version.
+- [x] Keep separate shadow and main submissions in the first version.
 - [x] Treat a frame-wide heterogeneous command stream as Phase 11.6 scope because it needs persistent handles, an explicit pass enum, or measured type erasure.
 
 ### Profiling
 
-- [ ] Add recording and synchronous submission totals without changing the definition of existing rasterization timings.
-- [x] Report nested preparation/rasterization durations in `SubmissionReport`.
-- [ ] Update benchmark CSV schema/version and scripts together.
-- [ ] Measure command allocation and validation overhead separately from raster work.
+- [x] Add recording and inclusive synchronous submission totals without changing the definition of existing rasterization timings.
+- [x] Report aggregate and labeled per-phase preparation/rasterization durations in `SubmissionReport`.
+- [x] Preserve the schema-v2 column set while completing its intended recording and inclusive submission measurements; any future column or timing-definition change must update the schema version and scripts together.
+- [x] Measure command allocation, validation, phase finalization, and sorting in recording time rather than raster work.
 
 ### Exit Criteria
 
