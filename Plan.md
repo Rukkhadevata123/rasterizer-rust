@@ -444,7 +444,8 @@ Goal: eliminate the per-object fully configured `PbrShader` vector and shader-in
 Completed slices:
 
 - [x] `3659114` (`pass draw context to shader stages`): changed the generic `Shader<C>` contract so both vertex and fragment stages receive the same copyable draw context; migrated PBR, shadow, backend, and external test shaders without a compatibility overload; renamed prepared-triangle storage from fragment context to draw context; and extended the pass-local transformed-vertex cache key with material-reference identity so shared geometry is reused for identical contexts but never reused across distinct contexts. The regression suite now contains 148 Rust tests, including a shader whose vertex position and varying depend on material context. Formatting, release Clippy with warnings denied, release tests/checks, and all 9 benchmark-script tests passed. A same-source-path reverse-order matrix with 3 warmups and 10 measured frames at 1/12 workers preserved all 14 output hashes and passed the 5% full-frame mean gate; the largest regression was +3.67% (`city-threads-1`). This is an interim identity scheme only: the remaining Phase 11.4 work must replace material pointer identity and `shader_index` with typed bindings and pass-local IDs.
-- [x] Working tree (split shadow draw bindings, commit pending): generalized backend phases over copyable typed draw contexts, introduced pass-local ObjectBindingId cache identity, split shadow frame/object/material bindings, and replaced the per-object Vec<ShadowShader> with one stateless ShadowShader. Masked-material alpha remains explicit in ShadowMaterialBindings; regressions cover typed-context cache reuse/isolation and distinct shadow object transforms. Formatting, release Clippy with warnings denied, 149 Rust tests, release checks, and all 9 benchmark-script tests pass. An adjacent old-then-new 10-frame matrix at 1/12 workers preserved all 14 hashes and passed the 5% full-frame mean gate; the largest mean regression was +4.96% (city-threads-12). PBR still uses the interim material-pointer identity and per-object shader vector.
+- [x] `c9728a4` (`split shadow draw bindings`): generalized backend phases over copyable typed draw contexts, introduced pass-local ObjectBindingId cache identity, split shadow frame/object/material bindings, and replaced the per-object Vec<ShadowShader> with one stateless ShadowShader. Masked-material alpha remains explicit in ShadowMaterialBindings; regressions cover typed-context cache reuse/isolation and distinct shadow object transforms. Formatting, release Clippy with warnings denied, 149 Rust tests, release checks, and all 9 benchmark-script tests pass. An adjacent old-then-new 10-frame matrix at 1/12 workers preserved all 14 hashes and passed the 5% full-frame mean gate; the largest mean regression was +4.96% (city-threads-12). PBR still uses the interim material-pointer identity and per-object shader vector.
+- [x] Working tree (split pbr draw bindings, commit pending): split PBR frame/object/material data into typed bindings, made PbrShader stateless, replaced the per-object shader vector with one reusable algorithm value, and gave pre-transformed transparent geometry a distinct identity binding. Direct shader tests now construct typed contexts, and a main-path regression covers distinct object transforms and materials. The release suite contains 150 Rust tests; formatting, release Clippy with warnings denied, release checks, and all 9 benchmark-script tests pass. An adjacent 10-frame matrix at 1/12 workers preserved all 14 hashes; a reverse-order comparison passed the 5% full-frame mean gate, with the largest regression at +2.87% (default-car-threads-12). The remaining shader_index is now only pipeline/program selection and is deferred to the immutable pipeline slice.
 
 ### Data by update frequency
 
@@ -469,23 +470,23 @@ MaterialBindings
 ```
 
 - [x] Change the shader/core boundary so the vertex stage receives the same cheap copyable typed draw context as the fragment stage.
-- [ ] Define typed PBR and shadow draw contexts containing references to frame, object, and material bindings.
-- [ ] Make PBR and shadow shader algorithm objects stateless or immutable.
+- [x] Define typed PBR and shadow draw contexts containing references to frame, object, and material bindings.
+- [x] Make PBR and shadow shader algorithm objects stateless or immutable.
 - [ ] Replace `shader_index` with a typed pipeline reference or pipeline key plus typed bindings.
-- [ ] Preserve transformed-vertex caching with the frame-local identity scheme below; do not hash floating-point matrices or binding contents.
-- [ ] Preserve the lower-overhead ordered transparent path until benchmarks justify changing it.
-- [ ] Keep alpha-mask material access explicit in the shadow pass.
-- [ ] Prefer typed binding structs. Numeric bind-group slots may be layered on later, but should not replace useful Rust type checking.
+- [x] Preserve transformed-vertex caching with the frame-local identity scheme below; do not hash floating-point matrices or binding contents.
+- [x] Preserve the lower-overhead ordered transparent path until benchmarks justify changing it.
+- [x] Keep alpha-mask material access explicit in the shadow pass.
+- [x] Prefer typed binding structs. Numeric bind-group slots may be layered on later, but should not replace useful Rust type checking.
 
 ### Transformed-vertex cache identity
 
 The current key, `(shader_index, vertex_source)`, indirectly distinguishes per-object transforms because each object owns a configured shader entry. Removing that vector removes the identity guarantee. In the initial replacement:
 
-- [ ] Scope the transformed-vertex cache to one recorded pass/submission and keep frame bindings immutable within that pass. View/projection identity is then implicit in the cache lifetime.
-- [ ] Assign each recorded object binding a pass-local `ObjectBindingId`. Reusing an ID with different model or tangent transforms is invalid encoder state.
+- [x] Scope the transformed-vertex cache to one recorded pass/submission and keep frame bindings immutable within that pass. View/projection identity is then implicit in the cache lifetime.
+- [x] Assign each recorded object binding a pass-local `ObjectBindingId`. Reusing an ID with different model or tangent transforms is invalid encoder state.
 - [ ] Key cached output by `(vertex_program_id, object_binding_id, vertex_source)` where `vertex_program_id` distinguishes only variants that can change vertex output. Cull, blend, and other fragment/raster-only variants should not unnecessarily split the cache.
-- [ ] Give the pre-transformed transparent path an explicit identity-transform binding/domain and retain its distinct world-vertex source identity.
-- [ ] Keep pointer-based mesh/slice source identity only while the cache is frame-local and all borrowed resources outlive submission.
+- [x] Give the pre-transformed transparent path an explicit identity-transform binding/domain and retain its distinct world-vertex source identity.
+- [x] Keep pointer-based mesh/slice source identity only while the cache is frame-local and all borrowed resources outlive submission.
 - [ ] If caching later persists across frames or resource reloads, replace pass-local/pointer identity with typed IDs plus generations and a frame/binding epoch. Include frame bindings whenever they can change within the cache lifetime.
 - [ ] Add tests showing that shared mesh data is transformed once for identical vertex inputs, but is not incorrectly reused across different object transforms, cameras, tangent transforms, vertex programs, or the transparent identity path.
 

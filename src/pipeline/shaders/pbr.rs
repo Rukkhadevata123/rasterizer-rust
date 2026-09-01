@@ -87,18 +87,14 @@ impl Interpolatable for PbrVarying {
     }
 }
 
-pub struct PbrShader<'resources> {
-    pub model_matrix: Matrix4<f32>,
+#[derive(Clone, Copy, Debug)]
+pub struct PbrFrameBindings<'a> {
     pub view_matrix: Matrix4<f32>,
     pub projection_matrix: Matrix4<f32>,
-    tangent_frame_transform: TangentFrameTransform,
-
     pub camera_pos: Point3<f32>,
-    pub lights: &'resources [Light],
-
+    pub lights: &'a [Light],
     pub ambient_light: Vector3<f32>,
-
-    pub shadow_map: Option<&'resources [f32]>,
+    pub shadow_map: Option<&'a [f32]>,
     pub shadow_map_size: usize,
     pub shadow_light_index: Option<usize>,
     pub light_space_matrix: Matrix4<f32>,
@@ -106,39 +102,17 @@ pub struct PbrShader<'resources> {
     pub shadow_slope_bias: f32,
     pub use_pcf: bool,
     pub pcf_kernel_size: i32,
-
-    pub fallback_material: PbrMaterial,
 }
 
-impl PbrShader<'_> {
+impl<'a> PbrFrameBindings<'a> {
     pub fn new(
-        model: Matrix4<f32>,
-        view: Matrix4<f32>,
-        projection: Matrix4<f32>,
+        view_matrix: Matrix4<f32>,
+        projection_matrix: Matrix4<f32>,
         camera_pos: Point3<f32>,
-    ) -> Self {
-        let model_3x3 = model.fixed_view::<3, 3>(0, 0).into_owned();
-        Self::new_with_tangent_frame_transform(
-            model,
-            view,
-            projection,
-            camera_pos,
-            TangentFrameTransform::new(model_3x3),
-        )
-    }
-
-    pub(crate) fn new_with_tangent_frame_transform(
-        model: Matrix4<f32>,
-        view: Matrix4<f32>,
-        projection: Matrix4<f32>,
-        camera_pos: Point3<f32>,
-        tangent_frame_transform: TangentFrameTransform,
     ) -> Self {
         Self {
-            model_matrix: model,
-            view_matrix: view,
-            projection_matrix: projection,
-            tangent_frame_transform,
+            view_matrix,
+            projection_matrix,
             camera_pos,
             lights: &[],
             ambient_light: Vector3::new(0.03, 0.03, 0.03),
@@ -150,22 +124,93 @@ impl PbrShader<'_> {
             shadow_slope_bias: 0.01,
             use_pcf: true,
             pcf_kernel_size: 1,
-            fallback_material: PbrMaterial::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PbrObjectBindings {
+    pub model_matrix: Matrix4<f32>,
+    tangent_frame_transform: TangentFrameTransform,
+}
+
+impl PbrObjectBindings {
+    pub fn new(model_matrix: Matrix4<f32>) -> Self {
+        let model_3x3 = model_matrix.fixed_view::<3, 3>(0, 0).into_owned();
+        Self::new_with_tangent_frame_transform(model_matrix, TangentFrameTransform::new(model_3x3))
+    }
+
+    pub(crate) fn new_with_tangent_frame_transform(
+        model_matrix: Matrix4<f32>,
+        tangent_frame_transform: TangentFrameTransform,
+    ) -> Self {
+        Self {
+            model_matrix,
+            tangent_frame_transform,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PbrMaterialBindings<'a> {
+    material: &'a PbrMaterial,
+}
+
+impl<'a> PbrMaterialBindings<'a> {
+    pub fn new(material: Option<&'a Material>, fallback: &'a PbrMaterial) -> Self {
+        Self {
+            material: material.map_or(fallback, |material| match material {
+                Material::Pbr(material) => material,
+            }),
         }
     }
 
-    fn calculate_shadow(&self, world_pos: &Point3<f32>, n_dot_l: f32) -> f32 {
-        let Some(shadow_map) = self.shadow_map.as_ref() else {
+    pub fn from_pbr(material: &'a PbrMaterial) -> Self {
+        Self { material }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PbrDrawContext<'a> {
+    frame: &'a PbrFrameBindings<'a>,
+    object: &'a PbrObjectBindings,
+    material: PbrMaterialBindings<'a>,
+}
+
+impl<'a> PbrDrawContext<'a> {
+    pub fn new(
+        frame: &'a PbrFrameBindings<'a>,
+        object: &'a PbrObjectBindings,
+        material: PbrMaterialBindings<'a>,
+    ) -> Self {
+        Self {
+            frame,
+            object,
+            material,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PbrShader;
+
+impl PbrShader {
+    fn calculate_shadow(
+        frame: &PbrFrameBindings<'_>,
+        world_pos: &Point3<f32>,
+        n_dot_l: f32,
+    ) -> f32 {
+        let Some(shadow_map) = frame.shadow_map.as_ref() else {
             return 1.0;
         };
-        let Some(expected_len) = self.shadow_map_size.checked_mul(self.shadow_map_size) else {
+        let Some(expected_len) = frame.shadow_map_size.checked_mul(frame.shadow_map_size) else {
             return 1.0;
         };
-        if self.shadow_map_size == 0 || shadow_map.len() != expected_len {
+        if frame.shadow_map_size == 0 || shadow_map.len() != expected_len {
             return 1.0;
         }
 
-        let light_space_pos = self.light_space_matrix * world_pos.to_homogeneous();
+        let light_space_pos = frame.light_space_matrix * world_pos.to_homogeneous();
         let proj_coords = light_space_pos.xyz() / light_space_pos.w;
         let u = proj_coords.x * 0.5 + 0.5;
         let v = 1.0 - (proj_coords.y * 0.5 + 0.5);
@@ -176,14 +221,14 @@ impl PbrShader<'_> {
             return 1.0;
         }
 
-        let bias = self.shadow_bias(n_dot_l);
+        let bias = Self::shadow_bias(frame, n_dot_l);
 
-        if !self.use_pcf {
-            let map_x = (u * (self.shadow_map_size - 1) as f32)
-                .clamp(0.0, (self.shadow_map_size - 1) as f32) as usize;
-            let map_y = (v * (self.shadow_map_size - 1) as f32)
-                .clamp(0.0, (self.shadow_map_size - 1) as f32) as usize;
-            let index = map_y * self.shadow_map_size + map_x;
+        if !frame.use_pcf {
+            let map_x = (u * (frame.shadow_map_size - 1) as f32)
+                .clamp(0.0, (frame.shadow_map_size - 1) as f32) as usize;
+            let map_y = (v * (frame.shadow_map_size - 1) as f32)
+                .clamp(0.0, (frame.shadow_map_size - 1) as f32) as usize;
+            let index = map_y * frame.shadow_map_size + map_x;
             return if current_depth - bias > shadow_map[index] {
                 0.0
             } else {
@@ -192,8 +237,8 @@ impl PbrShader<'_> {
         }
 
         let mut shadow = 0.0;
-        let texel_size = 1.0 / self.shadow_map_size as f32;
-        let kernel_size = self.pcf_kernel_size;
+        let texel_size = 1.0 / frame.shadow_map_size as f32;
+        let kernel_size = frame.pcf_kernel_size;
 
         for x in -kernel_size..=kernel_size {
             for y in -kernel_size..=kernel_size {
@@ -205,9 +250,9 @@ impl PbrShader<'_> {
                     continue;
                 }
 
-                let map_x = (pcf_u * (self.shadow_map_size - 1) as f32) as usize;
-                let map_y = (pcf_v * (self.shadow_map_size - 1) as f32) as usize;
-                let index = map_y * self.shadow_map_size + map_x;
+                let map_x = (pcf_u * (frame.shadow_map_size - 1) as f32) as usize;
+                let map_y = (pcf_v * (frame.shadow_map_size - 1) as f32) as usize;
+                let index = map_y * frame.shadow_map_size + map_x;
 
                 let pcf_depth = shadow_map[index];
                 shadow += if current_depth - bias > pcf_depth {
@@ -221,10 +266,9 @@ impl PbrShader<'_> {
         shadow / ((kernel_size * 2 + 1_i32).pow(2) as f32)
     }
 
-    fn shadow_bias(&self, n_dot_l: f32) -> f32 {
-        self.shadow_constant_bias + self.shadow_slope_bias * (1.0 - n_dot_l.clamp(0.0, 1.0))
+    fn shadow_bias(frame: &PbrFrameBindings<'_>, n_dot_l: f32) -> f32 {
+        frame.shadow_constant_bias + frame.shadow_slope_bias * (1.0 - n_dot_l.clamp(0.0, 1.0))
     }
-
     fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
         let a = roughness * roughness;
         let a2 = a * a;
@@ -262,22 +306,25 @@ impl PbrShader<'_> {
     }
 }
 
-impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
+impl Shader<PbrDrawContext<'_>> for PbrShader {
     type Varying = PbrVarying;
 
     fn vertex(
         &self,
         vertex: &Vertex,
-        _material: Option<&'material Material>,
+        context: PbrDrawContext<'_>,
     ) -> (Vector4<f32>, Self::Varying) {
-        let world_pos =
-            Point3::from_homogeneous(self.model_matrix * vertex.position.to_homogeneous()).unwrap();
-        let (world_normal, world_tangent) = self
+        let world_pos = Point3::from_homogeneous(
+            context.object.model_matrix * vertex.position.to_homogeneous(),
+        )
+        .unwrap();
+        let (world_normal, world_tangent) = context
+            .object
             .tangent_frame_transform
             .transform(vertex.normal, vertex.tangent);
-        let clip_pos = self.projection_matrix
-            * self.view_matrix
-            * self.model_matrix
+        let clip_pos = context.frame.projection_matrix
+            * context.frame.view_matrix
+            * context.object.model_matrix
             * vertex.position.to_homogeneous();
 
         (
@@ -294,14 +341,10 @@ impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
     fn fragment(
         &self,
         input: FragmentInput<Self::Varying>,
-        material: Option<&'material Material>,
+        context: PbrDrawContext<'_>,
     ) -> FragmentOutput {
         let varying = input.varying;
-        let mat = if let Some(Material::Pbr(m)) = material {
-            m
-        } else {
-            &self.fallback_material
-        };
+        let mat = context.material.material;
         let sample_texture = |binding: &TextureBinding| {
             let set = binding.tex_coord.index();
             let uv = varying.uvs[set];
@@ -350,13 +393,13 @@ impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
             geom_normal
         };
 
-        let v = (self.camera_pos - varying.world_pos).normalize();
+        let v = (context.frame.camera_pos - varying.world_pos).normalize();
 
         // Dielectrics use F0=0.04; metals derive F0 from their base color.
         let f0 = Vector3::new(0.04, 0.04, 0.04).lerp(&albedo, metallic);
         let mut lo = Vector3::zeros();
 
-        for (i, light) in self.lights.iter().enumerate() {
+        for (i, light) in context.frame.lights.iter().enumerate() {
             let l = light.get_direction_to_light(&varying.world_pos);
             let h = (v + l).normalize();
 
@@ -365,8 +408,8 @@ impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
             let n_dot_l = n.dot(&l).max(0.0);
             let n_dot_h = n.dot(&h).max(0.0);
             let h_dot_v = h.dot(&v).max(0.0);
-            let shadow = if self.shadow_light_index == Some(i) {
-                self.calculate_shadow(&varying.world_pos, n_dot_l)
+            let shadow = if context.frame.shadow_light_index == Some(i) {
+                Self::calculate_shadow(context.frame, &varying.world_pos, n_dot_l)
             } else {
                 1.0
             };
@@ -389,7 +432,7 @@ impl<'material> Shader<Option<&'material Material>> for PbrShader<'_> {
             lo += light_contribution;
         }
 
-        let ambient = self.ambient_light.component_mul(&albedo) * ao;
+        let ambient = context.frame.ambient_light.component_mul(&albedo) * ao;
 
         let final_color = ambient + lo + emissive_color;
         FragmentOutput::Color(Vector4::new(
@@ -460,37 +503,29 @@ mod tests {
 
     #[test]
     fn shadow_bias_separates_constant_and_slope_terms() {
-        let mut shader = PbrShader::new(
-            Matrix4::identity(),
-            Matrix4::identity(),
-            Matrix4::identity(),
-            Point3::origin(),
-        );
-        shader.shadow_constant_bias = 0.001;
-        shader.shadow_slope_bias = 0.01;
+        let mut frame =
+            PbrFrameBindings::new(Matrix4::identity(), Matrix4::identity(), Point3::origin());
+        frame.shadow_constant_bias = 0.001;
+        frame.shadow_slope_bias = 0.01;
 
-        assert!((shader.shadow_bias(1.0) - 0.001).abs() < 1.0e-6);
-        assert!((shader.shadow_bias(0.5) - 0.006).abs() < 1.0e-6);
-        assert!((shader.shadow_bias(0.0) - 0.011).abs() < 1.0e-6);
+        assert!((PbrShader::shadow_bias(&frame, 1.0) - 0.001).abs() < 1.0e-6);
+        assert!((PbrShader::shadow_bias(&frame, 0.5) - 0.006).abs() < 1.0e-6);
+        assert!((PbrShader::shadow_bias(&frame, 0.0) - 0.011).abs() < 1.0e-6);
     }
 
     #[test]
     fn pcf_uses_lit_border_for_out_of_bounds_taps() {
-        let mut shader = PbrShader::new(
-            Matrix4::identity(),
-            Matrix4::identity(),
-            Matrix4::identity(),
-            Point3::origin(),
-        );
         let shadow_map = vec![0.0; 9];
-        shader.shadow_map = Some(&shadow_map);
-        shader.shadow_map_size = 3;
-        shader.shadow_constant_bias = 0.0;
-        shader.shadow_slope_bias = 0.0;
-        shader.use_pcf = true;
-        shader.pcf_kernel_size = 1;
+        let mut frame =
+            PbrFrameBindings::new(Matrix4::identity(), Matrix4::identity(), Point3::origin());
+        frame.shadow_map = Some(&shadow_map);
+        frame.shadow_map_size = 3;
+        frame.shadow_constant_bias = 0.0;
+        frame.shadow_slope_bias = 0.0;
+        frame.use_pcf = true;
+        frame.pcf_kernel_size = 1;
 
-        let visibility = shader.calculate_shadow(&Point3::new(-1.0, 1.0, 0.0), 1.0);
+        let visibility = PbrShader::calculate_shadow(&frame, &Point3::new(-1.0, 1.0, 0.0), 1.0);
         assert!((visibility - 5.0 / 9.0).abs() < 1.0e-6);
     }
 }

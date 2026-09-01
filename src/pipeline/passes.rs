@@ -1,5 +1,5 @@
 use crate::core::color::{aces_tone_mapping, linear_to_srgb};
-use crate::core::math::transform::{TangentFrameTransform, TransformFactory};
+use crate::core::math::transform::TransformFactory;
 use crate::core::pipeline_state::{
     BlendState, ColorTargetState, CullMode, DepthStencilState, GraphicsPipelineState,
     PrimitiveState,
@@ -11,7 +11,9 @@ use crate::pipeline::renderer::{
     Operations, PresentBuffer, RenderGeometry, RenderPassDescriptor, RenderPhase, RenderTarget,
     SoftwareRasterBackend,
 };
-use crate::pipeline::shaders::pbr::PbrShader;
+use crate::pipeline::shaders::pbr::{
+    PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader,
+};
 use crate::pipeline::shaders::shadow::{
     ShadowDrawContext, ShadowFrameBindings, ShadowMaterialBindings, ShadowObjectBindings,
     ShadowShader,
@@ -54,33 +56,6 @@ pub struct MainPassTimings {
 struct ShadowCamera {
     view: Matrix4<f32>,
     projection: Matrix4<f32>,
-}
-
-fn configured_pbr_shader<'resources>(
-    config: &Config,
-    context: &'resources RenderScene,
-    shadow: &'resources ShadowPassOutput,
-    model: Matrix4<f32>,
-    tangent_frame_transform: TangentFrameTransform,
-) -> PbrShader<'resources> {
-    let mut shader = PbrShader::new_with_tangent_frame_transform(
-        model,
-        context.camera.view_matrix(),
-        context.camera.projection_matrix(),
-        context.camera.position,
-        tangent_frame_transform,
-    );
-    shader.lights = &context.lights;
-    shader.ambient_light = Vector3::from(config.render.ambient_light);
-    shader.shadow_map = shadow.depth.as_deref().map(Vec::as_slice);
-    shader.shadow_map_size = shadow.size;
-    shader.shadow_light_index = shadow.light_index;
-    shader.light_space_matrix = shadow.light_space_matrix;
-    shader.shadow_constant_bias = config.render.shadow_constant_bias;
-    shader.shadow_slope_bias = config.render.shadow_slope_bias;
-    shader.use_pcf = config.render.use_pcf;
-    shader.pcf_kernel_size = config.render.pcf_kernel_size;
-    shader
 }
 
 impl ShadowPassOutput {
@@ -425,27 +400,35 @@ pub fn render_main_pass_profiled(
         }),
         ..state
     };
-    let mut shaders: Vec<PbrShader<'_>> = context
+    let pbr_shader = PbrShader;
+    let mut frame_bindings = PbrFrameBindings::new(
+        context.camera.view_matrix(),
+        context.camera.projection_matrix(),
+        context.camera.position,
+    );
+    frame_bindings.lights = &context.lights;
+    frame_bindings.ambient_light = Vector3::from(config.render.ambient_light);
+    frame_bindings.shadow_map = shadow.depth.as_deref().map(Vec::as_slice);
+    frame_bindings.shadow_map_size = shadow.size;
+    frame_bindings.shadow_light_index = shadow.light_index;
+    frame_bindings.light_space_matrix = shadow.light_space_matrix;
+    frame_bindings.shadow_constant_bias = config.render.shadow_constant_bias;
+    frame_bindings.shadow_slope_bias = config.render.shadow_slope_bias;
+    frame_bindings.use_pcf = config.render.use_pcf;
+    frame_bindings.pcf_kernel_size = config.render.pcf_kernel_size;
+    let object_bindings: Vec<_> = context
         .scene_objects
         .iter()
         .map(|object| {
-            configured_pbr_shader(
-                config,
-                context,
-                shadow,
+            PbrObjectBindings::new_with_tangent_frame_transform(
                 object.transform(),
                 object.tangent_frame_transform(),
             )
         })
         .collect();
-    let transparent_shader_index = shaders.len();
-    shaders.push(configured_pbr_shader(
-        config,
-        context,
-        shadow,
-        Matrix4::identity(),
-        TangentFrameTransform::new(nalgebra::Matrix3::identity()),
-    ));
+    let transparent_object_binding = PbrObjectBindings::new(Matrix4::identity());
+    let transparent_object_binding_id = ObjectBindingId::from_pass_index(object_bindings.len());
+    let fallback_material = crate::scene::material::PbrMaterial::default();
 
     let phase_counts = context
         .scene_objects
@@ -475,7 +458,8 @@ pub fn render_main_pass_profiled(
     let mut masked_phase = RenderPhase::with_capacity(phase_counts[1]);
     let mut transparent_phase = RenderPhase::with_capacity(phase_counts[2]);
 
-    for (shader_index, obj) in context.scene_objects.iter().enumerate() {
+    for (object_binding_index, obj) in context.scene_objects.iter().enumerate() {
+        let object_binding_id = ObjectBindingId::from_pass_index(object_binding_index);
         for (mesh_index, mesh) in obj.model.meshes.iter().enumerate() {
             let material = if mesh.material_id < obj.model.materials.len() {
                 Some(&obj.model.materials[mesh.material_id])
@@ -499,6 +483,7 @@ pub fn render_main_pass_profiled(
                 },
                 ..state
             };
+            let material_bindings = PbrMaterialBindings::new(material, &fallback_material);
 
             if alpha_mode == AlphaMode::Blend {
                 let view_matrix = context.camera.view_matrix();
@@ -510,14 +495,14 @@ pub fn render_main_pass_profiled(
                     if chunk.len() < 3 {
                         continue;
                     }
-                    // Use transformed vertices directly
+                    // Use transformed vertices directly.
                     let indices = [chunk[0], chunk[1], chunk[2]];
                     let v0_world = world_vertices[indices[0] as usize];
                     let v1_world = world_vertices[indices[1] as usize];
                     let v2_world = world_vertices[indices[2] as usize];
 
-                    if let Some(mat) = material {
-                        // Calculate Z in View Space using the centroid of World Space vertices
+                    if material.is_some() {
+                        // Calculate Z in View Space using the centroid of World Space vertices.
                         let centroid_world = (v0_world.position.coords
                             + v1_world.position.coords
                             + v2_world.position.coords)
@@ -525,32 +510,47 @@ pub fn render_main_pass_profiled(
                         let centroid_view =
                             view_matrix * Point3::from(centroid_world).to_homogeneous();
 
-                        transparent_phase.push(
-                            transparent_shader_index,
+                        transparent_phase.push_with_context(
+                            0,
                             RenderGeometry::IndexedTriangle {
                                 vertices: world_vertices,
                                 indices,
                                 cache_vertices: mesh.reuses_vertices(),
                             },
-                            Some(mat),
+                            PbrDrawContext::new(
+                                &frame_bindings,
+                                &transparent_object_binding,
+                                material_bindings,
+                            ),
+                            transparent_object_binding_id,
                             command_state(transparent_state),
                             centroid_view.z,
                         );
                     }
                 }
             } else if matches!(alpha_mode, AlphaMode::Mask(_)) {
-                masked_phase.push(
-                    shader_index,
+                masked_phase.push_with_context(
+                    0,
                     RenderGeometry::Mesh(mesh),
-                    material,
+                    PbrDrawContext::new(
+                        &frame_bindings,
+                        &object_bindings[object_binding_index],
+                        material_bindings,
+                    ),
+                    object_binding_id,
                     command_state(opaque_state),
                     0.0,
                 );
             } else {
-                opaque_phase.push(
-                    shader_index,
+                opaque_phase.push_with_context(
+                    0,
                     RenderGeometry::Mesh(mesh),
-                    material,
+                    PbrDrawContext::new(
+                        &frame_bindings,
+                        &object_bindings[object_binding_index],
+                        material_bindings,
+                    ),
+                    object_binding_id,
                     command_state(opaque_state),
                     0.0,
                 );
@@ -562,13 +562,16 @@ pub fn render_main_pass_profiled(
     let opaque_masked = backend.execute_phases_profiled(
         target.render_target_mut(),
         &[&opaque_phase, &masked_phase],
-        &shaders,
+        std::slice::from_ref(&pbr_shader),
     );
     let sorting_started = Instant::now();
     transparent_phase.sort_transparent();
     recording += sorting_started.elapsed();
-    let transparent =
-        backend.execute_phase_profiled(target.render_target_mut(), &transparent_phase, &shaders);
+    let transparent = backend.execute_phase_profiled(
+        target.render_target_mut(),
+        &transparent_phase,
+        std::slice::from_ref(&pbr_shader),
+    );
 
     Ok(MainPassTimings {
         pass_setup,

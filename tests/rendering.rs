@@ -15,7 +15,9 @@ use rasterizer_rust::pipeline::renderer::{
     FrameResources, MainHdrTarget, ObjectBindingId, PresentBuffer, RenderGeometry, RenderPhase,
     RenderTarget, SoftwareRasterBackend,
 };
-use rasterizer_rust::pipeline::shaders::pbr::{PbrShader, PbrVarying};
+use rasterizer_rust::pipeline::shaders::pbr::{
+    PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader, PbrVarying,
+};
 use rasterizer_rust::pipeline::shaders::shadow::{
     ShadowDrawContext, ShadowFrameBindings, ShadowMaterialBindings, ShadowObjectBindings,
     ShadowShader,
@@ -381,6 +383,41 @@ fn draw_mesh<'a, S>(
     );
 }
 
+fn draw_pbr_mesh(
+    renderer: &mut TestRenderHarness,
+    mesh: &Mesh,
+    material: Option<&Material>,
+    model: Matrix4<f32>,
+    state: GraphicsPipelineState,
+) {
+    let frame = PbrFrameBindings::new(
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Point3::new(0.0, 0.0, 2.0),
+    );
+    let object = PbrObjectBindings::new(model);
+    let fallback = PbrMaterial::default();
+    let context = PbrDrawContext::new(
+        &frame,
+        &object,
+        PbrMaterialBindings::new(material, &fallback),
+    );
+    let shader = PbrShader;
+    let mut phase = RenderPhase::default();
+    phase.push_with_context(
+        0,
+        RenderGeometry::Mesh(mesh),
+        context,
+        ObjectBindingId::from_pass_index(0),
+        state,
+        0.0,
+    );
+    renderer.backend.execute_phase(
+        renderer.target.render_target_mut(),
+        &phase,
+        std::slice::from_ref(&shader),
+    );
+}
 fn draw_shadow_mesh(
     renderer: &mut TestRenderHarness,
     mesh: &Mesh,
