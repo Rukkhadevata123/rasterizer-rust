@@ -1024,6 +1024,10 @@ impl SoftwareRasterBackend {
 }
 
 #[cfg(test)]
+#[path = "renderer/backend_tests.rs"]
+mod backend_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use image::{Rgba, RgbaImage};
