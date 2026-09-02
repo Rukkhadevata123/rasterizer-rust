@@ -151,7 +151,7 @@ The following concepts are not public construction APIs in 5.0:
 
 `RenderPhase` and `DrawPacket` remain useful internal names. Their fields are encoded through the public `RenderPassEncoder`; a finished `CommandBuffer` exposes labels and safe inspection only where a concrete debugging use case requires it.
 
-`FrameBuffer` also becomes an implementation detail once `RenderTarget` and readback APIs cover supported access. Public callers must not receive mutable access to interleaved `Sample { color, depth }` storage.
+`FrameBuffer` is an implementation detail. `RenderTarget::readback` and `MainHdrTarget::readback` return a read-only `RenderTargetReadback` view for dimensions, resolved HDR colors, individual sample colors/depths, and explicit depth copying; public callers cannot access or mutate the interleaved `Sample { color, depth }` storage.
 
 ## Binary and Tooling Modules
 
