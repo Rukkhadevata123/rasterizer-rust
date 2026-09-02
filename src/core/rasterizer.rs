@@ -16,7 +16,7 @@ const WIREFRAME_HALF_WIDTH: f32 = 1.0;
 const MAX_CLIPPED_VERTICES: usize = 9;
 pub(crate) const MAX_PREPARED_TRIANGLES: usize = MAX_CLIPPED_VERTICES - 2;
 
-pub struct Rasterizer {
+pub(crate) struct Rasterizer {
     band_bins: Vec<Vec<usize>>,
 }
 
@@ -80,7 +80,7 @@ impl Default for Rasterizer {
 }
 
 impl Rasterizer {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             band_bins: Vec::new(),
         }

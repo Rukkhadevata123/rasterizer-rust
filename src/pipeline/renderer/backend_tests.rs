@@ -286,7 +286,9 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
         0.0,
     );
 
-    renderer.backend.execute_phase(&mut renderer.target, &phase);
+    renderer
+        .backend
+        .execute_phase_profiled(&mut renderer.target, &phase);
 
     assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len());
 }
@@ -334,7 +336,9 @@ fn vertex_cache_is_scoped_to_each_camera_submission() {
             ObjectBindingId::from_pass_index(0),
             0.0,
         );
-        renderer.backend.execute_phase(&mut renderer.target, &phase);
+        renderer
+            .backend
+            .execute_phase_profiled(&mut renderer.target, &phase);
     }
 
     assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len() * 2);
@@ -402,7 +406,9 @@ fn vertex_cache_isolates_distinct_tangent_frame_bindings() {
     }
     let mut renderer = BackendTestHarness::new(64, 32);
 
-    renderer.backend.execute_phase(&mut renderer.target, &phase);
+    renderer
+        .backend
+        .execute_phase_profiled(&mut renderer.target, &phase);
 
     assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len() * 2);
     assert_vec3_approx(
@@ -458,7 +464,9 @@ fn transparent_world_vertices_use_a_distinct_source_domain() {
     );
     let mut renderer = BackendTestHarness::new(32, 32);
 
-    renderer.backend.execute_phase(&mut renderer.target, &phase);
+    renderer
+        .backend
+        .execute_phase_profiled(&mut renderer.target, &phase);
 
     assert_eq!(
         calls.load(Ordering::Relaxed),
@@ -513,7 +521,9 @@ fn vertex_cache_reuses_across_raster_only_pipeline_variants() {
     );
     let mut renderer = BackendTestHarness::new(32, 32);
 
-    renderer.backend.execute_phase(&mut renderer.target, &phase);
+    renderer
+        .backend
+        .execute_phase_profiled(&mut renderer.target, &phase);
 
     assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len());
 }
@@ -569,7 +579,9 @@ fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
     );
     let mut renderer = BackendTestHarness::new(64, 32);
 
-    renderer.backend.execute_phase(&mut renderer.target, &phase);
+    renderer
+        .backend
+        .execute_phase_profiled(&mut renderer.target, &phase);
 
     assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len() * 2);
     assert_vec3_approx(
@@ -633,7 +645,9 @@ fn vertex_cache_distinguishes_vertex_program_ids() {
     );
     let mut renderer = BackendTestHarness::new(64, 32);
 
-    renderer.backend.execute_phase(&mut renderer.target, &phase);
+    renderer
+        .backend
+        .execute_phase_profiled(&mut renderer.target, &phase);
 
     assert_eq!(calls.load(Ordering::Relaxed), mesh.vertices.len() * 2);
     assert_vec3_approx(
@@ -666,8 +680,8 @@ fn one_backend_executes_different_sized_targets_sequentially() {
     let mut shadow_target = RenderTarget::new(16, 16, 1).expect("shadow target should be valid");
     let mut main_target = RenderTarget::new(48, 32, 1).expect("main target should be valid");
 
-    backend.execute_phase(&mut shadow_target, &phase);
-    backend.execute_phase(&mut main_target, &phase);
+    backend.execute_phase_profiled(&mut shadow_target, &phase);
+    backend.execute_phase_profiled(&mut main_target, &phase);
 
     let expected = Vector3::new(1.0, 0.5, 0.25);
     assert_vec3_approx(
@@ -709,7 +723,7 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
 
     renderer
         .backend
-        .execute_phases(&mut renderer.target, &[&empty_phase, &visible_phase]);
+        .execute_phases_profiled(&mut renderer.target, &[&empty_phase, &visible_phase]);
 
     assert_vec3_approx(
         renderer.framebuffer().sample(16, 16).unwrap().color,

@@ -57,24 +57,24 @@ type PreparedBatch<'shader, V, S, C> =
     [Option<PreparedTriangle<'shader, V, S, C>>; MAX_PREPARED_TRIANGLES];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct BackendExecutionTimings {
-    pub backend_preparation: Duration,
-    pub rasterization: Duration,
+struct BackendExecutionTimings {
+    backend_preparation: Duration,
+    rasterization: Duration,
     /// Inclusive synchronous backend execution duration. Preparation and rasterization are nested
     /// within this value and must not be added to it when computing a total.
-    pub submission_total: Duration,
+    submission_total: Duration,
 }
 
-pub struct DrawPacket<'a, S, C> {
-    pub insertion_id: u64,
-    pub pipeline: &'a GraphicsPipeline<S>,
-    pub geometry: RenderGeometry<'a>,
-    pub draw_context: C,
+struct DrawPacket<'a, S, C> {
+    insertion_id: u64,
+    pipeline: &'a GraphicsPipeline<S>,
+    geometry: RenderGeometry<'a>,
+    draw_context: C,
     object_binding_id: ObjectBindingId,
-    pub sort_depth: f32,
+    sort_depth: f32,
 }
 
-pub struct RenderPhase<'a, S, C> {
+struct RenderPhase<'a, S, C> {
     commands: Vec<DrawPacket<'a, S, C>>,
     next_insertion_id: u64,
 }
@@ -86,14 +86,14 @@ impl<'a, S, C> Default for RenderPhase<'a, S, C> {
 }
 
 impl<'a, S, C> RenderPhase<'a, S, C> {
-    pub fn with_capacity(capacity: usize) -> Self {
+    fn with_capacity(capacity: usize) -> Self {
         Self {
             commands: Vec::with_capacity(capacity),
             next_insertion_id: 0,
         }
     }
 
-    pub fn push(
+    fn push(
         &mut self,
         pipeline: &'a GraphicsPipeline<S>,
         geometry: RenderGeometry<'a>,
@@ -134,7 +134,7 @@ impl<'a, S, C> RenderPhase<'a, S, C> {
         });
     }
 
-    pub fn commands(&self) -> &[DrawPacket<'a, S, C>] {
+    fn commands(&self) -> &[DrawPacket<'a, S, C>] {
         &self.commands
     }
 }
@@ -671,7 +671,7 @@ impl FrameResources {
     }
 }
 
-pub struct SoftwareRasterBackend {
+struct SoftwareRasterBackend {
     rasterizer: Rasterizer,
 }
 
@@ -682,13 +682,13 @@ impl Default for SoftwareRasterBackend {
 }
 
 impl SoftwareRasterBackend {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             rasterizer: Rasterizer::new(),
         }
     }
 
-    pub(crate) fn initialize_render_pass(
+    fn initialize_render_pass(
         &mut self,
         descriptor: RenderPassDescriptor<'_>,
         background: Option<BackgroundPass<'_>>,
@@ -735,29 +735,7 @@ impl SoftwareRasterBackend {
         Ok(())
     }
 
-    pub fn execute_phase<'a, S, C>(
-        &mut self,
-        target: &mut RenderTarget,
-        phase: &RenderPhase<'a, S, C>,
-    ) where
-        S: Shader<C>,
-        C: Copy + Send + Sync,
-    {
-        let _ = self.execute_phases_profiled(target, &[phase]);
-    }
-
-    pub fn execute_phases<'a, S, C>(
-        &mut self,
-        target: &mut RenderTarget,
-        phases: &[&RenderPhase<'a, S, C>],
-    ) where
-        S: Shader<C>,
-        C: Copy + Send + Sync,
-    {
-        let _ = self.execute_phases_profiled(target, phases);
-    }
-
-    pub fn execute_phase_profiled<'a, S, C>(
+    fn execute_phase_profiled<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
         phase: &RenderPhase<'a, S, C>,
@@ -769,7 +747,7 @@ impl SoftwareRasterBackend {
         self.execute_phases_profiled(target, &[phase])
     }
 
-    pub fn execute_phases_profiled<'a, S, C>(
+    fn execute_phases_profiled<'a, S, C>(
         &mut self,
         target: &mut RenderTarget,
         phases: &[&RenderPhase<'a, S, C>],
