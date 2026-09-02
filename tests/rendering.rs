@@ -13,8 +13,7 @@ use rasterizer_rust::pipeline::passes::{
 };
 use rasterizer_rust::pipeline::renderer::{
     CommandEncoder, CommandError, FrameResources, GraphicsQueue, LoadOp, MainHdrTarget,
-    ObjectBindingId, Operations, PresentBuffer, RenderDevice, RenderGeometry, RenderPassDescriptor,
-    RenderPhase, RenderTarget, SoftwareRasterBackend,
+    ObjectBindingId, Operations, PresentBuffer, RenderDevice, RenderPassDescriptor, RenderTarget,
 };
 use rasterizer_rust::pipeline::shaders::pbr::{
     PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader, PbrVarying,
@@ -305,32 +304,12 @@ impl TestRenderHarness {
     }
 }
 
-struct BackendTestHarness {
-    backend: SoftwareRasterBackend,
-    target: MainHdrTarget,
-}
-
-impl BackendTestHarness {
-    fn new(width: usize, height: usize, supersample_scale: usize) -> Self {
-        Self {
-            backend: SoftwareRasterBackend::new(),
-            target: MainHdrTarget::new(width, height, supersample_scale)
-                .expect("test dimensions should be valid"),
-        }
-    }
-
-    fn framebuffer(&self) -> &FrameBuffer {
-        self.target.framebuffer()
-    }
-}
-
-fn submit_test_mesh<'a, S, C>(
+fn submit_test_draws<'a, S, C>(
     queue: &mut GraphicsQueue,
     target: &'a mut RenderTarget,
     pipeline: &'a GraphicsPipeline<S>,
-    mesh: &'a Mesh,
-    context: C,
-    object_binding_id: ObjectBindingId,
+    draws: &[(&'a Mesh, C, ObjectBindingId, f32)],
+    sort_transparent: bool,
 ) where
     S: Shader<C>,
     C: Copy + Send + Sync,
@@ -350,9 +329,15 @@ fn submit_test_mesh<'a, S, C>(
             )
             .expect("the test render pass should be valid");
         pass.set_pipeline(pipeline);
-        pass.set_draw_bindings(context, object_binding_id);
-        pass.draw_mesh(mesh, 0.0)
-            .expect("the test draw should record");
+        pass.reserve_draws(draws.len());
+        for &(mesh, context, object_binding_id, sort_depth) in draws {
+            pass.set_draw_bindings(context, object_binding_id);
+            pass.draw_mesh(mesh, sort_depth)
+                .expect("the test draw should record");
+        }
+        if sort_transparent {
+            pass.sort_transparent();
+        }
         pass.end().expect("the test render pass should end");
     }
     queue
@@ -362,6 +347,26 @@ fn submit_test_mesh<'a, S, C>(
                 .expect("the test command buffer should finish"),
         )
         .expect("the test command buffer should submit");
+}
+
+fn submit_test_mesh<'a, S, C>(
+    queue: &mut GraphicsQueue,
+    target: &'a mut RenderTarget,
+    pipeline: &'a GraphicsPipeline<S>,
+    mesh: &'a Mesh,
+    context: C,
+    object_binding_id: ObjectBindingId,
+) where
+    S: Shader<C>,
+    C: Copy + Send + Sync,
+{
+    submit_test_draws(
+        queue,
+        target,
+        pipeline,
+        &[(mesh, context, object_binding_id, 0.0)],
+        false,
+    );
 }
 
 fn draw_mesh<'a, S>(

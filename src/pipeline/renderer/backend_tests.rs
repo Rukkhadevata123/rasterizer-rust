@@ -716,3 +716,46 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
         Vector3::y(),
     );
 }
+
+#[test]
+fn transparent_phase_uses_insertion_id_to_break_depth_ties() {
+    let first = triangle(0.0, Vector4::zeros());
+    let second = triangle(0.0, Vector4::zeros());
+    let third = triangle(0.0, Vector4::zeros());
+    let pipeline = GraphicsPipeline::new(
+        ClipSpaceShader,
+        test_pipeline_state(),
+        VertexProgramId::from_pass_index(0),
+    );
+    let mut phase = RenderPhase::default();
+    phase.push(
+        &pipeline,
+        RenderGeometry::Mesh(&first),
+        (),
+        ObjectBindingId::from_pass_index(0),
+        1.0,
+    );
+    phase.push(
+        &pipeline,
+        RenderGeometry::Mesh(&second),
+        (),
+        ObjectBindingId::from_pass_index(0),
+        -1.0,
+    );
+    phase.push(
+        &pipeline,
+        RenderGeometry::Mesh(&third),
+        (),
+        ObjectBindingId::from_pass_index(0),
+        1.0,
+    );
+
+    phase.sort_transparent();
+
+    let ordering: Vec<(f32, u64)> = phase
+        .commands()
+        .iter()
+        .map(|command| (command.sort_depth, command.insertion_id))
+        .collect();
+    assert_eq!(ordering, vec![(-1.0, 1), (1.0, 0), (1.0, 2)]);
+}

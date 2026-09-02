@@ -116,21 +116,37 @@ fn shadow_draw_context_applies_distinct_object_bindings() {
         },
         VertexProgramId::from_pass_index(0),
     );
-    let mut phase = RenderPhase::with_capacity(2);
-    for (index, object) in object_bindings.iter().enumerate() {
-        phase.push(
-            &pipeline,
-            RenderGeometry::Mesh(&mesh),
-            ShadowDrawContext::new(&frame, object, ShadowMaterialBindings::new(None)),
-            ObjectBindingId::from_pass_index(index),
+    let draws = [
+        (
+            &mesh,
+            ShadowDrawContext::new(
+                &frame,
+                &object_bindings[0],
+                ShadowMaterialBindings::new(None),
+            ),
+            ObjectBindingId::from_pass_index(0),
             0.0,
-        );
-    }
-    let mut renderer = BackendTestHarness::new(32, 32, 1);
+        ),
+        (
+            &mesh,
+            ShadowDrawContext::new(
+                &frame,
+                &object_bindings[1],
+                ShadowMaterialBindings::new(None),
+            ),
+            ObjectBindingId::from_pass_index(1),
+            0.0,
+        ),
+    ];
+    let mut renderer = TestRenderHarness::new(32, 32, 1);
 
-    renderer
-        .backend
-        .execute_phase(renderer.target.render_target_mut(), &phase);
+    submit_test_draws(
+        &mut renderer.queue,
+        renderer.target.render_target_mut(),
+        &pipeline,
+        &draws,
+        false,
+    );
 
     assert!(
         renderer
