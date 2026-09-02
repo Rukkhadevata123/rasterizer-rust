@@ -2,9 +2,9 @@ use nalgebra::Vector3;
 use rayon::prelude::*;
 
 #[derive(Clone, Copy, Debug)]
-pub struct Sample {
-    pub color: Vector3<f32>,
-    pub depth: f32,
+pub(crate) struct Sample {
+    pub(crate) color: Vector3<f32>,
+    pub(crate) depth: f32,
 }
 
 impl Sample {
@@ -13,17 +13,21 @@ impl Sample {
     }
 }
 
-pub struct FrameBuffer {
-    pub width: usize,
-    pub height: usize,
-    pub supersample_scale: usize,
-    pub buffer_width: usize,
-    pub buffer_height: usize,
+pub(crate) struct FrameBuffer {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) supersample_scale: usize,
+    pub(crate) buffer_width: usize,
+    pub(crate) buffer_height: usize,
     samples: Vec<Sample>,
 }
 
 impl FrameBuffer {
-    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Result<Self, String> {
+    pub(crate) fn new(
+        width: usize,
+        height: usize,
+        supersample_scale: usize,
+    ) -> Result<Self, String> {
         let (buffer_width, buffer_height, size) =
             Self::checked_dimensions(width, height, supersample_scale)?;
 
@@ -37,7 +41,7 @@ impl FrameBuffer {
         })
     }
 
-    pub fn validate_dimensions(
+    pub(crate) fn validate_dimensions(
         width: usize,
         height: usize,
         supersample_scale: usize,
@@ -93,7 +97,7 @@ impl FrameBuffer {
     }
 
     #[inline(always)]
-    pub fn in_bounds(&self, x: usize, y: usize) -> bool {
+    pub(crate) fn in_bounds(&self, x: usize, y: usize) -> bool {
         x < self.buffer_width && y < self.buffer_height
     }
 
@@ -102,7 +106,7 @@ impl FrameBuffer {
         y * self.buffer_width + x
     }
 
-    pub fn sample(&self, x: usize, y: usize) -> Option<&Sample> {
+    pub(crate) fn sample(&self, x: usize, y: usize) -> Option<&Sample> {
         self.in_bounds(x, y)
             .then(|| &self.samples[self.index(x, y)])
     }
@@ -111,7 +115,7 @@ impl FrameBuffer {
         &mut self.samples
     }
 
-    pub fn depth_values(&self) -> Vec<f32> {
+    pub(crate) fn depth_values(&self) -> Vec<f32> {
         self.samples.iter().map(|sample| sample.depth).collect()
     }
 
@@ -121,7 +125,7 @@ impl FrameBuffer {
         output.extend(self.samples.iter().map(|sample| sample.depth));
     }
 
-    pub fn clear_with<F>(&mut self, depth: f32, color_at: F)
+    pub(crate) fn clear_with<F>(&mut self, depth: f32, color_at: F)
     where
         F: Fn(usize, usize) -> Vector3<f32> + Sync,
     {
@@ -169,7 +173,7 @@ impl FrameBuffer {
         });
     }
 
-    pub fn get_pixel(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
+    pub(crate) fn get_pixel(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
         if x >= self.width || y >= self.height {
             return None;
         }
@@ -204,5 +208,22 @@ mod tests {
         assert!(FrameBuffer::new(usize::MAX, 1, 2).is_err());
         assert!(FrameBuffer::new(usize::MAX / 2 + 1, 2, 1).is_err());
         assert!(FrameBuffer::new(usize::MAX / std::mem::size_of::<Sample>() + 1, 1, 1).is_err());
+    }
+
+    #[test]
+    fn resolves_supersampled_pixels() {
+        let mut framebuffer = FrameBuffer::new(1, 1, 2).expect("test dimensions should be valid");
+        framebuffer.clear_with(f32::INFINITY, |x, y| match (x, y) {
+            (0, 0) => Vector3::new(1.0, 0.0, 0.0),
+            (1, 0) => Vector3::new(0.0, 1.0, 0.0),
+            (0, 1) => Vector3::new(0.0, 0.0, 1.0),
+            (1, 1) => Vector3::new(1.0, 1.0, 1.0),
+            _ => unreachable!(),
+        });
+
+        let color = framebuffer
+            .get_pixel(0, 0)
+            .expect("resolved pixel should be in bounds");
+        assert!((color - Vector3::new(0.5, 0.5, 0.5)).norm() < 1e-4);
     }
 }

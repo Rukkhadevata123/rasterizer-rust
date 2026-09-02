@@ -102,14 +102,14 @@ fn apply_hot_reload_render_settings(
         FrameBuffer::validate_dimensions(window_width, window_height, render.supersample_scale)
             .is_err();
     if supersample_scale_rejected {
-        render.supersample_scale = target.framebuffer().supersample_scale;
-    } else if target.framebuffer().supersample_scale != render.supersample_scale {
+        render.supersample_scale = target.readback().supersample_scale();
+    } else if target.readback().supersample_scale() != render.supersample_scale {
         if let Ok(new_target) =
             MainHdrTarget::new(window_width, window_height, render.supersample_scale)
         {
             *target = new_target;
         } else {
-            render.supersample_scale = target.framebuffer().supersample_scale;
+            render.supersample_scale = target.readback().supersample_scale();
         }
     }
 
@@ -117,15 +117,15 @@ fn apply_hot_reload_render_settings(
         FrameBuffer::validate_dimensions(render.shadow_map_size, render.shadow_map_size, 1)
             .is_err();
     if shadow_map_size_rejected {
-        render.shadow_map_size = shadow_target.framebuffer().width;
-    } else if shadow_target.framebuffer().width != render.shadow_map_size
-        || shadow_target.framebuffer().height != render.shadow_map_size
+        render.shadow_map_size = shadow_target.readback().width();
+    } else if shadow_target.readback().width() != render.shadow_map_size
+        || shadow_target.readback().height() != render.shadow_map_size
     {
         if let Ok(new_target) = RenderTarget::new(render.shadow_map_size, render.shadow_map_size, 1)
         {
             *shadow_target = new_target;
         } else {
-            render.shadow_map_size = shadow_target.framebuffer().width;
+            render.shadow_map_size = shadow_target.readback().width();
         }
     }
 
@@ -533,11 +533,11 @@ mod tests {
         assert!(!settings.supersample_scale_rejected);
         assert!(!settings.shadow_map_size_rejected);
         assert_eq!((settings.render.width, settings.render.height), (80, 45));
-        assert_eq!(target.framebuffer().supersample_scale, 2);
-        assert_eq!(target.framebuffer().buffer_width, 160);
-        assert_eq!(target.framebuffer().buffer_height, 90);
-        assert_eq!(shadow_target.framebuffer().width, 128);
-        assert_eq!(shadow_target.framebuffer().height, 128);
+        assert_eq!(target.readback().supersample_scale(), 2);
+        assert_eq!(target.readback().sample_width(), 160);
+        assert_eq!(target.readback().sample_height(), 90);
+        assert_eq!(shadow_target.readback().width(), 128);
+        assert_eq!(shadow_target.readback().height(), 128);
     }
 
     #[test]
@@ -560,8 +560,8 @@ mod tests {
         assert!(!settings.supersample_scale_rejected);
         assert!(!settings.shadow_map_size_rejected);
         assert_eq!((settings.render.width, settings.render.height), (80, 45));
-        assert_eq!(target.framebuffer().supersample_scale, 1);
-        assert_eq!(shadow_target.framebuffer().width, 64);
+        assert_eq!(target.readback().supersample_scale(), 1);
+        assert_eq!(shadow_target.readback().width(), 64);
     }
     #[test]
     fn hot_reload_rejects_zero_sized_render_resources() {
@@ -583,7 +583,7 @@ mod tests {
         assert!(settings.shadow_map_size_rejected);
         assert_eq!(settings.render.supersample_scale, 2);
         assert_eq!(settings.render.shadow_map_size, 64);
-        assert_eq!(target.framebuffer().supersample_scale, 2);
-        assert_eq!(shadow_target.framebuffer().width, 64);
+        assert_eq!(target.readback().supersample_scale(), 2);
+        assert_eq!(shadow_target.readback().width(), 64);
     }
 }

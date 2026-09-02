@@ -528,6 +528,59 @@ pub struct RenderTarget {
     framebuffer: FrameBuffer,
 }
 
+/// Read-only access to resolved pixels and individual render samples.
+#[derive(Clone, Copy)]
+pub struct RenderTargetReadback<'a> {
+    framebuffer: &'a FrameBuffer,
+}
+
+impl RenderTargetReadback<'_> {
+    /// Width of the resolved output in pixels.
+    pub fn width(&self) -> usize {
+        self.framebuffer.width
+    }
+
+    /// Height of the resolved output in pixels.
+    pub fn height(&self) -> usize {
+        self.framebuffer.height
+    }
+
+    /// Linear supersampling scale used by the render target.
+    pub fn supersample_scale(&self) -> usize {
+        self.framebuffer.supersample_scale
+    }
+
+    /// Width of the underlying render-sample grid.
+    pub fn sample_width(&self) -> usize {
+        self.framebuffer.buffer_width
+    }
+
+    /// Height of the underlying render-sample grid.
+    pub fn sample_height(&self) -> usize {
+        self.framebuffer.buffer_height
+    }
+
+    /// Returns the resolved HDR color at an output pixel.
+    pub fn color(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
+        self.framebuffer.get_pixel(x, y)
+    }
+
+    /// Returns the HDR color at one location in the render-sample grid.
+    pub fn sample_color(&self, x: usize, y: usize) -> Option<Vector3<f32>> {
+        self.framebuffer.sample(x, y).map(|sample| sample.color)
+    }
+
+    /// Returns the depth at one location in the render-sample grid.
+    pub fn sample_depth(&self, x: usize, y: usize) -> Option<f32> {
+        self.framebuffer.sample(x, y).map(|sample| sample.depth)
+    }
+
+    /// Copies the complete depth attachment in row-major sample-grid order.
+    pub fn depth_values(&self) -> Vec<f32> {
+        self.framebuffer.depth_values()
+    }
+}
+
 impl RenderTarget {
     pub fn new(width: usize, height: usize, supersample_scale: usize) -> Result<Self, String> {
         Ok(Self {
@@ -535,7 +588,13 @@ impl RenderTarget {
         })
     }
 
-    pub fn framebuffer(&self) -> &FrameBuffer {
+    pub fn readback(&self) -> RenderTargetReadback<'_> {
+        RenderTargetReadback {
+            framebuffer: &self.framebuffer,
+        }
+    }
+
+    pub(crate) fn framebuffer(&self) -> &FrameBuffer {
         &self.framebuffer
     }
 
@@ -555,8 +614,8 @@ impl MainHdrTarget {
         })
     }
 
-    pub fn framebuffer(&self) -> &FrameBuffer {
-        self.target.framebuffer()
+    pub fn readback(&self) -> RenderTargetReadback<'_> {
+        self.target.readback()
     }
 
     #[cfg(test)]

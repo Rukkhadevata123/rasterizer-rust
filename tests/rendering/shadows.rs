@@ -19,10 +19,9 @@ fn masked_shadow_fragments_respect_material_alpha() {
     );
     assert!(
         renderer
-            .framebuffer()
-            .sample(16, 16)
+            .readback()
+            .sample_depth(16, 16)
             .unwrap()
-            .depth
             .is_infinite()
     );
 
@@ -38,7 +37,7 @@ fn masked_shadow_fragments_respect_material_alpha() {
         Matrix4::identity(),
         ObjectBindingId::from_pass_index(1),
     );
-    assert!((renderer.framebuffer().sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
+    assert!((renderer.readback().sample_depth(16, 16).unwrap() - 0.5).abs() < 1e-5);
 }
 
 #[test]
@@ -83,10 +82,9 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
 
     assert!(
         renderer
-            .framebuffer()
-            .sample(16, 16)
+            .readback()
+            .sample_depth(16, 16)
             .unwrap()
-            .depth
             .is_infinite()
     );
 }
@@ -148,20 +146,12 @@ fn shadow_draw_context_applies_distinct_object_bindings() {
         false,
     );
 
+    assert!(renderer.readback().sample_depth(8, 16).unwrap().is_finite());
     assert!(
         renderer
-            .framebuffer()
-            .sample(8, 16)
+            .readback()
+            .sample_depth(24, 16)
             .unwrap()
-            .depth
-            .is_finite()
-    );
-    assert!(
-        renderer
-            .framebuffer()
-            .sample(24, 16)
-            .unwrap()
-            .depth
             .is_finite()
     );
 }

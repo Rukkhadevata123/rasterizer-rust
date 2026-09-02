@@ -311,7 +311,7 @@ pub fn render_shadow_pass_profiled(
         .expect("the built-in shadow submission must succeed");
     let output = ShadowPassOutput {
         depth: Some(resources.shadow_depth_snapshot(shadow_target)),
-        size: shadow_target.framebuffer().width,
+        size: shadow_target.readback().width(),
         light_space_matrix,
         light_index: Some(shadow_light.light_index),
     };
@@ -655,12 +655,14 @@ pub fn execute_resolve_tonemap_pass(
         tonemap,
     } = descriptor;
     let label = label.unwrap_or("<unnamed>").to_owned();
-    let framebuffer = source.framebuffer();
-    if (framebuffer.width, framebuffer.height) != (destination.width(), destination.height()) {
+    let source_readback = source.readback();
+    if (source_readback.width(), source_readback.height())
+        != (destination.width(), destination.height())
+    {
         return Err(ResolveTonemapError::DimensionMismatch {
             label,
-            source_width: framebuffer.width,
-            source_height: framebuffer.height,
+            source_width: source_readback.width(),
+            source_height: source_readback.height(),
             destination_width: destination.width(),
             destination_height: destination.height(),
         });
@@ -669,13 +671,14 @@ pub fn execute_resolve_tonemap_pass(
         return Err(ResolveTonemapError::InvalidExposure { label, exposure });
     }
 
+    let width = source_readback.width();
     destination
         .pixels_mut()
-        .par_chunks_mut(framebuffer.width)
+        .par_chunks_mut(width)
         .enumerate()
         .for_each(|(y, row)| {
             for (x, pixel) in row.iter_mut().enumerate() {
-                if let Some(color) = framebuffer.get_pixel(x, y) {
+                if let Some(color) = source_readback.color(x, y) {
                     let exposed = color * exposure;
                     let mapped = match tonemap {
                         TonemapOperator::None => exposed,

@@ -19,16 +19,12 @@ fn alpha_mask_discards_fragments_below_cutoff() {
         test_pipeline_state(),
     );
 
-    assert_eq!(
-        renderer.framebuffer().get_pixel(16, 16).unwrap(),
-        Vector3::zeros()
-    );
+    assert_eq!(renderer.readback().color(16, 16).unwrap(), Vector3::zeros());
     assert!(
         renderer
-            .framebuffer()
-            .sample(16, 16)
+            .readback()
+            .sample_depth(16, 16)
             .unwrap()
-            .depth
             .is_infinite()
     );
 }
@@ -127,14 +123,8 @@ fn pbr_draw_context_applies_distinct_object_and_material_bindings() {
         false,
     );
 
-    assert_vec3_approx(
-        renderer.framebuffer().get_pixel(16, 16).unwrap(),
-        Vector3::x(),
-    );
-    assert_vec3_approx(
-        renderer.framebuffer().get_pixel(48, 16).unwrap(),
-        Vector3::y(),
-    );
+    assert_vec3_approx(renderer.readback().color(16, 16).unwrap(), Vector3::x());
+    assert_vec3_approx(renderer.readback().color(48, 16).unwrap(), Vector3::y());
 }
 #[test]
 fn main_pass_combines_opaque_masked_and_transparent_phases() {
@@ -214,11 +204,15 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
     )
     .expect("mixed-phase scene should render");
 
-    let center = renderer.framebuffer().sample(32, 32).unwrap();
-    assert_vec3_approx(center.color, Vector3::new(0.5, 0.0, 0.5));
-
-    let masked = renderer.framebuffer().sample(22, 32).unwrap();
-    assert_vec3_approx(masked.color, Vector3::new(0.0, 0.5, 0.5));
+    let readback = renderer.readback();
+    assert_vec3_approx(
+        readback.sample_color(32, 32).unwrap(),
+        Vector3::new(0.5, 0.0, 0.5),
+    );
+    assert_vec3_approx(
+        readback.sample_color(22, 32).unwrap(),
+        Vector3::new(0.0, 0.5, 0.5),
+    );
 
     let expected_depth = |world_z| {
         let clip = camera.projection_matrix()
@@ -226,8 +220,8 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
             * Point3::new(0.0, 0.0, world_z).to_homogeneous();
         clip.z / clip.w * 0.5 + 0.5
     };
-    assert!((center.depth - expected_depth(0.0)).abs() < 1.0e-6);
-    assert!((masked.depth - expected_depth(0.4)).abs() < 1.0e-6);
+    assert!((readback.sample_depth(32, 32).unwrap() - expected_depth(0.0)).abs() < 1.0e-6);
+    assert!((readback.sample_depth(22, 32).unwrap() - expected_depth(0.4)).abs() < 1.0e-6);
 }
 
 #[test]
@@ -249,10 +243,9 @@ fn masked_pbr_fragments_respect_material_alpha() {
     );
     assert!(
         renderer
-            .framebuffer()
-            .sample(16, 16)
+            .readback()
+            .sample_depth(16, 16)
             .unwrap()
-            .depth
             .is_infinite()
     );
 
@@ -268,7 +261,7 @@ fn masked_pbr_fragments_respect_material_alpha() {
         Matrix4::identity(),
         test_pipeline_state(),
     );
-    assert!((renderer.framebuffer().sample(16, 16).unwrap().depth - 0.5).abs() < 1e-5);
+    assert!((renderer.readback().sample_depth(16, 16).unwrap() - 0.5).abs() < 1e-5);
 }
 
 #[test]
@@ -310,7 +303,7 @@ fn double_sided_material_disables_culling_per_command() {
             GraphicsPipelineState::default(),
         )
         .expect("test scene should render");
-        renderer.framebuffer().sample(16, 16).unwrap().depth
+        renderer.readback().sample_depth(16, 16).unwrap()
     };
 
     assert!(render(false).is_infinite());
@@ -362,7 +355,7 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
 
     for y in [8, 24, 40, 56] {
         assert_vec3_approx(
-            renderer.framebuffer().get_pixel(32, y).unwrap(),
+            renderer.readback().color(32, y).unwrap(),
             Vector3::new(0.25, 0.0, 0.5),
         );
     }
@@ -444,7 +437,7 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 .expect("resolve-tonemap pass should succeed");
                 (
                     present.pixels().to_vec(),
-                    renderer.framebuffer().depth_values(),
+                    renderer.readback().depth_values(),
                 )
             })
     };

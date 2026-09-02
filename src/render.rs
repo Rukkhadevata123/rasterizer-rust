@@ -1,6 +1,5 @@
 //! Stable rendering API for programmable shaders, command recording, and synchronous submission.
 
-pub use crate::core::framebuffer::{FrameBuffer, Sample};
 pub use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
 pub use crate::core::pipeline_state::{
     BlendState, ColorTargetState, CompareFunction, CullMode, DepthStencilState, FrontFace,
@@ -18,7 +17,7 @@ pub use crate::pipeline::renderer::{
     BackgroundPass, BackgroundSource, CommandBuffer, CommandEncoder, CommandError, FrameResources,
     GraphicsQueue, LoadOp, MainHdrTarget, ObjectBindingId, Operations, PhaseSubmissionReport,
     PresentBuffer, RenderDevice, RenderError, RenderGeometry, RenderPassDescriptor,
-    RenderPassEncoder, RenderTarget, SubmissionReport,
+    RenderPassEncoder, RenderTarget, RenderTargetReadback, SubmissionReport,
 };
 
 /// Built-in shader implementations and their typed binding groups.

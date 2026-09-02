@@ -147,7 +147,7 @@ fn recording_does_not_execute_attachment_or_draw_work() {
         None,
         ObjectBindingId::from_pass_index(0),
     );
-    assert_vec3_approx(target.framebuffer().get_pixel(8, 8).unwrap(), Vector3::x());
+    assert_vec3_approx(target.readback().color(8, 8).unwrap(), Vector3::x());
 
     let recorded_mesh = triangle(0.0, Vector4::new(0.0, 1.0, 0.0, 1.0));
     let recorded_pipeline = command_pipeline(ClipSpaceShader);
@@ -166,7 +166,7 @@ fn recording_does_not_execute_attachment_or_draw_work() {
     let command_buffer = encoder.finish().expect("command buffer should finish");
     drop(command_buffer);
 
-    assert_vec3_approx(target.framebuffer().get_pixel(8, 8).unwrap(), Vector3::x());
+    assert_vec3_approx(target.readback().color(8, 8).unwrap(), Vector3::x());
 }
 #[test]
 fn queue_submission_is_synchronous_and_preserves_ordered_phase_boundaries() {
@@ -221,7 +221,7 @@ fn queue_submission_is_synchronous_and_preserves_ordered_phase_boundaries() {
         .expect("submission should succeed");
 
     assert_vec3_approx(
-        target.framebuffer().get_pixel(16, 16).unwrap(),
+        target.readback().color(16, 16).unwrap(),
         Vector3::new(0.3125, 0.375, 0.5),
     );
     assert_eq!(report.phases.len(), 2);

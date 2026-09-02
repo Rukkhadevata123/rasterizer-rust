@@ -9,10 +9,10 @@ use rasterizer_rust::render::builtin::shadow::{
 };
 use rasterizer_rust::render::{
     BlendState, ColorTargetState, CommandEncoder, CommandError, CompareFunction, CullMode,
-    DepthStencilState, FragmentInput, FragmentOutput, FrameBuffer, FrameResources, FrontFace,
-    GraphicsPipeline, GraphicsPipelineState, GraphicsQueue, Interpolatable, LoadOp, MainHdrTarget,
-    ObjectBindingId, Operations, PolygonMode, PresentBuffer, PrimitiveState, RenderDevice,
-    RenderPassDescriptor, RenderTarget, ResolveTonemapPassDescriptor, Shader, ShadowPassOutput,
+    DepthStencilState, FragmentInput, FragmentOutput, FrameResources, FrontFace, GraphicsPipeline,
+    GraphicsPipelineState, GraphicsQueue, Interpolatable, LoadOp, MainHdrTarget, ObjectBindingId,
+    Operations, PolygonMode, PresentBuffer, PrimitiveState, RenderDevice, RenderPassDescriptor,
+    RenderTarget, RenderTargetReadback, ResolveTonemapPassDescriptor, Shader, ShadowPassOutput,
     TonemapOperator, Vertex, VertexProgramId, execute_resolve_tonemap_pass, render_main_pass,
     render_shadow_pass,
 };
@@ -293,8 +293,8 @@ impl TestRenderHarness {
         }
     }
 
-    fn framebuffer(&self) -> &FrameBuffer {
-        self.target.framebuffer()
+    fn readback(&self) -> RenderTargetReadback<'_> {
+        self.target.readback()
     }
 }
 

@@ -11,7 +11,7 @@ fn nearer_triangle_wins_depth_test() {
     draw_mesh(&mut renderer, &near, &shader, None, test_pipeline_state());
 
     assert_vec3_approx(
-        renderer.framebuffer().get_pixel(16, 16).unwrap(),
+        renderer.readback().color(16, 16).unwrap(),
         Vector3::new(0.0, 1.0, 0.0),
     );
 }
@@ -38,10 +38,9 @@ fn depth_state_is_explicit_per_draw() {
     );
     assert!(
         renderer
-            .framebuffer()
-            .sample(16, 16)
+            .readback()
+            .sample_depth(16, 16)
             .unwrap()
-            .depth
             .is_infinite()
     );
 
@@ -59,7 +58,7 @@ fn depth_state_is_explicit_per_draw() {
         },
     );
     assert_vec3_approx(
-        renderer.framebuffer().get_pixel(16, 16).unwrap(),
+        renderer.readback().color(16, 16).unwrap(),
         Vector3::new(1.0, 0.0, 0.0),
     );
 
@@ -77,11 +76,11 @@ fn depth_state_is_explicit_per_draw() {
         },
     );
     assert_vec3_approx(
-        renderer.framebuffer().get_pixel(16, 16).unwrap(),
+        renderer.readback().color(16, 16).unwrap(),
         Vector3::new(0.0, 0.0, 1.0),
     );
 
-    let stored_depth = renderer.framebuffer().sample(16, 16).unwrap().depth;
+    let stored_depth = renderer.readback().sample_depth(16, 16).unwrap();
     draw_mesh(
         &mut renderer,
         &red,
@@ -93,11 +92,11 @@ fn depth_state_is_explicit_per_draw() {
         },
     );
     assert_vec3_approx(
-        renderer.framebuffer().get_pixel(16, 16).unwrap(),
+        renderer.readback().color(16, 16).unwrap(),
         Vector3::new(1.0, 0.0, 0.0),
     );
     assert_eq!(
-        renderer.framebuffer().sample(16, 16).unwrap().depth,
+        renderer.readback().sample_depth(16, 16).unwrap(),
         stored_depth
     );
 }
@@ -117,14 +116,14 @@ fn depth_only_color_target_runs_fragments_without_storing_color() {
     let mut renderer = TestRenderHarness::new(32, 32, 1);
 
     draw_mesh(&mut renderer, &mesh, &shader, Some(&masked), pipeline);
-    let discarded = renderer.framebuffer().sample(16, 16).unwrap();
-    assert!(discarded.depth.is_infinite());
-    assert_eq!(discarded.color, Vector3::zeros());
+    let discarded = renderer.readback();
+    assert!(discarded.sample_depth(16, 16).unwrap().is_infinite());
+    assert_eq!(discarded.sample_color(16, 16).unwrap(), Vector3::zeros());
 
     draw_mesh(&mut renderer, &mesh, &shader, None, pipeline);
-    let stored = renderer.framebuffer().sample(16, 16).unwrap();
-    assert!(stored.depth.is_finite());
-    assert_eq!(stored.color, Vector3::zeros());
+    let stored = renderer.readback();
+    assert!(stored.sample_depth(16, 16).unwrap().is_finite());
+    assert_eq!(stored.sample_color(16, 16).unwrap(), Vector3::zeros());
 }
 
 #[test]
@@ -138,33 +137,9 @@ fn triangle_crossing_near_plane_is_clipped_and_rendered() {
 
     let colored_pixels = (0..32)
         .flat_map(|y| (0..32).map(move |x| (x, y)))
-        .filter(|&(x, y)| {
-            renderer
-                .framebuffer()
-                .get_pixel(x, y)
-                .unwrap()
-                .norm_squared()
-                > 0.0
-        })
+        .filter(|&(x, y)| renderer.readback().color(x, y).unwrap().norm_squared() > 0.0)
         .count();
     assert!(colored_pixels > 0);
-}
-
-#[test]
-fn framebuffer_resolves_supersampled_pixels() {
-    let mut framebuffer = FrameBuffer::new(1, 1, 2).expect("test dimensions should be valid");
-    framebuffer.clear_with(f32::INFINITY, |x, y| match (x, y) {
-        (0, 0) => Vector3::new(1.0, 0.0, 0.0),
-        (1, 0) => Vector3::new(0.0, 1.0, 0.0),
-        (0, 1) => Vector3::new(0.0, 0.0, 1.0),
-        (1, 1) => Vector3::new(1.0, 1.0, 1.0),
-        _ => unreachable!(),
-    });
-
-    assert_vec3_approx(
-        framebuffer.get_pixel(0, 0).unwrap(),
-        Vector3::new(0.5, 0.5, 0.5),
-    );
 }
 
 #[test]
@@ -182,7 +157,7 @@ fn cull_mode_can_reject_one_winding() {
             ..Default::default()
         };
         draw_mesh(&mut renderer, &mesh, &shader, None, state);
-        renderer.framebuffer().get_pixel(16, 16).unwrap()
+        renderer.readback().color(16, 16).unwrap()
     };
 
     let back = render(CullMode::Back);
@@ -199,7 +174,7 @@ fn fragment_input_reports_triangle_facing() {
     let render = |mesh: &Mesh| {
         let mut renderer = TestRenderHarness::new(32, 32, 1);
         draw_mesh(&mut renderer, mesh, &shader, None, test_pipeline_state());
-        renderer.framebuffer().get_pixel(16, 16).unwrap()
+        renderer.readback().color(16, 16).unwrap()
     };
 
     assert_vec3_approx(render(&front_mesh), Vector3::new(0.0, 1.0, 0.0));
@@ -220,7 +195,7 @@ fn mirrored_front_face_inverts_culling_and_fragment_facing() {
             ..Default::default()
         };
         draw_mesh(&mut renderer, &mesh, &FacingShader, None, state);
-        renderer.framebuffer().get_pixel(16, 16).unwrap()
+        renderer.readback().color(16, 16).unwrap()
     };
 
     assert_vec3_approx(
@@ -257,10 +232,7 @@ fn triangle_rasterization_crosses_band_boundaries() {
     draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
 
     for y in [0, 15, 16, 31, 32, 47, 48, 63, 64, 69] {
-        assert_vec3_approx(
-            renderer.framebuffer().get_pixel(24, y).unwrap(),
-            color.xyz(),
-        );
+        assert_vec3_approx(renderer.readback().color(24, y).unwrap(), color.xyz());
     }
 }
 
@@ -299,10 +271,7 @@ fn top_left_rule_covers_shared_edge_once_without_cracks() {
 
     for coordinate in 0..size {
         assert_vec3_approx(
-            renderer
-                .framebuffer()
-                .get_pixel(coordinate, coordinate)
-                .unwrap(),
+            renderer.readback().color(coordinate, coordinate).unwrap(),
             Vector3::new(0.5, 0.0, 0.0),
         );
     }
@@ -329,14 +298,7 @@ fn wireframe_width_is_stable_in_pixel_space() {
         );
         (0..width)
             .flat_map(|y| (0..width).map(move |x| (x, y)))
-            .filter(|&(x, y)| {
-                renderer
-                    .framebuffer()
-                    .get_pixel(x, y)
-                    .unwrap()
-                    .norm_squared()
-                    > 0.0
-            })
+            .filter(|&(x, y)| renderer.readback().color(x, y).unwrap().norm_squared() > 0.0)
             .count()
     };
 
@@ -363,9 +325,9 @@ fn non_finite_clip_coordinates_are_rejected() {
         draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
         for y in 0..32 {
             for x in 0..32 {
-                let sample = renderer.framebuffer().sample(x, y).unwrap();
-                assert!(sample.depth.is_infinite());
-                assert_eq!(sample.color, Vector3::zeros());
+                let readback = renderer.readback();
+                assert!(readback.sample_depth(x, y).unwrap().is_infinite());
+                assert_eq!(readback.sample_color(x, y).unwrap(), Vector3::zeros());
             }
         }
     }
@@ -387,7 +349,7 @@ fn rasterizer_tracks_uv_density_per_texture_coordinate_set() {
         test_pipeline_state(),
     );
 
-    let density = renderer.framebuffer().get_pixel(16, 16).unwrap();
+    let density = renderer.readback().color(16, 16).unwrap();
     assert_eq!(density.x, 0.0);
     assert!(density.y > 0.0);
 }
@@ -421,8 +383,11 @@ fn overlapping_triangles_produce_deterministic_depth_and_color() {
         let mut renderer = TestRenderHarness::new(64, 64, 1);
         draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
 
-        let sample = renderer.framebuffer().sample(32, 32).unwrap();
-        assert_vec3_approx(sample.color, Vector3::new(0.0, 1.0, 0.0));
-        assert!((sample.depth - 0.05).abs() < 1e-5);
+        let readback = renderer.readback();
+        assert_vec3_approx(
+            readback.sample_color(32, 32).unwrap(),
+            Vector3::new(0.0, 1.0, 0.0),
+        );
+        assert!((readback.sample_depth(32, 32).unwrap() - 0.05).abs() < 1e-5);
     }
 }
