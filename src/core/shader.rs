@@ -6,7 +6,7 @@ use std::ops::{Add, Mul};
 ///
 /// Requirements:
 /// - Copy + Clone: cheaply duplicable values for per-vertex storage and interpolation.
-/// - Add + Mul<f32>: support linear combination (a + b * t) used by barycentric interpolation.
+/// - Add + `Mul<f32>`: support linear combination (a + b * t) used by barycentric interpolation.
 /// - Send + Sync: safe to use from multiple threads during parallel rasterization.
 pub trait Interpolatable:
     Copy + Clone + Add<Output = Self> + Mul<f32, Output = Self> + Send + Sync
@@ -53,7 +53,7 @@ where
 
     /// Vertex shader stage.
     ///
-    /// Transforms the given vertex into homogeneous clip space (Vector4<f32>) used by
+    /// Transforms the given vertex into homogeneous clip space (`Vector4<f32>`) used by
     /// clipping and perspective divide. Also returns the varying data associated with
     /// that vertex which will be interpolated across the primitive.
     ///

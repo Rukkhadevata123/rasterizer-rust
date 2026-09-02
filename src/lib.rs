@@ -1,8 +1,9 @@
 pub mod app;
 pub mod benchmark;
-pub mod core;
+pub(crate) mod core;
 pub mod error;
 pub mod io;
-pub mod pipeline;
+pub(crate) mod pipeline;
+pub mod render;
 pub mod scene;
 pub mod ui;

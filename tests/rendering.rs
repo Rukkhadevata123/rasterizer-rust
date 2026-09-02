@@ -1,26 +1,20 @@
 use image::{DynamicImage, RgbaImage};
 use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
-use rasterizer_rust::core::framebuffer::FrameBuffer;
-use rasterizer_rust::core::geometry::Vertex;
-use rasterizer_rust::core::pipeline_state::{
-    BlendState, ColorTargetState, CompareFunction, CullMode, DepthStencilState, FrontFace,
-    GraphicsPipeline, GraphicsPipelineState, PolygonMode, PrimitiveState, VertexProgramId,
-};
-use rasterizer_rust::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
-use rasterizer_rust::pipeline::passes::{
-    ResolveTonemapPassDescriptor, ShadowPassOutput, TonemapOperator, execute_resolve_tonemap_pass,
-    render_main_pass, render_shadow_pass,
-};
-use rasterizer_rust::pipeline::renderer::{
-    CommandEncoder, CommandError, FrameResources, GraphicsQueue, LoadOp, MainHdrTarget,
-    ObjectBindingId, Operations, PresentBuffer, RenderDevice, RenderPassDescriptor, RenderTarget,
-};
-use rasterizer_rust::pipeline::shaders::pbr::{
+use rasterizer_rust::render::builtin::pbr::{
     PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader, PbrVarying,
 };
-use rasterizer_rust::pipeline::shaders::shadow::{
+use rasterizer_rust::render::builtin::shadow::{
     ShadowDrawContext, ShadowFrameBindings, ShadowMaterialBindings, ShadowObjectBindings,
     ShadowShader,
+};
+use rasterizer_rust::render::{
+    BlendState, ColorTargetState, CommandEncoder, CommandError, CompareFunction, CullMode,
+    DepthStencilState, FragmentInput, FragmentOutput, FrameBuffer, FrameResources, FrontFace,
+    GraphicsPipeline, GraphicsPipelineState, GraphicsQueue, Interpolatable, LoadOp, MainHdrTarget,
+    ObjectBindingId, Operations, PolygonMode, PresentBuffer, PrimitiveState, RenderDevice,
+    RenderPassDescriptor, RenderTarget, ResolveTonemapPassDescriptor, Shader, ShadowPassOutput,
+    TonemapOperator, Vertex, VertexProgramId, execute_resolve_tonemap_pass, render_main_pass,
+    render_shadow_pass,
 };
 use rasterizer_rust::scene::camera::Camera;
 use rasterizer_rust::scene::context::{RenderScene, ShadowLight};
