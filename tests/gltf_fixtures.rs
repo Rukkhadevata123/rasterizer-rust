@@ -13,7 +13,7 @@ fn fixture_path(name: &str) -> PathBuf {
 }
 
 #[test]
-fn phase_6a_texture_bindings_share_images_and_preserve_metadata() {
+fn texture_bindings_share_images_and_preserve_metadata() {
     let gltf = gltf::Gltf::open(fixture_path("shared-image-textures.gltf"))
         .expect("shared image fixture should be valid glTF");
     let textures: Vec<_> = gltf.textures().collect();
@@ -79,7 +79,7 @@ fn phase_6a_texture_bindings_share_images_and_preserve_metadata() {
 }
 
 #[test]
-fn phase_6c_imports_two_uv_sets_for_material_bindings() {
+fn imports_two_uv_sets_for_material_bindings() {
     let model = load_gltf(fixture_path("shared-image-textures.gltf"), false)
         .expect("two-UV-set fixture should load");
     let vertices = &model.meshes[0].vertices;
@@ -103,7 +103,7 @@ fn phase_6c_imports_two_uv_sets_for_material_bindings() {
 }
 
 #[test]
-fn phase_6c_rejects_higher_uv_sets() {
+fn rejects_higher_uv_sets() {
     let path = fixture_path("unsupported-texcoord-set.gltf");
     let error = match load_gltf(&path, false) {
         Ok(_) => panic!("TEXCOORD_2 should be unsupported"),
@@ -123,7 +123,7 @@ fn phase_6c_rejects_higher_uv_sets() {
 }
 
 #[test]
-fn phase_6c_rejects_missing_uv_set_required_by_material() {
+fn rejects_missing_uv_set_required_by_material() {
     let path = fixture_path("missing-required-texcoord.gltf");
     let error = match load_gltf(&path, false) {
         Ok(_) => panic!("a required TEXCOORD_1 attribute should not be replaced with zeros"),
@@ -141,7 +141,7 @@ fn phase_6c_rejects_missing_uv_set_required_by_material() {
 }
 
 #[test]
-fn phase_6c_rejects_texture_transform_extension() {
+fn rejects_texture_transform_extension() {
     let path = fixture_path("texture-transform.gltf");
     let error = match load_gltf(&path, false) {
         Ok(_) => panic!("texture transforms should be explicit"),
@@ -161,7 +161,7 @@ fn phase_6c_rejects_texture_transform_extension() {
 }
 
 #[test]
-fn phase_6d_imports_core_material_factors() {
+fn imports_core_material_factors() {
     let model = load_gltf(fixture_path("shared-image-textures.gltf"), false)
         .expect("material-factor fixture should load");
     let rasterizer_rust::scene::material::Material::Pbr(material) = &model.materials[0];
@@ -180,7 +180,7 @@ fn phase_6d_imports_core_material_factors() {
 }
 
 #[test]
-fn phase_6d_rejects_unsupported_emissive_strength_extension() {
+fn rejects_unsupported_emissive_strength_extension() {
     let path = fixture_path("emissive-strength.gltf");
     let error = match load_gltf(&path, false) {
         Ok(_) => panic!("emissive-strength extension should not be silently ignored"),
@@ -200,7 +200,7 @@ fn phase_6d_rejects_unsupported_emissive_strength_extension() {
 }
 
 #[test]
-fn phase_4c_nested_nodes_with_plane_and_shadow_names_are_loaded() {
+fn nested_nodes_with_plane_and_shadow_names_are_loaded() {
     let gltf = gltf::Gltf::open(fixture_path("nested-named-nodes.gltf"))
         .expect("nested node fixture should be valid glTF");
     let root = gltf
@@ -227,7 +227,7 @@ fn phase_4c_nested_nodes_with_plane_and_shadow_names_are_loaded() {
 }
 
 #[test]
-fn phase_4c_supported_triangle_modes_are_converted_to_triangle_lists() {
+fn supported_triangle_modes_are_converted_to_triangle_lists() {
     let gltf = gltf::Gltf::open(fixture_path("triangle-modes.gltf"))
         .expect("triangle modes fixture should be valid glTF");
     let primitives: Vec<_> = gltf
@@ -284,7 +284,7 @@ fn mismatched_attributes_return_primitive_context() {
 }
 
 #[test]
-fn phase_4e_out_of_bounds_indices_return_primitive_context() {
+fn out_of_bounds_indices_return_primitive_context() {
     let path = fixture_path("invalid-index.gltf");
     gltf::Gltf::open(&path).unwrap_or_else(|error| {
         panic!("invalid-index.gltf should reach importer validation: {error}")
@@ -305,7 +305,7 @@ fn phase_4e_out_of_bounds_indices_return_primitive_context() {
 }
 
 #[test]
-fn phase_4e_missing_normals_are_generated_from_triangle_area() {
+fn missing_normals_are_generated_from_triangle_area() {
     let model = match load_gltf(fixture_path("triangle-modes.gltf"), false) {
         Ok(model) => model,
         Err(error) => panic!("triangle fixture should load: {error}"),
@@ -321,7 +321,7 @@ fn phase_4e_missing_normals_are_generated_from_triangle_area() {
 }
 
 #[test]
-fn phase_4e_invalid_attributes_return_contextual_errors() {
+fn invalid_attributes_return_contextual_errors() {
     let missing_position_path = fixture_path("missing-position.gltf");
     let missing_position_error = match load_gltf(&missing_position_path, false) {
         Ok(_) => panic!("missing-position.gltf should be rejected"),
@@ -356,7 +356,7 @@ fn phase_4e_invalid_attributes_return_contextual_errors() {
 }
 
 #[test]
-fn phase_6e_generates_mikktspace_tangents_for_normal_maps() {
+fn generates_mikktspace_tangents_for_normal_maps() {
     let model = load_gltf(fixture_path("normal-map-without-tangents.gltf"), false)
         .expect("normal-mapped geometry should generate missing tangents");
     let mesh = &model.meshes[0];
@@ -383,7 +383,7 @@ fn phase_6e_generates_mikktspace_tangents_for_normal_maps() {
 }
 
 #[test]
-fn phase_4c_unsupported_primitive_mode_returns_primitive_context() {
+fn unsupported_primitive_mode_returns_primitive_context() {
     for (name, expected_mode, diagnostic) in [
         (
             "unsupported-points.gltf",

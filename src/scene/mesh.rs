@@ -80,7 +80,7 @@ impl Mesh {
     }
 
     #[cfg(test)]
-    pub fn create_test_triangle(material_id: usize) -> Self {
+    pub(super) fn create_test_triangle(material_id: usize) -> Self {
         let vertices = vec![
             Vertex::new(
                 Point3::new(-0.5, -0.5, 0.0),
