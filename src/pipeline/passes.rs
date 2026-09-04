@@ -408,7 +408,6 @@ pub fn render_main_pass_profiled(
     let (background, color) = if let Some(texture) = bg_texture.as_deref() {
         (
             Some(BackgroundPass {
-                label: Some("image-background"),
                 source: BackgroundSource::Texture(texture),
             }),
             Vector3::zeros(),
@@ -421,7 +420,6 @@ pub fn render_main_pass_profiled(
     ) {
         (
             Some(BackgroundPass {
-                label: Some("gradient-background"),
                 source: BackgroundSource::Gradient {
                     top: Vector3::from(top),
                     bottom: Vector3::from(bottom),
