@@ -126,7 +126,7 @@ impl<'a, S, C> RenderPhase<'a, S, C> {
     /// Visible view-space Z values are negative, so ascending Z visits farther draws first.
     /// Insertion IDs make equal-depth draws deterministic. Later preparation, clipping, and
     /// band binning must preserve this resulting order for alpha blending to remain correct.
-    pub fn sort_transparent(&mut self) {
+    fn sort_transparent(&mut self) {
         self.commands.sort_by(|a, b| {
             a.sort_depth
                 .total_cmp(&b.sort_depth)

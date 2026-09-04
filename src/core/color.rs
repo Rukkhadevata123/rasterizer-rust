@@ -30,7 +30,7 @@ fn sanitize_linear_channel(value: f32) -> f32 {
 
 /// ACES (Academy Color Encoding System) filmic tone mapping curve.
 /// Maps high dynamic range (HDR) values to [0, 1] range with a film-like look.
-pub fn aces_tone_mapping(color: Vector3<f32>) -> Vector3<f32> {
+pub(crate) fn aces_tone_mapping(color: Vector3<f32>) -> Vector3<f32> {
     let color = color.map(sanitize_linear_channel);
     let a = 2.51;
     let b = 0.03;
@@ -46,12 +46,12 @@ pub fn aces_tone_mapping(color: Vector3<f32>) -> Vector3<f32> {
 }
 
 /// Converts linear RGB to sRGB using the standard piecewise transfer function.
-pub fn linear_to_srgb(color: Vector3<f32>) -> Vector3<f32> {
+pub(crate) fn linear_to_srgb(color: Vector3<f32>) -> Vector3<f32> {
     color.map(linear_channel_to_srgb)
 }
 
 /// Converts sRGB to linear RGB using the standard piecewise transfer function.
-pub fn srgb_to_linear(color: Vector3<f32>) -> Vector3<f32> {
+pub(crate) fn srgb_to_linear(color: Vector3<f32>) -> Vector3<f32> {
     color.map(srgb_channel_to_linear)
 }
 

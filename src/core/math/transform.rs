@@ -2,12 +2,12 @@ use nalgebra::{Matrix3, Matrix4, Point2, Point3, Vector3, Vector4};
 
 /// Factory for creating various transformation matrices.
 /// These explicit matrices keep the renderer's right-handed coordinate conventions visible.
-pub struct TransformFactory;
+pub(crate) struct TransformFactory;
 
 #[rustfmt::skip]
 impl TransformFactory {
     /// Creates a rotation matrix around the X-axis.
-    pub fn rotation_x(angle_rad: f32) -> Matrix4<f32> {
+    pub(crate) fn rotation_x(angle_rad: f32) -> Matrix4<f32> {
         let c = angle_rad.cos();
         let s = angle_rad.sin();
         Matrix4::new(
@@ -19,7 +19,7 @@ impl TransformFactory {
     }
 
     /// Creates a rotation matrix around the Y-axis.
-    pub fn rotation_y(angle_rad: f32) -> Matrix4<f32> {
+    pub(crate) fn rotation_y(angle_rad: f32) -> Matrix4<f32> {
         let c = angle_rad.cos();
         let s = angle_rad.sin();
         Matrix4::new(
@@ -31,7 +31,7 @@ impl TransformFactory {
     }
 
     /// Creates a rotation matrix around the Z-axis.
-    pub fn rotation_z(angle_rad: f32) -> Matrix4<f32> {
+    pub(crate) fn rotation_z(angle_rad: f32) -> Matrix4<f32> {
         let c = angle_rad.cos();
         let s = angle_rad.sin();
         Matrix4::new(
@@ -43,7 +43,7 @@ impl TransformFactory {
     }
 
     /// Creates a translation matrix.
-    pub fn translation(translation: &Vector3<f32>) -> Matrix4<f32> {
+    pub(crate) fn translation(translation: &Vector3<f32>) -> Matrix4<f32> {
         Matrix4::new(
             1.0, 0.0, 0.0, translation.x,
             0.0, 1.0, 0.0, translation.y,
@@ -53,7 +53,7 @@ impl TransformFactory {
     }
 
     /// Creates a non-uniform scaling matrix.
-    pub fn scaling_nonuniform(scale: &Vector3<f32>) -> Matrix4<f32> {
+    pub(crate) fn scaling_nonuniform(scale: &Vector3<f32>) -> Matrix4<f32> {
         Matrix4::new(
             scale.x, 0.0,     0.0,     0.0,
             0.0,     scale.y, 0.0,     0.0,
@@ -64,7 +64,7 @@ impl TransformFactory {
 
     /// Creates a View matrix (Look-At, Right-Handed).
     /// Transforms world space coordinates to camera/view space.
-    pub fn view(eye: &Point3<f32>, target: &Point3<f32>, up: &Vector3<f32>) -> Matrix4<f32> {
+    pub(crate) fn view(eye: &Point3<f32>, target: &Point3<f32>, up: &Vector3<f32>) -> Matrix4<f32> {
         // In RHS, camera looks down -Z
         let z_axis = (eye - target).normalize(); 
         let x_axis = up.cross(&z_axis).normalize();
@@ -86,7 +86,7 @@ impl TransformFactory {
 
     /// Creates a Perspective Projection matrix (Right-Handed).
     /// Maps view frustum to NDC [-1, 1].
-    pub fn perspective(aspect_ratio: f32, fov_y_rad: f32, near: f32, far: f32) -> Matrix4<f32> {
+    pub(crate) fn perspective(aspect_ratio: f32, fov_y_rad: f32, near: f32, far: f32) -> Matrix4<f32> {
         let f = 1.0 / (fov_y_rad / 2.0).tan();
         let nf = 1.0 / (near - far);
 
@@ -99,7 +99,7 @@ impl TransformFactory {
     }
 
     /// Creates an Orthographic Projection matrix (Right-Handed).
-    pub fn orthographic(
+    pub(crate) fn orthographic(
         left: f32,
         right: f32,
         bottom: f32,
@@ -122,7 +122,7 @@ impl TransformFactory {
 
 /// Performs perspective division from clip space to NDC.
 #[inline]
-pub fn apply_perspective_division(clip: &Vector4<f32>) -> Point3<f32> {
+pub(crate) fn apply_perspective_division(clip: &Vector4<f32>) -> Point3<f32> {
     let w = clip.w;
     if w.abs() > 1e-6 {
         Point3::new(clip.x / w, clip.y / w, clip.z / w)
@@ -133,7 +133,7 @@ pub fn apply_perspective_division(clip: &Vector4<f32>) -> Point3<f32> {
 
 /// Converts NDC coordinates to screen coordinates, flipping NDC +Y into screen -Y.
 #[inline]
-pub fn ndc_to_screen(ndc_x: f32, ndc_y: f32, width: f32, height: f32) -> Point2<f32> {
+pub(crate) fn ndc_to_screen(ndc_x: f32, ndc_y: f32, width: f32, height: f32) -> Point2<f32> {
     Point2::new(
         (ndc_x + 1.0) * 0.5 * width,
         (1.0 - (ndc_y + 1.0) * 0.5) * height,

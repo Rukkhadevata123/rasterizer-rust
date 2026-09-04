@@ -10,7 +10,7 @@ const EPSILON: f32 = 1e-5;
 ///   alpha' = wa / sum, ...
 ///
 /// Returns `None` when numerical instability is detected (sum near zero).
-pub fn perspective_correct_barycentric(
+pub(crate) fn perspective_correct_barycentric(
     bary: Vector3<f32>,
     w1: f32,
     w2: f32,
