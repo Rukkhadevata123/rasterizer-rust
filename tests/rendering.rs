@@ -192,34 +192,6 @@ impl<'a> Shader<Option<&'a Material>> for FacingShader {
 }
 
 #[derive(Clone, Copy)]
-struct AdditiveCoverageShader;
-
-impl<'a> Shader<Option<&'a Material>> for AdditiveCoverageShader {
-    type Varying = ColorVarying;
-
-    fn vertex(
-        &self,
-        vertex: &Vertex,
-        _material: Option<&'a Material>,
-    ) -> (Vector4<f32>, Self::Varying) {
-        (
-            Vector4::new(vertex.position.x, vertex.position.y, vertex.position.z, 1.0),
-            ColorVarying {
-                color: vertex.tangent,
-            },
-        )
-    }
-
-    fn fragment(
-        &self,
-        input: FragmentInput<Self::Varying>,
-        _material: Option<&'a Material>,
-    ) -> FragmentOutput {
-        FragmentOutput::Color(input.varying.color)
-    }
-}
-
-#[derive(Clone, Copy)]
 struct NonFiniteClipShader {
     clip: Vector4<f32>,
 }

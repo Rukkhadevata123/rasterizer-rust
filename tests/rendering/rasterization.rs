@@ -127,22 +127,6 @@ fn depth_only_color_target_runs_fragments_without_storing_color() {
 }
 
 #[test]
-fn triangle_crossing_near_plane_is_clipped_and_rendered() {
-    let shader = ClipSpaceShader;
-    let mut renderer = TestRenderHarness::new(32, 32, 1);
-
-    let mut mesh = triangle(0.0, Vector4::new(1.0, 0.0, 1.0, 1.0));
-    mesh.vertices[0].position.z = -2.0;
-    draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
-
-    let colored_pixels = (0..32)
-        .flat_map(|y| (0..32).map(move |x| (x, y)))
-        .filter(|&(x, y)| renderer.readback().color(x, y).unwrap().norm_squared() > 0.0)
-        .count();
-    assert!(colored_pixels > 0);
-}
-
-#[test]
 fn cull_mode_can_reject_one_winding() {
     let shader = ClipSpaceShader;
     let mesh = triangle(0.0, Vector4::new(1.0, 1.0, 1.0, 1.0));
@@ -211,70 +195,6 @@ fn mirrored_front_face_inverts_culling_and_fragment_facing() {
         render(CullMode::Back, FrontFace::Clockwise),
         Vector3::zeros()
     );
-}
-
-#[test]
-fn triangle_rasterization_crosses_band_boundaries() {
-    let shader = ClipSpaceShader;
-    let color = Vector4::new(0.2, 0.4, 0.8, 1.0);
-    let mut vertices = vec![
-        Vertex::new(Point3::new(-1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(-1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
-    ];
-    for vertex in &mut vertices {
-        vertex.tangent = color;
-    }
-    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
-    let mut renderer = TestRenderHarness::new(48, 70, 1);
-
-    draw_mesh(&mut renderer, &mesh, &shader, None, test_pipeline_state());
-
-    for y in [0, 15, 16, 31, 32, 47, 48, 63, 64, 69] {
-        assert_vec3_approx(renderer.readback().color(24, y).unwrap(), color.xyz());
-    }
-}
-
-#[test]
-fn top_left_rule_covers_shared_edge_once_without_cracks() {
-    let shader = AdditiveCoverageShader;
-    let color = Vector4::new(1.0, 0.0, 0.0, 0.5);
-    let size = 257;
-    let mut vertices = vec![
-        Vertex::new(Point3::new(-1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(-1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
-    ];
-    for vertex in &mut vertices {
-        vertex.tangent = color;
-    }
-    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
-    let mut renderer = TestRenderHarness::new(size, size, 1);
-    draw_mesh(
-        &mut renderer,
-        &mesh,
-        &shader,
-        None,
-        GraphicsPipelineState {
-            color_target: Some(ColorTargetState {
-                blend: Some(BlendState::Alpha),
-            }),
-            depth_stencil: Some(DepthStencilState {
-                depth_compare: CompareFunction::Always,
-                depth_write_enabled: false,
-            }),
-            ..test_pipeline_state()
-        },
-    );
-
-    for coordinate in 0..size {
-        assert_vec3_approx(
-            renderer.readback().color(coordinate, coordinate).unwrap(),
-            Vector3::new(0.5, 0.0, 0.0),
-        );
-    }
 }
 
 #[test]

@@ -1,5 +1,8 @@
 use super::*;
-use crate::core::pipeline_state::{CullMode, PolygonMode, PrimitiveState, VertexProgramId};
+use crate::core::pipeline_state::{
+    BlendState, ColorTargetState, CompareFunction, CullMode, DepthStencilState, PolygonMode,
+    PrimitiveState, VertexProgramId,
+};
 use crate::core::shader::{FragmentInput, FragmentOutput, Interpolatable};
 use nalgebra::{Matrix4, Point3, Vector2};
 use std::ops::{Add, Mul};
@@ -36,6 +39,26 @@ impl Interpolatable for ColorVarying {}
 struct ClipSpaceShader;
 
 impl Shader<()> for ClipSpaceShader {
+    type Varying = ColorVarying;
+
+    fn vertex(&self, vertex: &Vertex, _context: ()) -> (Vector4<f32>, Self::Varying) {
+        (
+            vertex.position.to_homogeneous(),
+            ColorVarying {
+                color: vertex.tangent,
+            },
+        )
+    }
+
+    fn fragment(&self, input: FragmentInput<Self::Varying>, _context: ()) -> FragmentOutput {
+        FragmentOutput::Color(input.varying.color)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct AdditiveCoverageShader;
+
+impl Shader<()> for AdditiveCoverageShader {
     type Varying = ColorVarying;
 
     fn vertex(&self, vertex: &Vertex, _context: ()) -> (Vector4<f32>, Self::Varying) {
@@ -241,6 +264,19 @@ fn triangle(z: f32, color: Vector4<f32>) -> Mesh {
     Mesh::new(vertices, vec![0, 1, 2], 0)
 }
 
+fn full_screen_quad(color: Vector4<f32>) -> Mesh {
+    let mut vertices = vec![
+        Vertex::new(Point3::new(-1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(Point3::new(-1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
+    ];
+    for vertex in &mut vertices {
+        vertex.tangent = color;
+    }
+    Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0)
+}
+
 fn assert_vec3_approx(actual: Vector3<f32>, expected: Vector3<f32>) {
     assert!(
         (actual - expected).norm() < 1e-4,
@@ -255,6 +291,98 @@ fn test_pipeline_state() -> GraphicsPipelineState {
             ..Default::default()
         },
         ..Default::default()
+    }
+}
+
+fn execute_mesh<S>(
+    renderer: &mut BackendTestHarness,
+    mesh: &Mesh,
+    shader: S,
+    state: GraphicsPipelineState,
+) where
+    S: Shader<()>,
+{
+    let pipeline = GraphicsPipeline::new(shader, state, VertexProgramId::from_pass_index(0));
+    let mut phase = RenderPhase::default();
+    phase.push(
+        &pipeline,
+        RenderGeometry::Mesh(mesh),
+        (),
+        ObjectBindingId::from_pass_index(0),
+        0.0,
+    );
+    renderer
+        .backend
+        .execute_phase_profiled(&mut renderer.target, &phase);
+}
+
+#[test]
+fn triangle_crossing_near_plane_is_clipped_and_rendered() {
+    let mut mesh = triangle(0.0, Vector4::new(1.0, 0.0, 1.0, 1.0));
+    mesh.vertices[0].position.z = -2.0;
+    let mut renderer = BackendTestHarness::new(32, 32);
+
+    execute_mesh(&mut renderer, &mesh, ClipSpaceShader, test_pipeline_state());
+
+    let colored_pixels = (0..32)
+        .flat_map(|y| (0..32).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            renderer
+                .framebuffer()
+                .get_pixel(x, y)
+                .is_some_and(|color| color.norm_squared() > 0.0)
+        })
+        .count();
+    assert!(colored_pixels > 0);
+}
+
+#[test]
+fn triangle_rasterization_crosses_band_boundaries() {
+    let color = Vector4::new(0.2, 0.4, 0.8, 1.0);
+    let mesh = full_screen_quad(color);
+    let mut renderer = BackendTestHarness::new(48, 70);
+
+    execute_mesh(&mut renderer, &mesh, ClipSpaceShader, test_pipeline_state());
+
+    for y in [0, 15, 16, 31, 32, 47, 48, 63, 64, 69] {
+        assert_vec3_approx(
+            renderer.framebuffer().get_pixel(24, y).unwrap(),
+            color.xyz(),
+        );
+    }
+}
+
+#[test]
+fn top_left_rule_covers_shared_edge_once_without_cracks() {
+    let color = Vector4::new(1.0, 0.0, 0.0, 0.5);
+    let size = 257;
+    let mesh = full_screen_quad(color);
+    let mut renderer = BackendTestHarness::new(size, size);
+
+    execute_mesh(
+        &mut renderer,
+        &mesh,
+        AdditiveCoverageShader,
+        GraphicsPipelineState {
+            color_target: Some(ColorTargetState {
+                blend: Some(BlendState::Alpha),
+            }),
+            depth_stencil: Some(DepthStencilState {
+                depth_compare: CompareFunction::Always,
+                depth_write_enabled: false,
+            }),
+            ..test_pipeline_state()
+        },
+    );
+
+    for coordinate in 0..size {
+        assert_vec3_approx(
+            renderer
+                .framebuffer()
+                .get_pixel(coordinate, coordinate)
+                .unwrap(),
+            Vector3::new(0.5, 0.0, 0.0),
+        );
     }
 }
 
