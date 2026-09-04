@@ -13,6 +13,7 @@ include = [
     "/assets/licenses/**",
     "/benchmarks/fixtures/transparent-triangle.gltf",
     "/docs/images/**",
+    "/docs/render-api-5.md",
     "/examples/**",
     "/src/**",
     "/tests/**",
