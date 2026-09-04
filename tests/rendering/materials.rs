@@ -509,6 +509,7 @@ fn pbr_vertex_preserves_tangent_frame_under_mirrored_non_uniform_scale() {
         Point3::new(0.0, 0.0, 2.0),
     );
     let object = PbrObjectBindings::new(model);
+    assert_eq!(object.model_matrix(), model);
     let material = PbrMaterial::default();
     let context = PbrDrawContext::new(&frame, &object, PbrMaterialBindings::from_pbr(&material));
     let mut vertex = Vertex::new(Point3::origin(), Vector3::z(), Vector2::zeros());

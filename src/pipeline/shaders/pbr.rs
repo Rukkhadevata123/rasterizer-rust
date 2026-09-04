@@ -130,7 +130,7 @@ impl<'a> PbrFrameBindings<'a> {
 
 #[derive(Clone, Copy)]
 pub struct PbrObjectBindings {
-    pub model_matrix: Matrix4<f32>,
+    model_matrix: Matrix4<f32>,
     tangent_frame_transform: TangentFrameTransform,
 }
 
@@ -138,6 +138,11 @@ impl PbrObjectBindings {
     pub fn new(model_matrix: Matrix4<f32>) -> Self {
         let model_3x3 = model_matrix.fixed_view::<3, 3>(0, 0).into_owned();
         Self::new_with_tangent_frame_transform(model_matrix, TangentFrameTransform::new(model_3x3))
+    }
+
+    /// Returns the immutable object transform used to derive this binding's tangent frame.
+    pub fn model_matrix(&self) -> Matrix4<f32> {
+        self.model_matrix
     }
 
     pub(crate) fn new_with_tangent_frame_transform(
