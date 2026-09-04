@@ -10,11 +10,9 @@ inventory only in the explicitly historical section below.
 the API described here is therefore the implemented 5.0 target, not a claim that 5.0.0 has already
 been published.
 
-One packaging decision remains before release: `app`, `benchmark`, `error`, and `ui` are still
-publicly reachable because the bundled binary consumes them through the library crate. They are
-tooling surfaces, not alternate rendering APIs, but Rust semver still treats them as public. Before
-the version bump, either move them behind a binary-local boundary or explicitly accept and document
-them as supported public modules.
+The bundled application, benchmark runner, window input, and combined CLI errors are binary-local
+modules. They consume the same public library surface as external users and are not part of the
+versioned library API.
 
 ## Implemented Decision
 
@@ -245,8 +243,7 @@ Final audit state:
 - [x] command/resource invariants are protected by private fields or validated construction;
 - [x] synchronous submission, readback, transparent ordering, and timing ownership are documented;
 - [x] the final rustdoc/public item audit was run against the Phase 11.0 decision;
-- [ ] decide whether the currently public binary/tooling modules (`app`, `benchmark`, `error`,
-  and `ui`) move behind a non-library boundary or become an explicitly supported 5.0 surface.
+- [x] application, benchmark, error aggregation, and window-input tooling are binary-local modules.
 
 Optional direct shadow views, persistent generation-checked resources, heterogeneous frame-wide
 command streams, output polymorphism, and a frame graph remain outside the required 5.0

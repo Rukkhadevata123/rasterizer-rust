@@ -1,23 +1,21 @@
 //! Application loops for the package's headless renderer and interactive viewer.
 //!
-//! These entry points are executable tooling built on [`crate::render`], not an alternate library
-//! rendering API.
+//! These entry points are executable tooling built on [`rasterizer_rust::render`].
 
-use crate::core::pipeline_state::{CullMode, GraphicsPipelineState, PolygonMode, PrimitiveState};
 use crate::error::{ApplicationError, WindowError};
-use crate::io::config::{Config, CullModeConfig, RenderConfig};
-use crate::io::image::save_buffer_to_image;
-use crate::pipeline::passes::{
-    ResolveTonemapPassDescriptor, TonemapOperator, execute_resolve_tonemap_pass, render_main_pass,
-    render_shadow_pass,
-};
-use crate::pipeline::renderer::{
-    FrameResources, MainHdrTarget, PresentBuffer, RenderDevice, RenderTarget,
-};
-use crate::scene::loader::{build_lights_from_config, init_scene_resources, update_scene_objects};
 use crate::ui::input::CameraController;
 use log::{debug, info, warn};
 use minifb::{Key, MouseButton, Window, WindowOptions};
+use rasterizer_rust::io::config::{Config, CullModeConfig, RenderConfig};
+use rasterizer_rust::io::image::save_buffer_to_image;
+use rasterizer_rust::render::{
+    CullMode, FrameResources, GraphicsPipelineState, MainHdrTarget, PolygonMode, PresentBuffer,
+    PrimitiveState, RenderDevice, RenderTarget, ResolveTonemapPassDescriptor, TonemapOperator,
+    execute_resolve_tonemap_pass, render_main_pass, render_shadow_pass,
+};
+use rasterizer_rust::scene::loader::{
+    build_lights_from_config, init_scene_resources, update_scene_objects,
+};
 use std::time::Instant;
 
 fn cull_mode_index(mode: CullModeConfig) -> usize {
@@ -492,7 +490,8 @@ mod tests {
         assert_resource_reload(&count);
 
         let mut normalization = current.clone();
-        normalization.objects[0].normalization = crate::io::config::ModelNormalization::Preserve;
+        normalization.objects[0].normalization =
+            rasterizer_rust::io::config::ModelNormalization::Preserve;
         assert_resource_reload(&normalization);
 
         let mut mip_policy = current.clone();

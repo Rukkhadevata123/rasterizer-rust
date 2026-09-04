@@ -1,9 +1,7 @@
-use crate::core::framebuffer::RenderTargetError;
-use crate::io::ImageOutputError;
-use crate::io::config::{ConfigError, ConfigValidationError};
-use crate::pipeline::renderer::PresentBufferError;
-use crate::render::ResolveTonemapError;
-use crate::scene::AssetError;
+use rasterizer_rust::io::ImageOutputError;
+use rasterizer_rust::io::config::{ConfigError, ConfigValidationError};
+use rasterizer_rust::render::{PresentBufferError, RenderTargetError, ResolveTonemapError};
+use rasterizer_rust::scene::AssetError;
 use std::path::PathBuf;
 use thiserror::Error;
 

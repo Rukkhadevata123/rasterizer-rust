@@ -3,19 +3,17 @@
 //! New reports use CSV schema v2. Timing classes separate pass setup, command recording,
 //! attachment processing, backend preparation, rasterization, inclusive synchronous submission,
 //! post-processing, and complete-frame duration. This tooling module is not an alternate render
-//! submission API; measured frames use [`crate::render`] internally.
+//! submission API; measured frames use [`rasterizer_rust::render`] internally.
 
-use crate::core::pipeline_state::{CullMode, GraphicsPipelineState, PolygonMode, PrimitiveState};
 use crate::error::{ApplicationError, BenchmarkError};
-use crate::io::config::{Config, CullModeConfig};
-use crate::pipeline::passes::{
-    ResolveTonemapPassDescriptor, TonemapOperator, execute_resolve_tonemap_pass,
-    render_main_pass_profiled, render_shadow_pass_profiled,
+use rasterizer_rust::io::config::{Config, CullModeConfig};
+use rasterizer_rust::render::{
+    CullMode, FrameResources, GraphicsPipelineState, GraphicsQueue, MainHdrTarget, PolygonMode,
+    PresentBuffer, PrimitiveState, RenderDevice, RenderTarget, ResolveTonemapPassDescriptor,
+    TonemapOperator, execute_resolve_tonemap_pass, render_main_pass_profiled,
+    render_shadow_pass_profiled,
 };
-use crate::pipeline::renderer::{
-    FrameResources, GraphicsQueue, MainHdrTarget, PresentBuffer, RenderDevice, RenderTarget,
-};
-use crate::scene::loader::init_scene_resources;
+use rasterizer_rust::scene::loader::init_scene_resources;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -281,7 +279,7 @@ pub fn run_benchmark(
 
 fn render_profiled_frame(
     config: &Config,
-    context: &crate::scene::context::RenderScene,
+    context: &rasterizer_rust::scene::context::RenderScene,
     queue: &mut GraphicsQueue,
     targets: (&mut RenderTarget, &mut MainHdrTarget),
     resources: &mut FrameResources,

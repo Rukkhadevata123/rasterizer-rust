@@ -1,6 +1,6 @@
-use crate::scene::camera::{Camera, ProjectionType};
 use minifb::{Key, MouseButton, MouseMode, Window};
 use nalgebra::Vector3;
+use rasterizer_rust::scene::camera::{Camera, ProjectionType};
 use std::f32::consts::PI;
 
 pub struct CameraController {

@@ -65,10 +65,14 @@ src
 │   ├── texture.rs     # Image resources, sampler state, bindings & mipmapping
 │   ├── light.rs       # Lighting definitions
 │   └── loader.rs      # Resource management & Hot-reloading
-├── io                 # File I/O
+├── io                 # Public file I/O
 │   ├── gltf_loader.rs # Robust glTF 2.0 asset importer
 │   └── config.rs      # TOML-based scene configuration
-└── app.rs             # Application control loops
+├── main.rs             # Binary entry point
+├── app.rs              # Binary-local application control loops
+├── benchmark.rs        # Binary-local benchmark runner
+├── error.rs            # Binary-local error aggregation
+└── ui                   # Binary-local window input
 ```
 
 ## Getting Started

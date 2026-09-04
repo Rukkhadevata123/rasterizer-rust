@@ -1,8 +1,12 @@
+mod app;
+mod benchmark;
+mod error;
+mod ui;
+
+use crate::benchmark::{BenchmarkOptions, run_benchmark};
+use crate::error::ApplicationError;
 use clap::Parser;
 use log::info;
-use rasterizer_rust::app;
-use rasterizer_rust::benchmark::{BenchmarkOptions, run_benchmark};
-use rasterizer_rust::error::ApplicationError;
 use rasterizer_rust::io::config::Config;
 use std::process::ExitCode;
 
