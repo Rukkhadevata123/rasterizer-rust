@@ -1,6 +1,5 @@
 use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
 use crate::core::math::transform::TangentFrameTransform;
-use crate::error::{GltfError, PrimitiveContext};
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use crate::scene::mesh::Mesh;
 use crate::scene::model::Model;
@@ -13,8 +12,63 @@ use log::info;
 use mikktspace::Geometry;
 use nalgebra::{Matrix4, Point3, Quaternion, UnitQuaternion, Vector2, Vector3, Vector4};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum GltfError {
+    #[error("failed to import glTF '{}': {source}", path.display())]
+    Import {
+        path: PathBuf,
+        #[source]
+        source: Box<gltf::Error>,
+    },
+    #[error("glTF '{}' contains no scenes", path.display())]
+    NoScene { path: PathBuf },
+    #[error("glTF '{}' contains no meshes", path.display())]
+    NoMeshes { path: PathBuf },
+    #[error("unsupported feature in glTF '{}': {reason}", path.display())]
+    Unsupported { path: PathBuf, reason: String },
+    #[error(
+        "failed to process glTF '{}' scene {}, node {} ({}), mesh {}, primitive {}: {}",
+        context.path.display(),
+        context.scene_index,
+        context.node_index,
+        context.node_name,
+        context.mesh_index,
+        context.primitive_index,
+        context.reason
+    )]
+    Primitive { context: Box<PrimitiveContext> },
+    #[error("failed to process image {image_index} in glTF '{}': {reason}", path.display())]
+    Image {
+        path: PathBuf,
+        image_index: usize,
+        reason: String,
+    },
+    #[error(
+        "failed to resolve texture {texture_index} for material {material_index:?} in glTF '{}': source image {source_image_index} is unavailable",
+        path.display()
+    )]
+    Texture {
+        path: PathBuf,
+        material_index: Option<usize>,
+        texture_index: usize,
+        source_image_index: usize,
+    },
+}
+
+#[derive(Debug)]
+pub struct PrimitiveContext {
+    pub path: PathBuf,
+    pub scene_index: usize,
+    pub node_index: usize,
+    pub node_name: String,
+    pub mesh_index: usize,
+    pub primitive_index: usize,
+    pub reason: String,
+}
 
 /// Loads a GLTF/GLB file, baking node transforms into mesh vertices.
 /// Returns a single Model where all meshes share the same root coordinate system.

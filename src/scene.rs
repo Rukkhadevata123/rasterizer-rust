@@ -14,3 +14,5 @@ pub mod model;
 pub mod scene_object;
 pub mod texture;
 pub mod utils;
+
+pub use loader::AssetError;

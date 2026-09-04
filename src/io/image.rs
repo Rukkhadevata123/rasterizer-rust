@@ -1,6 +1,26 @@
-use crate::error::ImageOutputError;
 use image::ImageBuffer;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ImageOutputError {
+    #[error("image dimensions {width}x{height} exceed the PNG format limits")]
+    InvalidDimensions { width: usize, height: usize },
+    #[error("image buffer length is {actual}, expected {expected} pixels")]
+    BufferLength { expected: usize, actual: usize },
+    #[error("failed to create output directory '{}': {source}", path.display())]
+    CreateParent {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to save image '{}': {source}", path.display())]
+    Save {
+        path: PathBuf,
+        #[source]
+        source: image::ImageError,
+    },
+}
 
 /// Saves a u32 (0RGB) buffer to a PNG file.
 pub fn save_buffer_to_image<P: AsRef<Path>>(

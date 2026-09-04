@@ -6,3 +6,6 @@
 pub mod config;
 pub mod gltf_loader;
 pub mod image;
+
+pub use gltf_loader::{GltfError, PrimitiveContext};
+pub use image::ImageOutputError;

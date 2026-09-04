@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use nalgebra::{Vector2, Vector3};
-use rasterizer_rust::error::GltfError;
+use rasterizer_rust::io::GltfError;
 use rasterizer_rust::io::gltf_loader::load_gltf;
 use rasterizer_rust::scene::material::AlphaMode;
 use rasterizer_rust::scene::texture::{MagFilter, MinFilter, TexCoordSet, TextureUsage, WrapMode};

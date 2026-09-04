@@ -1,7 +1,6 @@
 use crate::core::math::transform::TransformFactory;
-use crate::error::AssetError;
 use crate::io::config::{Config, LightKind, ModelNormalization, ObjectConfig, ProjectionMode};
-use crate::io::gltf_loader::load_gltf;
+use crate::io::gltf_loader::{GltfError, load_gltf};
 use crate::scene::camera::Camera;
 use crate::scene::context::{RenderScene, ShadowLight};
 use crate::scene::light::Light;
@@ -12,6 +11,25 @@ use crate::scene::scene_object::{SceneObject, SceneObjectKind};
 use crate::scene::utils::{center_model, normalize_and_center_model};
 use log::info;
 use nalgebra::{Point3, Vector3};
+use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum AssetError {
+    #[error("failed to load object {object_index} from '{}': {source}", path.display())]
+    Model {
+        object_index: usize,
+        path: PathBuf,
+        #[source]
+        source: GltfError,
+    },
+    #[error("failed to load background image '{}': {source}", path.display())]
+    BackgroundImage {
+        path: PathBuf,
+        #[source]
+        source: image::ImageError,
+    },
+}
 
 /// Rebuilds the light list and selects the first directional shadow caster.
 pub fn build_lights_from_config(config: &Config) -> (Vec<Light>, Option<ShadowLight>) {

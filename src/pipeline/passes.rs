@@ -4,7 +4,6 @@ use crate::core::pipeline_state::{
     BlendState, ColorTargetState, CullMode, DepthStencilState, FrontFace, GraphicsPipeline,
     GraphicsPipelineState, PrimitiveState, VertexProgramId,
 };
-use crate::error::{AssetError, ResolveTonemapError};
 use crate::io::config::Config;
 use crate::pipeline::renderer::{
     BackgroundPass, BackgroundSource, FrameResources, GraphicsQueue, LoadOp, MainHdrTarget,
@@ -18,12 +17,14 @@ use crate::pipeline::shaders::shadow::{
     ShadowDrawContext, ShadowFrameBindings, ShadowMaterialBindings, ShadowObjectBindings,
     ShadowShader,
 };
+use crate::scene::AssetError;
 use crate::scene::context::RenderScene;
 use crate::scene::material::{AlphaMode, Material, PbrMaterial};
 use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use thiserror::Error;
 
 struct ShadowMapOutput {
     depth: Arc<Vec<f32>>,
@@ -670,6 +671,24 @@ pub enum TonemapOperator {
     Aces,
 }
 
+#[derive(Debug, Error, PartialEq)]
+pub enum ResolveTonemapError {
+    #[error(
+        "resolve-tonemap pass '{label}' source dimensions {source_width}x{source_height} do not match destination dimensions {destination_width}x{destination_height}"
+    )]
+    DimensionMismatch {
+        label: String,
+        source_width: usize,
+        source_height: usize,
+        destination_width: usize,
+        destination_height: usize,
+    },
+    #[error(
+        "resolve-tonemap pass '{label}' exposure must be finite and non-negative, got {exposure}"
+    )]
+    InvalidExposure { label: String, exposure: f32 },
+}
+
 pub struct ResolveTonemapPassDescriptor<'a> {
     pub label: Option<&'a str>,
     pub source: &'a MainHdrTarget,
@@ -735,7 +754,6 @@ pub fn execute_resolve_tonemap_pass(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::ResolveTonemapError;
     use crate::pipeline::renderer::PresentBuffer;
 
     fn pack(color: Vector3<f32>) -> u32 {

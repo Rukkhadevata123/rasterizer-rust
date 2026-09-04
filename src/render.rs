@@ -18,11 +18,10 @@ pub use crate::core::pipeline_state::{
     VertexProgramId,
 };
 pub use crate::core::shader::{FragmentInput, FragmentOutput, Interpolatable, Shader};
-pub use crate::error::ResolveTonemapError;
 pub use crate::pipeline::passes::{
-    MainPassTimings, ResolveTonemapPassDescriptor, ShadowPassOutput, ShadowPassTimings,
-    TonemapOperator, execute_resolve_tonemap_pass, render_main_pass, render_main_pass_profiled,
-    render_shadow_pass, render_shadow_pass_profiled,
+    MainPassTimings, ResolveTonemapError, ResolveTonemapPassDescriptor, ShadowPassOutput,
+    ShadowPassTimings, TonemapOperator, execute_resolve_tonemap_pass, render_main_pass,
+    render_main_pass_profiled, render_shadow_pass, render_shadow_pass_profiled,
 };
 pub use crate::pipeline::renderer::{
     BackgroundPass, BackgroundSource, CommandBuffer, CommandEncoder, CommandError, FrameResources,
