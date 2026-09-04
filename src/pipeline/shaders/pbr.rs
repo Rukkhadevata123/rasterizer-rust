@@ -7,6 +7,7 @@ use crate::scene::texture::TextureBinding;
 use nalgebra::{Matrix3, Matrix4, Point3, Vector2, Vector3, Vector4};
 use std::f32::consts::PI;
 use std::ops::{Add, Mul};
+use thiserror::Error;
 
 fn base_color(material: &PbrMaterial, texel: Option<Vector4<f32>>) -> (Vector3<f32>, f32) {
     let texel = texel.unwrap_or_else(|| Vector4::repeat(1.0));
@@ -88,20 +89,94 @@ impl Interpolatable for PbrVarying {
 }
 
 #[derive(Clone, Copy, Debug)]
+pub struct PbrShadowBindingsDescriptor<'a> {
+    pub depth: &'a [f32],
+    pub size: usize,
+    pub light_index: usize,
+    pub light_space_matrix: Matrix4<f32>,
+    pub constant_bias: f32,
+    pub slope_bias: f32,
+    pub use_pcf: bool,
+    pub pcf_kernel_size: i32,
+}
+
+#[derive(Clone, Copy, Debug, Error, PartialEq)]
+pub enum PbrShadowBindingsError {
+    #[error("shadow map size {size} does not match its {actual_len}-element depth buffer")]
+    InvalidMapDimensions { size: usize, actual_len: usize },
+    #[error("shadow light-space matrix must contain only finite values")]
+    NonFiniteLightSpaceMatrix,
+    #[error("shadow {field} must be finite and non-negative, got {value}")]
+    InvalidBias { field: &'static str, value: f32 },
+    #[error("shadow PCF kernel size must be non-negative, got {value}")]
+    InvalidPcfKernelSize { value: i32 },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PbrShadowBindings<'a> {
+    depth: &'a [f32],
+    size: usize,
+    light_index: usize,
+    light_space_matrix: Matrix4<f32>,
+    constant_bias: f32,
+    slope_bias: f32,
+    use_pcf: bool,
+    pcf_kernel_size: i32,
+}
+
+impl<'a> PbrShadowBindings<'a> {
+    pub fn new(
+        descriptor: PbrShadowBindingsDescriptor<'a>,
+    ) -> Result<Self, PbrShadowBindingsError> {
+        let expected_len = descriptor.size.checked_mul(descriptor.size);
+        if descriptor.size == 0 || expected_len != Some(descriptor.depth.len()) {
+            return Err(PbrShadowBindingsError::InvalidMapDimensions {
+                size: descriptor.size,
+                actual_len: descriptor.depth.len(),
+            });
+        }
+        if !descriptor
+            .light_space_matrix
+            .iter()
+            .all(|value| value.is_finite())
+        {
+            return Err(PbrShadowBindingsError::NonFiniteLightSpaceMatrix);
+        }
+        for (field, value) in [
+            ("constant bias", descriptor.constant_bias),
+            ("slope bias", descriptor.slope_bias),
+        ] {
+            if !value.is_finite() || value < 0.0 {
+                return Err(PbrShadowBindingsError::InvalidBias { field, value });
+            }
+        }
+        if descriptor.pcf_kernel_size < 0 {
+            return Err(PbrShadowBindingsError::InvalidPcfKernelSize {
+                value: descriptor.pcf_kernel_size,
+            });
+        }
+
+        Ok(Self {
+            depth: descriptor.depth,
+            size: descriptor.size,
+            light_index: descriptor.light_index,
+            light_space_matrix: descriptor.light_space_matrix,
+            constant_bias: descriptor.constant_bias,
+            slope_bias: descriptor.slope_bias,
+            use_pcf: descriptor.use_pcf,
+            pcf_kernel_size: descriptor.pcf_kernel_size,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct PbrFrameBindings<'a> {
     pub view_matrix: Matrix4<f32>,
     pub projection_matrix: Matrix4<f32>,
     pub camera_pos: Point3<f32>,
     pub lights: &'a [Light],
     pub ambient_light: Vector3<f32>,
-    pub shadow_map: Option<&'a [f32]>,
-    pub shadow_map_size: usize,
-    pub shadow_light_index: Option<usize>,
-    pub light_space_matrix: Matrix4<f32>,
-    pub shadow_constant_bias: f32,
-    pub shadow_slope_bias: f32,
-    pub use_pcf: bool,
-    pub pcf_kernel_size: i32,
+    pub shadow: Option<PbrShadowBindings<'a>>,
 }
 
 impl<'a> PbrFrameBindings<'a> {
@@ -116,14 +191,7 @@ impl<'a> PbrFrameBindings<'a> {
             camera_pos,
             lights: &[],
             ambient_light: Vector3::new(0.03, 0.03, 0.03),
-            shadow_map: None,
-            shadow_map_size: 0,
-            shadow_light_index: None,
-            light_space_matrix: Matrix4::identity(),
-            shadow_constant_bias: 0.001,
-            shadow_slope_bias: 0.01,
-            use_pcf: true,
-            pcf_kernel_size: 1,
+            shadow: None,
         }
     }
 }
@@ -205,17 +273,11 @@ impl PbrShader {
         world_pos: &Point3<f32>,
         n_dot_l: f32,
     ) -> f32 {
-        let Some(shadow_map) = frame.shadow_map.as_ref() else {
+        let Some(shadow) = frame.shadow else {
             return 1.0;
         };
-        let Some(expected_len) = frame.shadow_map_size.checked_mul(frame.shadow_map_size) else {
-            return 1.0;
-        };
-        if frame.shadow_map_size == 0 || shadow_map.len() != expected_len {
-            return 1.0;
-        }
 
-        let light_space_pos = frame.light_space_matrix * world_pos.to_homogeneous();
+        let light_space_pos = shadow.light_space_matrix * world_pos.to_homogeneous();
         let proj_coords = light_space_pos.xyz() / light_space_pos.w;
         let u = proj_coords.x * 0.5 + 0.5;
         let v = 1.0 - (proj_coords.y * 0.5 + 0.5);
@@ -226,24 +288,24 @@ impl PbrShader {
             return 1.0;
         }
 
-        let bias = Self::shadow_bias(frame, n_dot_l);
+        let bias = Self::shadow_bias(shadow, n_dot_l);
 
-        if !frame.use_pcf {
-            let map_x = (u * (frame.shadow_map_size - 1) as f32)
-                .clamp(0.0, (frame.shadow_map_size - 1) as f32) as usize;
-            let map_y = (v * (frame.shadow_map_size - 1) as f32)
-                .clamp(0.0, (frame.shadow_map_size - 1) as f32) as usize;
-            let index = map_y * frame.shadow_map_size + map_x;
-            return if current_depth - bias > shadow_map[index] {
+        if !shadow.use_pcf {
+            let map_x =
+                (u * (shadow.size - 1) as f32).clamp(0.0, (shadow.size - 1) as f32) as usize;
+            let map_y =
+                (v * (shadow.size - 1) as f32).clamp(0.0, (shadow.size - 1) as f32) as usize;
+            let index = map_y * shadow.size + map_x;
+            return if current_depth - bias > shadow.depth[index] {
                 0.0
             } else {
                 1.0
             };
         }
 
-        let mut shadow = 0.0;
-        let texel_size = 1.0 / frame.shadow_map_size as f32;
-        let kernel_size = frame.pcf_kernel_size;
+        let mut visibility = 0.0;
+        let texel_size = 1.0 / shadow.size as f32;
+        let kernel_size = shadow.pcf_kernel_size;
 
         for x in -kernel_size..=kernel_size {
             for y in -kernel_size..=kernel_size {
@@ -251,16 +313,16 @@ impl PbrShader {
                 let pcf_v = v + y as f32 * texel_size;
 
                 if !(0.0..=1.0).contains(&pcf_u) || !(0.0..=1.0).contains(&pcf_v) {
-                    shadow += 1.0;
+                    visibility += 1.0;
                     continue;
                 }
 
-                let map_x = (pcf_u * (frame.shadow_map_size - 1) as f32) as usize;
-                let map_y = (pcf_v * (frame.shadow_map_size - 1) as f32) as usize;
-                let index = map_y * frame.shadow_map_size + map_x;
+                let map_x = (pcf_u * (shadow.size - 1) as f32) as usize;
+                let map_y = (pcf_v * (shadow.size - 1) as f32) as usize;
+                let index = map_y * shadow.size + map_x;
 
-                let pcf_depth = shadow_map[index];
-                shadow += if current_depth - bias > pcf_depth {
+                let pcf_depth = shadow.depth[index];
+                visibility += if current_depth - bias > pcf_depth {
                     0.0
                 } else {
                     1.0
@@ -268,11 +330,11 @@ impl PbrShader {
             }
         }
 
-        shadow / ((kernel_size * 2 + 1_i32).pow(2) as f32)
+        visibility / ((kernel_size * 2 + 1_i32).pow(2) as f32)
     }
 
-    fn shadow_bias(frame: &PbrFrameBindings<'_>, n_dot_l: f32) -> f32 {
-        frame.shadow_constant_bias + frame.shadow_slope_bias * (1.0 - n_dot_l.clamp(0.0, 1.0))
+    fn shadow_bias(shadow: PbrShadowBindings<'_>, n_dot_l: f32) -> f32 {
+        shadow.constant_bias + shadow.slope_bias * (1.0 - n_dot_l.clamp(0.0, 1.0))
     }
     fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
         let a = roughness * roughness;
@@ -413,7 +475,11 @@ impl Shader<PbrDrawContext<'_>> for PbrShader {
             let n_dot_l = n.dot(&l).max(0.0);
             let n_dot_h = n.dot(&h).max(0.0);
             let h_dot_v = h.dot(&v).max(0.0);
-            let shadow = if context.frame.shadow_light_index == Some(i) {
+            let shadow = if context
+                .frame
+                .shadow
+                .is_some_and(|shadow| shadow.light_index == i)
+            {
                 Self::calculate_shadow(context.frame, &varying.world_pos, n_dot_l)
             } else {
                 1.0
@@ -508,14 +574,22 @@ mod tests {
 
     #[test]
     fn shadow_bias_separates_constant_and_slope_terms() {
-        let mut frame =
-            PbrFrameBindings::new(Matrix4::identity(), Matrix4::identity(), Point3::origin());
-        frame.shadow_constant_bias = 0.001;
-        frame.shadow_slope_bias = 0.01;
+        let shadow_map = [0.0];
+        let shadow = PbrShadowBindings::new(PbrShadowBindingsDescriptor {
+            depth: &shadow_map,
+            size: 1,
+            light_index: 0,
+            light_space_matrix: Matrix4::identity(),
+            constant_bias: 0.001,
+            slope_bias: 0.01,
+            use_pcf: false,
+            pcf_kernel_size: 0,
+        })
+        .expect("valid shadow bindings");
 
-        assert!((PbrShader::shadow_bias(&frame, 1.0) - 0.001).abs() < 1.0e-6);
-        assert!((PbrShader::shadow_bias(&frame, 0.5) - 0.006).abs() < 1.0e-6);
-        assert!((PbrShader::shadow_bias(&frame, 0.0) - 0.011).abs() < 1.0e-6);
+        assert!((PbrShader::shadow_bias(shadow, 1.0) - 0.001).abs() < 1.0e-6);
+        assert!((PbrShader::shadow_bias(shadow, 0.5) - 0.006).abs() < 1.0e-6);
+        assert!((PbrShader::shadow_bias(shadow, 0.0) - 0.011).abs() < 1.0e-6);
     }
 
     #[test]
@@ -523,14 +597,75 @@ mod tests {
         let shadow_map = vec![0.0; 9];
         let mut frame =
             PbrFrameBindings::new(Matrix4::identity(), Matrix4::identity(), Point3::origin());
-        frame.shadow_map = Some(&shadow_map);
-        frame.shadow_map_size = 3;
-        frame.shadow_constant_bias = 0.0;
-        frame.shadow_slope_bias = 0.0;
-        frame.use_pcf = true;
-        frame.pcf_kernel_size = 1;
+        frame.shadow = Some(
+            PbrShadowBindings::new(PbrShadowBindingsDescriptor {
+                depth: &shadow_map,
+                size: 3,
+                light_index: 0,
+                light_space_matrix: Matrix4::identity(),
+                constant_bias: 0.0,
+                slope_bias: 0.0,
+                use_pcf: true,
+                pcf_kernel_size: 1,
+            })
+            .expect("valid shadow bindings"),
+        );
 
         let visibility = PbrShader::calculate_shadow(&frame, &Point3::new(-1.0, 1.0, 0.0), 1.0);
         assert!((visibility - 5.0 / 9.0).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn shadow_bindings_reject_invalid_resources_and_parameters() {
+        let shadow_map = [0.0; 3];
+        let descriptor = PbrShadowBindingsDescriptor {
+            depth: &shadow_map,
+            size: 2,
+            light_index: 0,
+            light_space_matrix: Matrix4::identity(),
+            constant_bias: 0.0,
+            slope_bias: 0.0,
+            use_pcf: false,
+            pcf_kernel_size: 0,
+        };
+
+        assert!(matches!(
+            PbrShadowBindings::new(descriptor),
+            Err(PbrShadowBindingsError::InvalidMapDimensions {
+                size: 2,
+                actual_len: 3,
+            })
+        ));
+
+        let valid_map = [0.0];
+        let valid = PbrShadowBindingsDescriptor {
+            depth: &valid_map,
+            size: 1,
+            ..descriptor
+        };
+        assert!(matches!(
+            PbrShadowBindings::new(PbrShadowBindingsDescriptor {
+                light_space_matrix: Matrix4::repeat(f32::NAN),
+                ..valid
+            }),
+            Err(PbrShadowBindingsError::NonFiniteLightSpaceMatrix)
+        ));
+        assert!(matches!(
+            PbrShadowBindings::new(PbrShadowBindingsDescriptor {
+                constant_bias: -0.001,
+                ..valid
+            }),
+            Err(PbrShadowBindingsError::InvalidBias {
+                field: "constant bias",
+                ..
+            })
+        ));
+        assert!(matches!(
+            PbrShadowBindings::new(PbrShadowBindingsDescriptor {
+                pcf_kernel_size: -1,
+                ..valid
+            }),
+            Err(PbrShadowBindingsError::InvalidPcfKernelSize { value: -1 })
+        ));
     }
 }

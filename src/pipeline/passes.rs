@@ -13,6 +13,7 @@ use crate::pipeline::renderer::{
 };
 use crate::pipeline::shaders::pbr::{
     PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader,
+    PbrShadowBindings, PbrShadowBindingsDescriptor,
 };
 use crate::pipeline::shaders::shadow::{
     ShadowDrawContext, ShadowFrameBindings, ShadowMaterialBindings, ShadowObjectBindings,
@@ -423,14 +424,24 @@ pub fn render_main_pass_profiled(
     );
     frame_bindings.lights = &context.lights;
     frame_bindings.ambient_light = Vector3::from(config.render.ambient_light);
-    frame_bindings.shadow_map = shadow.depth.as_deref().map(Vec::as_slice);
-    frame_bindings.shadow_map_size = shadow.size;
-    frame_bindings.shadow_light_index = shadow.light_index;
-    frame_bindings.light_space_matrix = shadow.light_space_matrix;
-    frame_bindings.shadow_constant_bias = config.render.shadow_constant_bias;
-    frame_bindings.shadow_slope_bias = config.render.shadow_slope_bias;
-    frame_bindings.use_pcf = config.render.use_pcf;
-    frame_bindings.pcf_kernel_size = config.render.pcf_kernel_size;
+    frame_bindings.shadow = shadow
+        .depth
+        .as_deref()
+        .map(Vec::as_slice)
+        .zip(shadow.light_index)
+        .and_then(|(depth, light_index)| {
+            PbrShadowBindings::new(PbrShadowBindingsDescriptor {
+                depth,
+                size: shadow.size,
+                light_index,
+                light_space_matrix: shadow.light_space_matrix,
+                constant_bias: config.render.shadow_constant_bias,
+                slope_bias: config.render.shadow_slope_bias,
+                use_pcf: config.render.use_pcf,
+                pcf_kernel_size: config.render.pcf_kernel_size,
+            })
+            .ok()
+        });
     let object_bindings: Vec<_> = context
         .scene_objects
         .iter()

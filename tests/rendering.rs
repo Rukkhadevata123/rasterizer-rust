@@ -1,7 +1,8 @@
 use image::{DynamicImage, RgbaImage};
 use nalgebra::{Matrix4, Point3, Vector2, Vector3, Vector4};
 use rasterizer_rust::render::builtin::pbr::{
-    PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader, PbrVarying,
+    PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader,
+    PbrShadowBindings, PbrShadowBindingsDescriptor, PbrVarying,
 };
 use rasterizer_rust::render::builtin::shadow::{
     ShadowDrawContext, ShadowFrameBindings, ShadowMaterialBindings, ShadowObjectBindings,

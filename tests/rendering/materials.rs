@@ -559,13 +559,19 @@ fn pbr_shadow_uses_recorded_light_index() {
         );
         frame.lights = &lights;
         frame.ambient_light = Vector3::zeros();
-        frame.shadow_map = Some(&shadow_map);
-        frame.shadow_map_size = 1;
-        frame.shadow_light_index = Some(shadow_light_index);
-        frame.light_space_matrix = Matrix4::identity();
-        frame.shadow_constant_bias = 0.0;
-        frame.shadow_slope_bias = 0.0;
-        frame.use_pcf = false;
+        frame.shadow = Some(
+            PbrShadowBindings::new(PbrShadowBindingsDescriptor {
+                depth: &shadow_map,
+                size: 1,
+                light_index: shadow_light_index,
+                light_space_matrix: Matrix4::identity(),
+                constant_bias: 0.0,
+                slope_bias: 0.0,
+                use_pcf: false,
+                pcf_kernel_size: 0,
+            })
+            .expect("valid shadow bindings"),
+        );
         let object = PbrObjectBindings::new(Matrix4::identity());
         let context =
             PbrDrawContext::new(&frame, &object, PbrMaterialBindings::from_pbr(&material));

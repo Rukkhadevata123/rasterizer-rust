@@ -26,7 +26,7 @@ pub mod builtin {
     pub mod pbr {
         pub use crate::pipeline::shaders::pbr::{
             PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader,
-            PbrVarying,
+            PbrShadowBindings, PbrShadowBindingsDescriptor, PbrShadowBindingsError, PbrVarying,
         };
     }
 
