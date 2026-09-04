@@ -192,6 +192,10 @@ impl Rasterizer {
 
         let band_bins = &self.band_bins[..band_count];
 
+        // `par_chunks_mut` is the framebuffer ownership boundary: every worker receives an
+        // exclusive sample slice, including a potentially shorter final band. The band renderer
+        // converts global y coordinates back to offsets within that slice and cannot write outside
+        // it, so rasterization needs no locks, atomics, `UnsafeCell`, or manual `Sync` implementation.
         framebuffer
             .samples_mut()
             .par_chunks_mut(width * RASTER_BAND_HEIGHT)
