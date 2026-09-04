@@ -402,11 +402,26 @@ mod tests {
         )
     }
 
-    fn mip_test_image() -> TextureImage {
+    fn mip_selection_image() -> TextureImage {
+        let values = [
+            0, 64, 128, 128, 64, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
+        ];
+        let pixels = values
+            .into_iter()
+            .flat_map(|value| [value, value, value, 255])
+            .collect();
         TextureImage::from_image(
-            test_image().resize_exact(4, 4, image::imageops::Nearest),
+            DynamicImage::ImageRgba8(
+                RgbaImage::from_vec(4, 4, pixels)
+                    .expect("mip-selection fixture should match its dimensions"),
+            ),
             true,
         )
+    }
+
+    fn data_gray(value: u8) -> Vector4<f32> {
+        let value = value as f32 / 255.0;
+        Vector4::new(value, value, value, 1.0)
     }
 
     fn assert_vec4_approx(actual: Vector4<f32>, expected: Vector4<f32>) {
@@ -494,47 +509,47 @@ mod tests {
     #[test]
     fn density_selects_generated_mip_levels() {
         let texture = binding_with_sampler(
-            TextureImage::from_image(
-                DynamicImage::ImageRgba8(RgbaImage::from_pixel(4, 4, Rgba([64, 128, 192, 255]))),
-                true,
-            ),
+            mip_selection_image(),
             SamplerState {
+                wrap_u: WrapMode::ClampToEdge,
+                wrap_v: WrapMode::ClampToEdge,
                 min_filter: MinFilter::LinearMipmapLinear,
                 ..Default::default()
             },
         );
 
         assert_vec4_approx(
-            texture.sample_with_density(0.5, 0.5, 0.25),
-            Vector4::new(64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0),
+            texture.sample_with_density(0.125, 0.125, 0.25),
+            data_gray(0),
         );
         assert_vec4_approx(
-            texture.sample_with_density(0.5, 0.5, 0.5),
-            Vector4::new(64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0),
+            texture.sample_with_density(0.125, 0.125, 0.5),
+            data_gray(64),
         );
         assert_vec4_approx(
-            texture.sample_with_density(0.5, 0.5, 1.0),
-            Vector4::new(64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0),
+            texture.sample_with_density(0.125, 0.125, 1.0),
+            data_gray(112),
         );
     }
 
     #[test]
     fn non_mip_minification_filters_stay_on_base_level() {
-        for min_filter in [MinFilter::Nearest, MinFilter::Linear] {
+        for (min_filter, expected) in [
+            (MinFilter::Nearest, data_gray(128)),
+            (MinFilter::Linear, data_gray(64)),
+        ] {
             let sampler = SamplerState {
+                wrap_u: WrapMode::ClampToEdge,
+                wrap_v: WrapMode::ClampToEdge,
                 mag_filter: match min_filter {
                     MinFilter::Nearest => MagFilter::Nearest,
                     MinFilter::Linear => MagFilter::Linear,
                     _ => unreachable!(),
                 },
                 min_filter,
-                ..Default::default()
             };
-            let texture = binding_with_sampler(mip_test_image(), sampler);
-            assert_vec4_approx(
-                texture.sample_with_density(0.5, 0.5, 1.0),
-                texture.sample_with_density(0.5, 0.5, 0.0),
-            );
+            let texture = binding_with_sampler(mip_selection_image(), sampler);
+            assert_vec4_approx(texture.sample_with_density(0.25, 0.25, 1.0), expected);
         }
     }
 
@@ -542,23 +557,30 @@ mod tests {
     fn mip_minification_filters_select_and_blend_levels() {
         let sample = |min_filter, density| {
             binding_with_sampler(
-                mip_test_image(),
+                mip_selection_image(),
                 SamplerState {
+                    wrap_u: WrapMode::ClampToEdge,
+                    wrap_v: WrapMode::ClampToEdge,
                     min_filter,
                     ..Default::default()
                 },
             )
-            .sample_with_density(0.5, 0.5, density)
+            .sample_with_density(0.125, 0.125, density)
         };
         let halfway_density = 2.0_f32.sqrt() / 4.0;
-        for result in [
-            sample(MinFilter::NearestMipmapNearest, 0.5),
-            sample(MinFilter::LinearMipmapNearest, 0.5),
-            sample(MinFilter::NearestMipmapLinear, halfway_density),
-            sample(MinFilter::LinearMipmapLinear, halfway_density),
+        for (result, expected) in [
+            (sample(MinFilter::NearestMipmapNearest, 0.5), data_gray(64)),
+            (sample(MinFilter::LinearMipmapNearest, 0.5), data_gray(64)),
+            (
+                sample(MinFilter::NearestMipmapLinear, halfway_density),
+                data_gray(32),
+            ),
+            (
+                sample(MinFilter::LinearMipmapLinear, halfway_density),
+                data_gray(32),
+            ),
         ] {
-            assert!(result.iter().all(|value| value.is_finite()));
-            assert_eq!(result.w, 1.0);
+            assert_vec4_approx(result, expected);
         }
     }
 
