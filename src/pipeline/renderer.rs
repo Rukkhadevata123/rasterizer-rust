@@ -803,25 +803,13 @@ impl SoftwareRasterBackend {
         S: Shader<C>,
         C: Copy + Send + Sync,
     {
-        self.execute_phases_profiled(target, &[phase])
-    }
-
-    fn execute_phases_profiled<'a, S, C>(
-        &mut self,
-        target: &mut RenderTarget,
-        phases: &[&RenderPhase<'a, S, C>],
-    ) -> BackendExecutionTimings
-    where
-        S: Shader<C>,
-        C: Copy + Send + Sync,
-    {
         let submission_started = Instant::now();
         let preparation_started = Instant::now();
         let width = target.framebuffer().buffer_width;
         let height = target.framebuffer().buffer_height;
-        let commands: Vec<_> = phases.iter().flat_map(|phase| phase.commands()).collect();
+        let commands = phase.commands();
         let mut vertex_sources = HashMap::new();
-        for command in &commands {
+        for command in commands {
             let source = match &command.geometry {
                 RenderGeometry::Mesh(mesh) if mesh.reuses_vertices() => Some((
                     VertexSourceKey::Mesh(*mesh as *const Mesh as usize),
@@ -962,7 +950,7 @@ impl SoftwareRasterBackend {
         let prepared: Vec<PreparedTriangle<'_, S::Varying, S, C>> = if contains_mesh {
             let mut triangle_ends = Vec::with_capacity(commands.len());
             let mut triangle_count = 0;
-            for command in &commands {
+            for command in commands {
                 triangle_count += match &command.geometry {
                     RenderGeometry::Mesh(mesh) => mesh.indices.len().div_ceil(3),
                     RenderGeometry::IndexedTriangle { .. } | RenderGeometry::Triangle(_) => 1,
@@ -980,7 +968,7 @@ impl SoftwareRasterBackend {
                         .checked_sub(1)
                         .map_or(0, |previous| triangle_ends[previous]);
                     prepare_draw_packet_triangle(
-                        commands[command_index],
+                        &commands[command_index],
                         triangle_index - command_start,
                     )
                     .into_iter()

@@ -695,7 +695,7 @@ fn one_backend_executes_different_sized_targets_sequentially() {
 }
 
 #[test]
-fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
+fn phase_preparation_skips_empty_mesh_commands() {
     let empty = Mesh::new(Vec::new(), Vec::new(), 0);
     let visible = triangle(0.0, Vector4::new(0.0, 1.0, 0.0, 1.0));
     let pipeline = GraphicsPipeline::new(
@@ -703,16 +703,15 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
         test_pipeline_state(),
         VertexProgramId::from_pass_index(0),
     );
-    let mut empty_phase = RenderPhase::default();
-    empty_phase.push(
+    let mut phase = RenderPhase::default();
+    phase.push(
         &pipeline,
         RenderGeometry::Mesh(&empty),
         (),
         ObjectBindingId::from_pass_index(0),
         0.0,
     );
-    let mut visible_phase = RenderPhase::default();
-    visible_phase.push(
+    phase.push(
         &pipeline,
         RenderGeometry::Mesh(&visible),
         (),
@@ -723,7 +722,7 @@ fn whole_pass_preparation_skips_empty_mesh_commands_across_phases() {
 
     renderer
         .backend
-        .execute_phases_profiled(&mut renderer.target, &[&empty_phase, &visible_phase]);
+        .execute_phase_profiled(&mut renderer.target, &phase);
 
     assert_vec3_approx(
         renderer.framebuffer().sample(16, 16).unwrap().color,
