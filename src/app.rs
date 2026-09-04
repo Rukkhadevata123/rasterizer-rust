@@ -397,7 +397,7 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         &mut shadow_target,
         &mut frame_resources,
     );
-    if shadow.depth.is_some() {
+    if shadow.is_enabled() {
         debug!("Shadow pass completed.");
     }
     render_main_pass(

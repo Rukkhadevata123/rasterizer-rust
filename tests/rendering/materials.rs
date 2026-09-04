@@ -180,12 +180,7 @@ fn main_pass_combines_opaque_masked_and_transparent_phases() {
     config.render.background_image = None;
     config.render.use_shadows = false;
 
-    let shadow = ShadowPassOutput {
-        depth: None,
-        size: 0,
-        light_space_matrix: Matrix4::identity(),
-        light_index: None,
-    };
+    let shadow = ShadowPassOutput::disabled();
     let mut renderer = TestRenderHarness::new(64, 64, 1);
     render_main_pass(
         &config,
@@ -285,12 +280,7 @@ fn double_sided_material_disables_culling_per_command() {
             shadow_light: None,
         };
         let config = rasterizer_rust::io::config::Config::default();
-        let shadow = ShadowPassOutput {
-            depth: None,
-            size: 0,
-            light_space_matrix: Matrix4::identity(),
-            light_index: None,
-        };
+        let shadow = ShadowPassOutput::disabled();
         let mut renderer = TestRenderHarness::new(32, 32, 1);
 
         render_main_pass(

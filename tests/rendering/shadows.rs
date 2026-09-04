@@ -192,7 +192,7 @@ fn blended_materials_do_not_write_shadow_depth() {
 
     assert!(
         shadow
-            .depth
+            .depth()
             .unwrap()
             .iter()
             .all(|depth| depth.is_infinite())
@@ -236,7 +236,7 @@ fn double_sided_material_disables_shadow_culling_per_command() {
             renderer.target.render_target_mut(),
             &mut renderer.resources,
         )
-        .depth
+        .depth_snapshot()
         .unwrap()
     };
 
@@ -267,9 +267,11 @@ fn point_only_scene_disables_shadow_pass() {
         &mut renderer.resources,
     );
 
-    assert!(shadow.depth.is_none());
-    assert_eq!(shadow.size, 0);
-    assert!(shadow.light_index.is_none());
+    assert!(!shadow.is_enabled());
+    assert!(shadow.depth().is_none());
+    assert!(shadow.size().is_none());
+    assert!(shadow.light_space_matrix().is_none());
+    assert!(shadow.light_index().is_none());
 }
 
 #[test]
@@ -299,9 +301,11 @@ fn shadow_output_reports_actual_buffer_size() {
         &mut renderer.resources,
     );
 
-    assert_eq!(shadow.size, 16);
-    assert_eq!(shadow.depth.unwrap().len(), 16 * 16);
-    assert_eq!(shadow.light_index, Some(0));
+    assert!(shadow.is_enabled());
+    assert_eq!(shadow.size(), Some(16));
+    assert_eq!(shadow.depth().unwrap().len(), 16 * 16);
+    assert!(shadow.light_space_matrix().is_some());
+    assert_eq!(shadow.light_index(), Some(0));
 }
 
 #[test]
@@ -339,7 +343,8 @@ fn directional_shadow_bounds_follow_the_camera_frustum() {
             renderer.target.render_target_mut(),
             &mut renderer.resources,
         )
-        .light_space_matrix
+        .light_space_matrix()
+        .expect("enabled shadow output has a light-space matrix")
     };
 
     let origin = render(0.0);
@@ -374,7 +379,8 @@ fn directional_shadow_bounds_include_scene_geometry() {
             renderer.target.render_target_mut(),
             &mut renderer.resources,
         )
-        .light_space_matrix
+        .light_space_matrix()
+        .expect("enabled shadow output has a light-space matrix")
     };
     let far_caster = SceneObject::new(
         SceneObjectKind::Model { config_index: 0 },

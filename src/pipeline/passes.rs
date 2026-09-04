@@ -26,11 +26,15 @@ use rayon::prelude::*;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+struct ShadowMapOutput {
+    depth: Arc<Vec<f32>>,
+    size: usize,
+    light_space_matrix: Matrix4<f32>,
+    light_index: usize,
+}
+
 pub struct ShadowPassOutput {
-    pub depth: Option<Arc<Vec<f32>>>,
-    pub size: usize,
-    pub light_space_matrix: Matrix4<f32>,
-    pub light_index: Option<usize>,
+    map: Option<ShadowMapOutput>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -78,12 +82,48 @@ struct ShadowCamera {
 }
 
 impl ShadowPassOutput {
-    fn disabled() -> Self {
+    pub const fn disabled() -> Self {
+        Self { map: None }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.map.is_some()
+    }
+
+    pub fn depth(&self) -> Option<&[f32]> {
+        self.map.as_ref().map(|map| map.depth.as_slice())
+    }
+
+    pub fn depth_snapshot(&self) -> Option<Arc<Vec<f32>>> {
+        self.map.as_ref().map(|map| Arc::clone(&map.depth))
+    }
+
+    pub fn size(&self) -> Option<usize> {
+        self.map.as_ref().map(|map| map.size)
+    }
+
+    pub fn light_space_matrix(&self) -> Option<Matrix4<f32>> {
+        self.map.as_ref().map(|map| map.light_space_matrix)
+    }
+
+    pub fn light_index(&self) -> Option<usize> {
+        self.map.as_ref().map(|map| map.light_index)
+    }
+
+    fn enabled(
+        depth: Arc<Vec<f32>>,
+        size: usize,
+        light_space_matrix: Matrix4<f32>,
+        light_index: usize,
+    ) -> Self {
+        debug_assert_eq!(size.checked_mul(size), Some(depth.len()));
         Self {
-            depth: None,
-            size: 0,
-            light_space_matrix: Matrix4::identity(),
-            light_index: None,
+            map: Some(ShadowMapOutput {
+                depth,
+                size,
+                light_space_matrix,
+                light_index,
+            }),
         }
     }
 }
@@ -310,12 +350,12 @@ pub fn render_shadow_pass_profiled(
     let submission = queue
         .submit(command_buffer)
         .expect("the built-in shadow submission must succeed");
-    let output = ShadowPassOutput {
-        depth: Some(resources.shadow_depth_snapshot(shadow_target)),
-        size: shadow_target.readback().width(),
+    let output = ShadowPassOutput::enabled(
+        resources.shadow_depth_snapshot(shadow_target),
+        shadow_target.readback().width(),
         light_space_matrix,
-        light_index: Some(shadow_light.light_index),
-    };
+        shadow_light.light_index,
+    );
     (
         output,
         ShadowPassTimings {
@@ -424,24 +464,19 @@ pub fn render_main_pass_profiled(
     );
     frame_bindings.lights = &context.lights;
     frame_bindings.ambient_light = Vector3::from(config.render.ambient_light);
-    frame_bindings.shadow = shadow
-        .depth
-        .as_deref()
-        .map(Vec::as_slice)
-        .zip(shadow.light_index)
-        .and_then(|(depth, light_index)| {
-            PbrShadowBindings::new(PbrShadowBindingsDescriptor {
-                depth,
-                size: shadow.size,
-                light_index,
-                light_space_matrix: shadow.light_space_matrix,
-                constant_bias: config.render.shadow_constant_bias,
-                slope_bias: config.render.shadow_slope_bias,
-                use_pcf: config.render.use_pcf,
-                pcf_kernel_size: config.render.pcf_kernel_size,
-            })
-            .ok()
-        });
+    frame_bindings.shadow = shadow.map.as_ref().and_then(|shadow| {
+        PbrShadowBindings::new(PbrShadowBindingsDescriptor {
+            depth: shadow.depth.as_slice(),
+            size: shadow.size,
+            light_index: shadow.light_index,
+            light_space_matrix: shadow.light_space_matrix,
+            constant_bias: config.render.shadow_constant_bias,
+            slope_bias: config.render.shadow_slope_bias,
+            use_pcf: config.render.use_pcf,
+            pcf_kernel_size: config.render.pcf_kernel_size,
+        })
+        .ok()
+    });
     let object_bindings: Vec<_> = context
         .scene_objects
         .iter()
