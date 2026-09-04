@@ -2,7 +2,7 @@
 
 ## Status
 
-Status: required Phase 11.1–11.5 implementation and cleanup complete; release documentation and final validation in progress
+Status: required Phase 11.1–11.5 implementation complete; final product cleanup, release documentation, and validation in progress
 
 Target release: **5.0.0**. The branch now implements the breaking `render` façade and no longer exposes the former `core`, `pipeline`, `Renderer`, `RenderQueue`, `RenderCommand`, or `RenderState` paths. `Cargo.toml` remains at 4.0.0 until release packaging. The still-public binary/tooling modules require one final boundary decision before that version bump.
 
@@ -626,6 +626,9 @@ Completed slices:
 - [x] Remove dead state, duplicated validation, redundant resource ownership, stale profiling fields, and unused feature scaffolding. Do not add placeholder abstractions merely to make the cleanup look architecturally complete.
 - [x] Run a final `unsafe`, `UnsafeCell`, atomics, locks, and manual `Sync` audit around framebuffer mutation and preserve exclusive-band writes.
 - [ ] Resolve the final 5.0 release boundary for the publicly reachable `app`, `benchmark`, `error`, and `ui` tooling modules: move them behind a non-library boundary, narrow them to an explicitly supported entry point, or deliberately accept them as versioned public API. Do not use `#[doc(hidden)]` as a substitute for the decision.
+- [ ] Remove backend cache policy from the public command surface. `RenderGeometry::IndexedTriangle { cache_vertices }` is currently used only by the built-in transparent path and exposes an implementation hint that external callers should not control. Prefer a private geometry path plus public `draw_mesh`, or derive cache eligibility internally if direct primitive recording remains public.
+- [ ] Make binding identity safe for external callers. Reusing one `ObjectBindingId` with different contexts currently permits an incorrect transformed-vertex cache hit. Prefer encoder-issued pass-local identity, or validate an explicit typed token; remove the public `from_pass_index` convention if callers no longer own raw pass indexes. Recheck `VertexProgramId` at the same boundary without weakening deliberate cross-pipeline vertex reuse.
+- [ ] Replace public `Result<_, String>` construction/validation errors with structured errors at their canonical module paths, including render/present target creation and public configuration validation. Re-export operation errors from `render` or `io` before hiding or relocating the root `error` module.
 
 ### Test cleanup and migration
 
@@ -635,10 +638,21 @@ Completed slices:
 - [x] Consolidate fixture-structure precondition tests into their importer tests only when doing so retains equally clear failure diagnostics.
 - [x] Revisit pointer-identity tests for cached backgrounds and reusable shadow snapshots. Keep them only while allocation reuse remains an explicit measured contract; replace or remove them if Phase 11.6 selects a different resource model.
 - [x] Remove duplicated helpers and oversized setup only when a shared builder makes the tested contract clearer. Avoid a generic test framework that hides pass order, state, bindings, or expected pixels.
+- [ ] Rename the remaining `phase_4*` and `phase_6*` glTF tests after observable behavior so test output contains no development chronology. Restrict test-only helpers such as `Mesh::create_test_triangle` to the narrowest visibility needed.
+
+### Final product and repository hygiene
+
+- [ ] Re-run a production call-site and reachability audit after the public-boundary changes. Every retained renderer type and branch must participate in the sole typed-command/`GraphicsQueue` path or a current feature; remove compatibility code, abandoned alternatives, and stale test scaffolding rather than keeping them as history. Active private concepts such as a draw packet or ordered phase need not be renamed merely because similar internal concepts existed before, but they must not preserve an obsolete second model.
+- [ ] Perform a comment-quality pass over production code and examples. Delete change-history comments (`Changed from ...`, `Unified to ...`), comments that only restate a field or obvious literal (`4 Vertices`, `First triangle`, `Non-metal`), speculative comments such as `sometimes?`, and oversized `# Arguments`/`# Returns` sections that duplicate Rust signatures. Preserve and tighten comments that explain non-obvious contracts: color space, handedness, cache identity, clipping, transparent order, numeric stability, and exclusive-band ownership.
+- [ ] Rewrite shipping documentation as documentation for the current product, not for a branch or migration. README, crate/module rustdoc, and the render API guide must contain no `refactor branch`, `target-5.0`, `pre-refactor`, Phase 11 checklist, old-type inventory, or compatibility narrative. Rename `docs/render-api-5.md` to a version-neutral current API guide if it remains the canonical long-form document, and update Cargo packaging and all links atomically.
+- [ ] Rewrite `benchmarks/README.md` as the current benchmark contract, removing Phase 8/11 progress language while retaining schema-v2 timing definitions, same-machine comparison requirements, hash validation, noise handling, and the 5% gate. Do not use repository-stored measurements from another machine as a denominator.
+- [ ] After the final adjacent benchmark comparison is complete, remove or move phase-numbered benchmark narratives and the pre-modernization baseline out of the active repository. Keep only artifacts that describe the current benchmark schema or the final release validation, with enough environment metadata and raw data to reproduce the recorded comparison.
+- [ ] Complete release housekeeping only after all required gates pass: set the package version to 5.0.0, verify packaged files and documentation links, move the tracked `Plan.md` to the user-designated external archive, and remove it from the repository in an explicit commit. License version strings such as `CC-BY-4.0` are not software-version residue and must remain intact.
+- [ ] Finish with negative repository scans. Outside the externalized plan or an explicitly retained release-validation artifact, shipping source, tests, examples, README, rustdoc, and active benchmark documentation must contain no migration terminology, development phase labels, or superseded API names.
 
 ### Documentation and validation
 
-- [ ] Update `README.md`, `docs/render-api-5.md`, examples, module documentation, and benchmark documentation so historical 4.0 inventory is clearly distinguished from the implemented 5.0 API.
+- [ ] Update README, the current render API guide, examples, module documentation, and benchmark documentation so they describe only the implemented API and current operational contracts. Migration history belongs in the temporary tracked plan until that plan is archived outside the repository.
 - [ ] Run formatting, Clippy with warnings denied, release checks, the complete Rust and benchmark-script test suites, and the full release benchmark matrix.
 - [ ] Confirm deterministic hashes and the 5% full-frame mean budget against the immediately preceding required-phase baseline; investigate any cleanup-only output or timing change rather than accepting it as architectural churn.
 
@@ -646,8 +660,9 @@ Completed slices:
 
 - The approved 5.0 façade is the only public rendering construction and submission path.
 - No obsolete execution aliases, compatibility wrappers, dual ownership paths, or unused transitional types remain.
+- Public commands expose rendering intent, not cache controls or caller-managed identities that can violate backend correctness.
 - Tests cover the same distinct behaviors through the correct public or private boundary, and known weak mip assertions have been strengthened.
-- Documentation, examples, GUI, CLI, tests, and benchmarks describe and exercise the implementation that actually ships.
+- Documentation, comments, examples, GUI, CLI, tests, and benchmarks describe and exercise the implementation that actually ships without migration-era narration or phase-numbered naming.
 - The full correctness, determinism, hot-reload, output-hash, and performance gates pass.
 
 ## Phase 11.6: Optional Direct Shadow View and Persistent Resources
