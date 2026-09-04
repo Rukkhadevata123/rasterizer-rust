@@ -15,14 +15,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
-pub enum RenderGeometry<'a> {
+pub(super) enum RenderGeometry<'a> {
     Mesh(&'a Mesh),
     IndexedTriangle {
         vertices: &'a [Vertex],
         indices: [u32; 3],
         cache_vertices: bool,
     },
-    Triangle([Vertex; 3]),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -360,7 +359,7 @@ where
         self.draw(RenderGeometry::Mesh(mesh), sort_depth)
     }
 
-    pub fn draw(
+    pub(super) fn draw(
         &mut self,
         geometry: RenderGeometry<'a>,
         sort_depth: f32,
@@ -803,8 +802,7 @@ impl SoftwareRasterBackend {
                 | RenderGeometry::IndexedTriangle {
                     cache_vertices: false,
                     ..
-                }
-                | RenderGeometry::Triangle(_) => None,
+                } => None,
             };
             if let Some((source, vertices)) = source {
                 let key = VertexCacheKey {
@@ -910,14 +908,6 @@ impl SoftwareRasterBackend {
                             )
                         }
                     }
-                    RenderGeometry::Triangle(vertices) => self.prepare_vertices(
-                        width,
-                        height,
-                        [&vertices[0], &vertices[1], &vertices[2]],
-                        shader,
-                        command.draw_context,
-                        command.pipeline.state(),
-                    ),
                 }
             };
         let contains_mesh = commands
@@ -929,7 +919,7 @@ impl SoftwareRasterBackend {
             for command in commands {
                 triangle_count += match &command.geometry {
                     RenderGeometry::Mesh(mesh) => mesh.indices.len().div_ceil(3),
-                    RenderGeometry::IndexedTriangle { .. } | RenderGeometry::Triangle(_) => 1,
+                    RenderGeometry::IndexedTriangle { .. } => 1,
                 };
                 triangle_ends.push(triangle_count);
             }
