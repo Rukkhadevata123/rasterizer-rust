@@ -165,6 +165,11 @@ discard from sampled alpha.
 explicit copied depth vector without exposing mutable framebuffer samples. `PresentBuffer` receives
 packed output from the fused resolve/tonemap pass.
 
+Target construction and dimension-only validation return `RenderTargetError`; present-buffer
+construction returns `PresentBufferError`. Configuration loading and standalone validation expose
+`ConfigError` and `ConfigValidationError` from `io::config`, so callers can inspect failure kinds
+without parsing display strings.
+
 `FrameResources` retains reusable background and shadow-snapshot storage for built-in frame passes.
 `ShadowPassOutput` represents either a fully consistent shadow map or disabled output; its fields
 cannot be independently mutated. Validated `PbrShadowBindings` reject mismatched dimensions,

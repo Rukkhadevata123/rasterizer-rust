@@ -182,7 +182,7 @@ pub fn run_benchmark(
     options.validate()?;
     config
         .validate()
-        .map_err(|reason| ApplicationError::InvalidConfiguration { reason })?;
+        .map_err(|source| ApplicationError::InvalidConfiguration { source })?;
 
     let scene_loading_started = Instant::now();
     let context = init_scene_resources(&config)?;
@@ -194,27 +194,22 @@ pub fn run_benchmark(
         config.render.height,
         config.render.supersample_scale,
     )
-    .map_err(|reason| ApplicationError::RenderInitialization {
+    .map_err(|source| ApplicationError::RenderTargetInitialization {
         target: "main framebuffer",
-        reason,
+        source,
     })?;
     let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
         1,
     )
-    .map_err(|reason| ApplicationError::RenderInitialization {
+    .map_err(|source| ApplicationError::RenderTargetInitialization {
         target: "shadow framebuffer",
-        reason,
+        source,
     })?;
     let mut frame_resources = FrameResources::new();
-    let mut present =
-        PresentBuffer::new(config.render.width, config.render.height).map_err(|reason| {
-            ApplicationError::RenderInitialization {
-                target: "present buffer",
-                reason,
-            }
-        })?;
+    let mut present = PresentBuffer::new(config.render.width, config.render.height)
+        .map_err(|source| ApplicationError::PresentBufferInitialization { source })?;
     let pipeline_state = GraphicsPipelineState {
         primitive: PrimitiveState {
             cull_mode: match config.render.cull_mode {

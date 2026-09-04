@@ -1,3 +1,6 @@
+use crate::core::framebuffer::RenderTargetError;
+use crate::io::config::{ConfigError, ConfigValidationError};
+use crate::pipeline::renderer::PresentBufferError;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -15,12 +18,21 @@ pub enum ApplicationError {
     Benchmark(#[from] BenchmarkError),
     #[error(transparent)]
     ResolveTonemap(#[from] ResolveTonemapError),
-    #[error("invalid runtime configuration: {reason}")]
-    InvalidConfiguration { reason: String },
-    #[error("failed to initialize {target}: {reason}")]
-    RenderInitialization {
+    #[error("invalid runtime configuration: {source}")]
+    InvalidConfiguration {
+        #[source]
+        source: ConfigValidationError,
+    },
+    #[error("failed to initialize {target}: {source}")]
+    RenderTargetInitialization {
         target: &'static str,
-        reason: String,
+        #[source]
+        source: RenderTargetError,
+    },
+    #[error("failed to initialize present buffer: {source}")]
+    PresentBufferInitialization {
+        #[source]
+        source: PresentBufferError,
     },
 }
 
@@ -59,29 +71,6 @@ pub enum BenchmarkError {
         expected: u64,
         actual: u64,
     },
-}
-
-#[derive(Debug, Error)]
-pub enum ConfigError {
-    #[error("failed to determine the process working directory: {source}")]
-    CurrentDirectory {
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to read config '{}': {source}", path.display())]
-    Read {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to parse config '{}': {source}", path.display())]
-    Parse {
-        path: PathBuf,
-        #[source]
-        source: toml::de::Error,
-    },
-    #[error("invalid config '{}': {reason}", path.display())]
-    Invalid { path: PathBuf, reason: String },
 }
 
 #[derive(Debug, Error)]

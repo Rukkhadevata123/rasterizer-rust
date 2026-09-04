@@ -3,7 +3,6 @@
 //! These entry points are executable tooling built on [`crate::render`], not an alternate library
 //! rendering API.
 
-use crate::core::framebuffer::FrameBuffer;
 use crate::core::pipeline_state::{CullMode, GraphicsPipelineState, PolygonMode, PrimitiveState};
 use crate::error::{ApplicationError, WindowError};
 use crate::io::config::{Config, CullModeConfig, RenderConfig};
@@ -104,7 +103,7 @@ fn apply_hot_reload_render_settings(
     shadow_target: &mut RenderTarget,
 ) -> HotReloadRenderSettings {
     let supersample_scale_rejected =
-        FrameBuffer::validate_dimensions(window_width, window_height, render.supersample_scale)
+        RenderTarget::validate_dimensions(window_width, window_height, render.supersample_scale)
             .is_err();
     if supersample_scale_rejected {
         render.supersample_scale = target.readback().supersample_scale();
@@ -119,7 +118,7 @@ fn apply_hot_reload_render_settings(
     }
 
     let shadow_map_size_rejected =
-        FrameBuffer::validate_dimensions(render.shadow_map_size, render.shadow_map_size, 1)
+        RenderTarget::validate_dimensions(render.shadow_map_size, render.shadow_map_size, 1)
             .is_err();
     if shadow_map_size_rejected {
         render.shadow_map_size = shadow_target.readback().width();
@@ -149,7 +148,7 @@ fn apply_hot_reload_render_settings(
 pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationError> {
     config
         .validate()
-        .map_err(|reason| ApplicationError::InvalidConfiguration { reason })?;
+        .map_err(|source| ApplicationError::InvalidConfiguration { source })?;
     let width = config.render.width;
     let height = config.render.height;
 
@@ -176,10 +175,10 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
 
     let mut queue = RenderDevice::new().create_queue();
     let mut target =
-        MainHdrTarget::new(width, height, config.render.supersample_scale).map_err(|reason| {
-            ApplicationError::RenderInitialization {
+        MainHdrTarget::new(width, height, config.render.supersample_scale).map_err(|source| {
+            ApplicationError::RenderTargetInitialization {
                 target: "main framebuffer",
-                reason,
+                source,
             }
         })?;
     let mut shadow_target = RenderTarget::new(
@@ -187,9 +186,9 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         config.render.shadow_map_size,
         1,
     )
-    .map_err(|reason| ApplicationError::RenderInitialization {
+    .map_err(|source| ApplicationError::RenderTargetInitialization {
         target: "shadow framebuffer",
-        reason,
+        source,
     })?;
     let mut frame_resources = FrameResources::new();
 
@@ -210,12 +209,8 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
         ..Default::default()
     };
 
-    let mut present = PresentBuffer::new(width, height).map_err(|reason| {
-        ApplicationError::RenderInitialization {
-            target: "present buffer",
-            reason,
-        }
-    })?;
+    let mut present = PresentBuffer::new(width, height)
+        .map_err(|source| ApplicationError::PresentBufferInitialization { source })?;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let now = Instant::now();
@@ -361,7 +356,7 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
 pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     config
         .validate()
-        .map_err(|reason| ApplicationError::InvalidConfiguration { reason })?;
+        .map_err(|source| ApplicationError::InvalidConfiguration { source })?;
     info!("Starting CLI mode...");
     let context = init_scene_resources(&config)?;
     let start_time = Instant::now();
@@ -372,18 +367,18 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
         config.render.height,
         config.render.supersample_scale,
     )
-    .map_err(|reason| ApplicationError::RenderInitialization {
+    .map_err(|source| ApplicationError::RenderTargetInitialization {
         target: "main framebuffer",
-        reason,
+        source,
     })?;
     let mut shadow_target = RenderTarget::new(
         config.render.shadow_map_size,
         config.render.shadow_map_size,
         1,
     )
-    .map_err(|reason| ApplicationError::RenderInitialization {
+    .map_err(|source| ApplicationError::RenderTargetInitialization {
         target: "shadow framebuffer",
-        reason,
+        source,
     })?;
     let mut frame_resources = FrameResources::new();
 
@@ -419,13 +414,8 @@ pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
 
     let output_path = config.resolve_path(&config.render.output);
     info!("Saving output to '{}'...", output_path.display());
-    let mut present =
-        PresentBuffer::new(config.render.width, config.render.height).map_err(|reason| {
-            ApplicationError::RenderInitialization {
-                target: "present buffer",
-                reason,
-            }
-        })?;
+    let mut present = PresentBuffer::new(config.render.width, config.render.height)
+        .map_err(|source| ApplicationError::PresentBufferInitialization { source })?;
     execute_resolve_tonemap_pass(ResolveTonemapPassDescriptor {
         label: Some("png-output"),
         source: &target,

@@ -1,8 +1,70 @@
-use crate::core::framebuffer::FrameBuffer;
-use crate::error::ConfigError;
+use crate::core::framebuffer::{FrameBuffer, RenderTargetError};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("failed to determine the process working directory: {source}")]
+    CurrentDirectory {
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to read config '{}': {source}", path.display())]
+    Read {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to parse config '{}': {source}", path.display())]
+    Parse {
+        path: PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+    #[error("invalid config '{}': {source}", path.display())]
+    Invalid {
+        path: PathBuf,
+        #[source]
+        source: ConfigValidationError,
+    },
+}
+
+#[derive(Debug, Error, PartialEq)]
+pub enum ConfigValidationError {
+    #[error("invalid render target: {source}")]
+    RenderTarget {
+        #[source]
+        source: RenderTargetError,
+    },
+    #[error("invalid shadow map dimensions: {source}")]
+    ShadowTarget {
+        #[source]
+        source: RenderTargetError,
+    },
+    #[error("{field} must be finite")]
+    NonFinite { field: String },
+    #[error("{field} must contain only finite values")]
+    NonFiniteArray { field: String },
+    #[error("{field} must be greater than zero")]
+    NonPositive { field: String },
+    #[error("{field} must be non-negative")]
+    Negative { field: String },
+    #[error("{field} must have non-zero length")]
+    ZeroVector { field: String },
+    #[error("camera.up must not be parallel to the viewing direction")]
+    ParallelCameraUp,
+    #[error("camera.fov must be greater than 0 and less than 180 degrees, got {value}")]
+    FovOutOfRange { value: f32 },
+    #[error("camera.far ({far}) must be greater than camera.near ({near})")]
+    FarNotBeyondNear { near: f32, far: f32 },
+    #[error("{field} is required for a {light_kind} light")]
+    MissingLightField {
+        field: String,
+        light_kind: &'static str,
+    },
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -237,9 +299,9 @@ impl Config {
             .parent()
             .unwrap_or_else(|| Path::new(""))
             .to_path_buf();
-        config.validate().map_err(|reason| ConfigError::Invalid {
+        config.validate().map_err(|source| ConfigError::Invalid {
             path: path.to_path_buf(),
-            reason,
+            source,
         })?;
         Ok(config)
     }
@@ -257,22 +319,25 @@ impl Config {
         }
     }
 
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), ConfigValidationError> {
         FrameBuffer::validate_dimensions(
             self.render.width,
             self.render.height,
             self.render.supersample_scale,
-        )?;
+        )
+        .map_err(|source| ConfigValidationError::RenderTarget { source })?;
         FrameBuffer::validate_dimensions(
             self.render.shadow_map_size,
             self.render.shadow_map_size,
             1,
         )
-        .map_err(|error| format!("invalid shadow map dimensions: {error}"))?;
+        .map_err(|source| ConfigValidationError::ShadowTarget { source })?;
 
         validate_finite("render.exposure", self.render.exposure)?;
         if self.render.exposure < 0.0 {
-            return Err("render.exposure must be non-negative".to_string());
+            return Err(ConfigValidationError::Negative {
+                field: "render.exposure".to_owned(),
+            });
         }
         validate_finite_array("render.ambient_light", self.render.ambient_light)?;
         validate_optional_finite_array("render.background_color", self.render.background_color)?;
@@ -291,7 +356,9 @@ impl Config {
         )?;
         validate_non_negative("render.shadow_slope_bias", self.render.shadow_slope_bias)?;
         if self.render.pcf_kernel_size < 0 {
-            return Err("render.pcf_kernel_size must be non-negative".to_string());
+            return Err(ConfigValidationError::Negative {
+                field: "render.pcf_kernel_size".to_owned(),
+            });
         }
 
         validate_finite_array("camera.position", self.camera.position)?;
@@ -303,17 +370,22 @@ impl Config {
         validate_nonzero_vector("camera.up", self.camera.up)?;
         let viewing_direction = vector_between(self.camera.position, self.camera.target);
         if squared_length(cross(viewing_direction, self.camera.up)) <= f32::EPSILON {
-            return Err("camera.up must not be parallel to the viewing direction".to_string());
+            return Err(ConfigValidationError::ParallelCameraUp);
         }
         validate_finite("camera.fov", self.camera.fov)?;
         if !(0.0..180.0).contains(&self.camera.fov) {
-            return Err("camera.fov must be greater than 0 and less than 180 degrees".to_string());
+            return Err(ConfigValidationError::FovOutOfRange {
+                value: self.camera.fov,
+            });
         }
         validate_positive("camera.ortho_height", self.camera.ortho_height)?;
         validate_positive("camera.near", self.camera.near)?;
         validate_finite("camera.far", self.camera.far)?;
         if self.camera.far <= self.camera.near {
-            return Err("camera.far must be greater than camera.near".to_string());
+            return Err(ConfigValidationError::FarNotBeyondNear {
+                near: self.camera.near,
+                far: self.camera.far,
+            });
         }
         validate_non_negative("camera.speed", self.camera.speed)?;
         validate_non_negative("camera.sensitivity", self.camera.sensitivity)?;
@@ -337,14 +409,21 @@ impl Config {
             match light.kind {
                 LightKind::Directional => {
                     let direction = light.direction.ok_or_else(|| {
-                        format!("{prefix}.direction is required for a directional light")
+                        ConfigValidationError::MissingLightField {
+                            field: format!("{prefix}.direction"),
+                            light_kind: "directional",
+                        }
                     })?;
                     validate_nonzero_vector(&format!("{prefix}.direction"), direction)?;
                 }
                 LightKind::Point => {
-                    let position = light.position.ok_or_else(|| {
-                        format!("{prefix}.position is required for a point light")
-                    })?;
+                    let position =
+                        light
+                            .position
+                            .ok_or_else(|| ConfigValidationError::MissingLightField {
+                                field: format!("{prefix}.position"),
+                                light_kind: "point",
+                            })?;
                     validate_finite_array(&format!("{prefix}.position"), position)?;
                 }
             }
@@ -360,60 +439,73 @@ impl Config {
     }
 }
 
-fn validate_finite(name: &str, value: f32) -> Result<(), String> {
+fn validate_finite(name: &str, value: f32) -> Result<(), ConfigValidationError> {
     if value.is_finite() {
         Ok(())
     } else {
-        Err(format!("{name} must be finite"))
+        Err(ConfigValidationError::NonFinite {
+            field: name.to_owned(),
+        })
     }
 }
 
-fn validate_positive(name: &str, value: f32) -> Result<(), String> {
+fn validate_positive(name: &str, value: f32) -> Result<(), ConfigValidationError> {
     validate_finite(name, value)?;
     if value > 0.0 {
         Ok(())
     } else {
-        Err(format!("{name} must be greater than zero"))
+        Err(ConfigValidationError::NonPositive {
+            field: name.to_owned(),
+        })
     }
 }
 
-fn validate_non_negative(name: &str, value: f32) -> Result<(), String> {
+fn validate_non_negative(name: &str, value: f32) -> Result<(), ConfigValidationError> {
     validate_finite(name, value)?;
     if value >= 0.0 {
         Ok(())
     } else {
-        Err(format!("{name} must be non-negative"))
+        Err(ConfigValidationError::Negative {
+            field: name.to_owned(),
+        })
     }
 }
 
-fn validate_optional_finite(name: &str, value: Option<f32>) -> Result<(), String> {
+fn validate_optional_finite(name: &str, value: Option<f32>) -> Result<(), ConfigValidationError> {
     if let Some(value) = value {
         validate_finite(name, value)?;
     }
     Ok(())
 }
 
-fn validate_finite_array(name: &str, values: [f32; 3]) -> Result<(), String> {
+fn validate_finite_array(name: &str, values: [f32; 3]) -> Result<(), ConfigValidationError> {
     if values.into_iter().all(f32::is_finite) {
         Ok(())
     } else {
-        Err(format!("{name} must contain only finite values"))
+        Err(ConfigValidationError::NonFiniteArray {
+            field: name.to_owned(),
+        })
     }
 }
 
-fn validate_optional_finite_array(name: &str, values: Option<[f32; 3]>) -> Result<(), String> {
+fn validate_optional_finite_array(
+    name: &str,
+    values: Option<[f32; 3]>,
+) -> Result<(), ConfigValidationError> {
     if let Some(values) = values {
         validate_finite_array(name, values)?;
     }
     Ok(())
 }
 
-fn validate_nonzero_vector(name: &str, value: [f32; 3]) -> Result<(), String> {
+fn validate_nonzero_vector(name: &str, value: [f32; 3]) -> Result<(), ConfigValidationError> {
     validate_finite_array(name, value)?;
     if squared_length(value) > f32::EPSILON {
         Ok(())
     } else {
-        Err(format!("{name} must have non-zero length"))
+        Err(ConfigValidationError::ZeroVector {
+            field: name.to_owned(),
+        })
     }
 }
 
@@ -593,57 +685,94 @@ mod tests {
     fn rejects_invalid_dimensions_before_allocation() {
         let mut config = Config::default();
         config.render.width = 0;
-        assert!(config.validate().unwrap_err().contains("dimensions"));
+        assert_eq!(
+            config.validate().unwrap_err(),
+            ConfigValidationError::RenderTarget {
+                source: RenderTargetError::ZeroDimensions {
+                    width: 0,
+                    height: config.render.height,
+                },
+            }
+        );
 
         config.render.width = usize::MAX;
         config.render.supersample_scale = 2;
-        assert!(config.validate().unwrap_err().contains("overflows"));
+        assert_eq!(
+            config.validate().unwrap_err(),
+            ConfigValidationError::RenderTarget {
+                source: RenderTargetError::SupersampledWidthOverflow,
+            }
+        );
 
         config.render.width = usize::MAX / 2 + 1;
         config.render.height = 2;
         config.render.supersample_scale = 1;
-        assert!(config.validate().unwrap_err().contains("sample count"));
+        assert_eq!(
+            config.validate().unwrap_err(),
+            ConfigValidationError::RenderTarget {
+                source: RenderTargetError::SampleCountOverflow,
+            }
+        );
     }
 
     #[test]
     fn rejects_invalid_camera_geometry() {
         let mut config = Config::default();
         config.camera.target = config.camera.position;
-        assert!(config.validate().unwrap_err().contains("viewing direction"));
+        assert_eq!(
+            config.validate().unwrap_err(),
+            ConfigValidationError::ZeroVector {
+                field: "camera viewing direction".to_owned(),
+            }
+        );
 
         config.camera.target = [0.0, 0.0, 0.0];
         config.camera.up = [0.0, 0.0, 0.0];
-        assert!(config.validate().unwrap_err().contains("camera.up"));
+        assert_eq!(
+            config.validate().unwrap_err(),
+            ConfigValidationError::ZeroVector {
+                field: "camera.up".to_owned(),
+            }
+        );
 
         config.camera.up = [0.0, 1.0, 0.0];
         config.camera.near = 10.0;
         config.camera.far = 1.0;
-        assert!(config.validate().unwrap_err().contains("camera.far"));
+        assert_eq!(
+            config.validate().unwrap_err(),
+            ConfigValidationError::FarNotBeyondNear {
+                near: 10.0,
+                far: 1.0,
+            }
+        );
     }
 
     #[test]
     fn rejects_non_finite_transforms_and_invalid_light_vectors() {
         let mut config = Config::default();
         config.objects[0].scale[1] = f32::NAN;
-        assert!(config.validate().unwrap_err().contains("objects[0].scale"));
+        assert!(matches!(
+            config.validate().unwrap_err(),
+            ConfigValidationError::NonFiniteArray { field }
+                if field == "objects[0].scale"
+        ));
 
         config.objects[0].scale = [1.0, 1.0, 1.0];
         config.lights[0].direction = Some([0.0, 0.0, 0.0]);
-        assert!(
-            config
-                .validate()
-                .unwrap_err()
-                .contains("lights[0].direction")
+        assert_eq!(
+            config.validate().unwrap_err(),
+            ConfigValidationError::ZeroVector {
+                field: "lights[0].direction".to_owned(),
+            }
         );
 
         config.lights[0].direction = Some([0.0, -1.0, 0.0]);
         config.lights[0].position = Some([f32::INFINITY, 0.0, 0.0]);
-        assert!(
-            config
-                .validate()
-                .unwrap_err()
-                .contains("lights[0].position")
-        );
+        assert!(matches!(
+            config.validate().unwrap_err(),
+            ConfigValidationError::NonFiniteArray { field }
+                if field == "lights[0].position"
+        ));
     }
 
     #[test]

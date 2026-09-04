@@ -10,6 +10,7 @@
 //! Completed targets are inspected through [`RenderTargetReadback`]; framebuffer storage and the
 //! software backend remain private.
 
+pub use crate::core::framebuffer::RenderTargetError;
 pub use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
 pub use crate::core::pipeline_state::{
     BlendState, ColorTargetState, CompareFunction, CullMode, DepthStencilState, FrontFace,
@@ -26,8 +27,8 @@ pub use crate::pipeline::passes::{
 pub use crate::pipeline::renderer::{
     BackgroundPass, BackgroundSource, CommandBuffer, CommandEncoder, CommandError, FrameResources,
     GraphicsQueue, LoadOp, MainHdrTarget, Operations, PhaseSubmissionReport, PresentBuffer,
-    RenderDevice, RenderError, RenderPassDescriptor, RenderPassEncoder, RenderTarget,
-    RenderTargetReadback, SubmissionReport,
+    PresentBufferError, RenderDevice, RenderError, RenderPassDescriptor, RenderPassEncoder,
+    RenderTarget, RenderTargetReadback, SubmissionReport,
 };
 
 /// Built-in shader implementations and their typed binding groups.

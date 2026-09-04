@@ -1,5 +1,39 @@
 use nalgebra::Vector3;
 use rayon::prelude::*;
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum RenderTargetError {
+    #[error("render dimensions must be greater than zero, got {width}x{height}")]
+    ZeroDimensions { width: usize, height: usize },
+    #[error("supersample scale must be greater than zero")]
+    ZeroSupersampleScale,
+    #[error("supersampled framebuffer width overflows usize")]
+    SupersampledWidthOverflow,
+    #[error("supersampled framebuffer height overflows usize")]
+    SupersampledHeightOverflow,
+    #[error("framebuffer sample count overflows usize")]
+    SampleCountOverflow,
+    #[error("framebuffer allocation size overflows usize")]
+    AllocationSizeOverflow,
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub(crate) enum FrameBufferLayoutError {
+    #[error(transparent)]
+    InvalidDimensions(#[from] RenderTargetError),
+    #[error(
+        "buffer dimensions {actual_width}x{actual_height} do not match the expected {expected_width}x{expected_height}"
+    )]
+    LayoutDimensionsMismatch {
+        actual_width: usize,
+        actual_height: usize,
+        expected_width: usize,
+        expected_height: usize,
+    },
+    #[error("sample count {actual} does not match the expected {expected}")]
+    LayoutSampleCountMismatch { actual: usize, expected: usize },
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Sample {
@@ -27,7 +61,7 @@ impl FrameBuffer {
         width: usize,
         height: usize,
         supersample_scale: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, RenderTargetError> {
         let (buffer_width, buffer_height, size) =
             Self::checked_dimensions(width, height, supersample_scale)?;
 
@@ -45,24 +79,26 @@ impl FrameBuffer {
         width: usize,
         height: usize,
         supersample_scale: usize,
-    ) -> Result<(), String> {
+    ) -> Result<(), RenderTargetError> {
         Self::checked_dimensions(width, height, supersample_scale).map(|_| ())
     }
 
-    pub(crate) fn validate_layout(&self) -> Result<(), String> {
+    pub(crate) fn validate_layout(&self) -> Result<(), FrameBufferLayoutError> {
         let (expected_width, expected_height, expected_samples) =
             Self::checked_dimensions(self.width, self.height, self.supersample_scale)?;
         if (self.buffer_width, self.buffer_height) != (expected_width, expected_height) {
-            return Err(format!(
-                "buffer dimensions {}x{} do not match the expected {}x{}",
-                self.buffer_width, self.buffer_height, expected_width, expected_height
-            ));
+            return Err(FrameBufferLayoutError::LayoutDimensionsMismatch {
+                actual_width: self.buffer_width,
+                actual_height: self.buffer_height,
+                expected_width,
+                expected_height,
+            });
         }
         if self.samples.len() != expected_samples {
-            return Err(format!(
-                "sample count {} does not match the expected {expected_samples}",
-                self.samples.len()
-            ));
+            return Err(FrameBufferLayoutError::LayoutSampleCountMismatch {
+                actual: self.samples.len(),
+                expected: expected_samples,
+            });
         }
 
         Ok(())
@@ -72,26 +108,26 @@ impl FrameBuffer {
         width: usize,
         height: usize,
         supersample_scale: usize,
-    ) -> Result<(usize, usize, usize), String> {
+    ) -> Result<(usize, usize, usize), RenderTargetError> {
         if width == 0 || height == 0 {
-            return Err("render dimensions must be greater than zero".to_string());
+            return Err(RenderTargetError::ZeroDimensions { width, height });
         }
         if supersample_scale == 0 {
-            return Err("supersample_scale must be greater than zero".to_string());
+            return Err(RenderTargetError::ZeroSupersampleScale);
         }
 
         let buffer_width = width
             .checked_mul(supersample_scale)
-            .ok_or_else(|| "supersampled framebuffer width overflows usize".to_string())?;
+            .ok_or(RenderTargetError::SupersampledWidthOverflow)?;
         let buffer_height = height
             .checked_mul(supersample_scale)
-            .ok_or_else(|| "supersampled framebuffer height overflows usize".to_string())?;
+            .ok_or(RenderTargetError::SupersampledHeightOverflow)?;
         let sample_count = buffer_width
             .checked_mul(buffer_height)
-            .ok_or_else(|| "framebuffer sample count overflows usize".to_string())?;
+            .ok_or(RenderTargetError::SampleCountOverflow)?;
         sample_count
             .checked_mul(std::mem::size_of::<Sample>())
-            .ok_or_else(|| "framebuffer allocation size overflows usize".to_string())?;
+            .ok_or(RenderTargetError::AllocationSizeOverflow)?;
 
         Ok((buffer_width, buffer_height, sample_count))
     }
@@ -203,11 +239,29 @@ mod tests {
 
     #[test]
     fn constructor_rejects_invalid_dimensions() {
-        assert!(FrameBuffer::new(0, 1, 1).is_err());
-        assert!(FrameBuffer::new(1, 1, 0).is_err());
-        assert!(FrameBuffer::new(usize::MAX, 1, 2).is_err());
-        assert!(FrameBuffer::new(usize::MAX / 2 + 1, 2, 1).is_err());
-        assert!(FrameBuffer::new(usize::MAX / std::mem::size_of::<Sample>() + 1, 1, 1).is_err());
+        assert!(matches!(
+            FrameBuffer::new(0, 1, 1),
+            Err(RenderTargetError::ZeroDimensions {
+                width: 0,
+                height: 1,
+            })
+        ));
+        assert!(matches!(
+            FrameBuffer::new(1, 1, 0),
+            Err(RenderTargetError::ZeroSupersampleScale)
+        ));
+        assert!(matches!(
+            FrameBuffer::new(usize::MAX, 1, 2),
+            Err(RenderTargetError::SupersampledWidthOverflow)
+        ));
+        assert!(matches!(
+            FrameBuffer::new(usize::MAX / 2 + 1, 2, 1),
+            Err(RenderTargetError::SampleCountOverflow)
+        ));
+        assert!(matches!(
+            FrameBuffer::new(usize::MAX / std::mem::size_of::<Sample>() + 1, 1, 1),
+            Err(RenderTargetError::AllocationSizeOverflow)
+        ));
     }
 
     #[test]

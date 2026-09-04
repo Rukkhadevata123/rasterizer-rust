@@ -1,4 +1,4 @@
-use crate::core::framebuffer::FrameBuffer;
+use crate::core::framebuffer::{FrameBuffer, FrameBufferLayoutError, RenderTargetError};
 use crate::core::geometry::Vertex;
 use crate::core::pipeline_state::{GraphicsPipeline, GraphicsPipelineState};
 use crate::core::rasterizer::{MAX_PREPARED_TRIANGLES, PreparedTriangle, Rasterizer};
@@ -155,8 +155,12 @@ pub(crate) enum RenderPassError {
         "render pass '{label}' does not declare a color attachment, depth attachment, or background"
     )]
     EmptyPass { label: String },
-    #[error("render pass '{label}' has an invalid target: {reason}")]
-    InvalidTarget { label: String, reason: String },
+    #[error("render pass '{label}' has an invalid target: {source}")]
+    InvalidTarget {
+        label: String,
+        #[source]
+        source: FrameBufferLayoutError,
+    },
 }
 
 impl RenderPassDescriptor<'_> {
@@ -165,9 +169,9 @@ impl RenderPassDescriptor<'_> {
         self.target
             .framebuffer()
             .validate_layout()
-            .map_err(|reason| RenderPassError::InvalidTarget {
+            .map_err(|source| RenderPassError::InvalidTarget {
                 label: label(),
-                reason,
+                source,
             })?;
         if self.color_ops.is_none() && self.depth_ops.is_none() && !has_background {
             return Err(RenderPassError::EmptyPass { label: label() });
@@ -199,6 +203,16 @@ pub enum CommandError {
 pub enum RenderError {
     #[error(transparent)]
     Command(#[from] CommandError),
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum PresentBufferError {
+    #[error("present dimensions {width}x{height} must be greater than zero")]
+    ZeroDimensions { width: usize, height: usize },
+    #[error("present buffer pixel count overflows usize")]
+    PixelCountOverflow,
+    #[error("present buffer allocation size overflows usize")]
+    AllocationSizeOverflow,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -566,10 +580,22 @@ impl RenderTargetReadback<'_> {
 }
 
 impl RenderTarget {
-    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Result<Self, String> {
+    pub fn new(
+        width: usize,
+        height: usize,
+        supersample_scale: usize,
+    ) -> Result<Self, RenderTargetError> {
         Ok(Self {
             framebuffer: FrameBuffer::new(width, height, supersample_scale)?,
         })
+    }
+
+    pub fn validate_dimensions(
+        width: usize,
+        height: usize,
+        supersample_scale: usize,
+    ) -> Result<(), RenderTargetError> {
+        FrameBuffer::validate_dimensions(width, height, supersample_scale)
     }
 
     pub fn readback(&self) -> RenderTargetReadback<'_> {
@@ -592,7 +618,11 @@ pub struct MainHdrTarget {
 }
 
 impl MainHdrTarget {
-    pub fn new(width: usize, height: usize, supersample_scale: usize) -> Result<Self, String> {
+    pub fn new(
+        width: usize,
+        height: usize,
+        supersample_scale: usize,
+    ) -> Result<Self, RenderTargetError> {
         Ok(Self {
             target: RenderTarget::new(width, height, supersample_scale)?,
         })
@@ -619,16 +649,16 @@ pub struct PresentBuffer {
 }
 
 impl PresentBuffer {
-    pub fn new(width: usize, height: usize) -> Result<Self, String> {
+    pub fn new(width: usize, height: usize) -> Result<Self, PresentBufferError> {
         if width == 0 || height == 0 {
-            return Err("present dimensions must be greater than zero".to_string());
+            return Err(PresentBufferError::ZeroDimensions { width, height });
         }
         let pixel_count = width
             .checked_mul(height)
-            .ok_or_else(|| "present buffer pixel count overflows usize".to_string())?;
+            .ok_or(PresentBufferError::PixelCountOverflow)?;
         pixel_count
             .checked_mul(std::mem::size_of::<u32>())
-            .ok_or_else(|| "present buffer allocation size overflows usize".to_string())?;
+            .ok_or(PresentBufferError::AllocationSizeOverflow)?;
 
         Ok(Self {
             width,
@@ -1228,8 +1258,10 @@ mod tests {
         .expect_err("an inconsistent target should be rejected");
         assert!(matches!(
             error,
-            RenderPassError::InvalidTarget { label, reason }
-                if label == "invalid-target" && reason.contains("buffer dimensions")
+            RenderPassError::InvalidTarget {
+                label,
+                source: FrameBufferLayoutError::LayoutDimensionsMismatch { .. },
+            } if label == "invalid-target"
         ));
         let sample = target
             .framebuffer()
@@ -1246,8 +1278,23 @@ mod tests {
         assert_eq!(present.pixels().len(), 6);
         assert!(present.pixels().iter().all(|pixel| *pixel == 0));
 
-        assert!(PresentBuffer::new(0, 1).is_err());
-        assert!(PresentBuffer::new(1, 0).is_err());
-        assert!(PresentBuffer::new(usize::MAX, 2).is_err());
+        assert!(matches!(
+            PresentBuffer::new(0, 1),
+            Err(PresentBufferError::ZeroDimensions {
+                width: 0,
+                height: 1,
+            })
+        ));
+        assert!(matches!(
+            PresentBuffer::new(1, 0),
+            Err(PresentBufferError::ZeroDimensions {
+                width: 1,
+                height: 0,
+            })
+        ));
+        assert!(matches!(
+            PresentBuffer::new(usize::MAX, 2),
+            Err(PresentBufferError::PixelCountOverflow)
+        ));
     }
 }

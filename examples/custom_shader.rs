@@ -50,7 +50,7 @@ impl Shader<()> for VertexColorShader {
 fn main() -> Result<(), Box<dyn Error>> {
     let device = RenderDevice::new();
     let mut queue = device.create_queue();
-    let mut target = RenderTarget::new(256, 256, 1).map_err(std::io::Error::other)?;
+    let mut target = RenderTarget::new(256, 256, 1)?;
     let pipeline = GraphicsPipeline::new(
         VertexColorShader,
         GraphicsPipelineState {
