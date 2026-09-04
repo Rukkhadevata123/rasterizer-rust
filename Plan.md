@@ -2,11 +2,11 @@
 
 ## Status
 
-Status: proposed after repository-wide reassessment
+Status: required Phase 11.1–11.5 implementation and cleanup complete; release documentation and final validation in progress
 
-Target release: **5.0.0** if the public renames and removals below are implemented. The crate currently exposes `RenderContext`, `Renderer`, `RenderQueue`, `RenderCommand`, `RenderState`, and the module tree publicly, so applying this plan without compatibility aliases is a breaking change.
+Target release: **5.0.0**. The branch now implements the breaking `render` façade and no longer exposes the former `core`, `pipeline`, `Renderer`, `RenderQueue`, `RenderCommand`, or `RenderState` paths. `Cargo.toml` remains at 4.0.0 until release packaging. The still-public binary/tooling modules require one final boundary decision before that version bump.
 
-This document replaces the completed pre-4.0 roadmap. It describes an optional architectural modernization of the existing software rasterizer. The goal is to expose a small, accurate, explicit rendering API while retaining the safe synchronous CPU backend and its current performance properties.
+This document replaces the completed pre-4.0 roadmap and records both the original decisions and their implementation. Sections describing the old renderer or proposing work are historical planning context unless their checklist remains open. The goal is a small, accurate, explicit rendering API that retains the safe synchronous CPU backend and its performance properties.
 
 No phase is approved merely because it appears here. Each phase has an exit criterion and a decision gate. Optional GPU-like concepts are added only when the CPU implementation has corresponding behavior.
 
@@ -18,7 +18,7 @@ Correctness tests, deterministic contracts, and required output behavior remain 
 
 On every development machine, collect a fresh baseline from the immediately preceding implementation using the same machine, toolchain, release settings, workload, worker counts, and source/output path as the candidate. Prefer adjacent old/new runs and repeat or reverse their order when short or multi-worker scenarios are noisy. Use repository benchmark history to check schema, workloads, hashes, and prior reasoning—not as the performance denominator for a different environment. Record machine metadata and state explicitly when reporting a gate result.
 
-## Reassessment Summary
+## Historical Reassessment Summary
 
 The original direction was sound, but the implementation order and several proposed types needed correction after comparison with the current code.
 
@@ -34,9 +34,11 @@ The main conclusions are:
 8. **Keep hot reload as a first-class acceptance path.** Main target, supersampling target, shadow target, model resources, mip policy, and window dimensions currently have different reload behavior. New device/resource ownership must not turn every configuration change into a full rebuild.
 9. **Freeze the 5.0 public boundary before building typed commands.** The current crate exposes custom `Shader` implementations and most rendering modules. Whether commands are extensible library API or only an internal façade for PBR/shadow changes the command-buffer, pipeline, binding, and visibility design.
 
-## Current Architecture and Constraints
+## Pre-refactor 4.0 Architecture and Constraints
 
-| Area | Current implementation | Constraint on the redesign |
+The table below records the implementation that Phase 11 replaced; it is not a description of the current branch.
+
+| Area | Pre-refactor implementation | Constraint on the redesign |
 |---|---|---|
 | Scene | `RenderContext` owns camera, lights, objects, and selected shadow light | This is scene data, not a GPU context |
 | Orchestration | `render_shadow_pass` and `render_main_pass` build shader vectors and draw queues, then execute immediately | Recording must separate construction from execution without duplicating these paths |
@@ -613,6 +615,7 @@ Completed slices:
 - [x] `0647896` (`clarify frame resource reuse tests`): retained both pointer-identity tests after tracing their production call sites and ownership semantics. Main rendering requests the configured background binding every frame, so identical `Arc` identity is the observable proof that an unchanged path/mip policy does not reload the image or allocate a replacement binding, while a policy change still invalidates the cache. Shadow submission copies depth every frame; after consumers release the previous snapshot, stable allocation identity proves `Arc::make_mut` regains and reuses the owned vector across target rebuilds instead of allocating each frame. These are intentional `FrameResources` performance responsibilities exercised by the standard image-background and shadow benchmark scenarios; Phase 11.6 has not selected a replacement resource model. Renamed both tests and documented what pointer identity observes, including the released-snapshot precondition, without adding another allocation-detail test. The suite remains at 160 release Rust tests plus 9 benchmark-script tests. Formatting, warnings-denied Clippy, release checks/tests, rustdoc, and `unreachable_pub` pass. No render or performance matrix was run because compiled production paths are unchanged.
 - [x] `3117411` (`consolidate rendering test fixtures`): audited the shared integration harness, the private backend harness, and the longest material, shadow, command, and cache tests. Consolidated repeated indexed-quad construction and repeated-index triangle construction into explicitly named, boundary-local fixtures, reducing the affected test code by 28 net lines while preserving all 160 distinct Rust tests. Kept the public and private fixtures separate because their shader contexts and API boundaries differ, and deliberately left command sequencing, pipeline state, draw bindings, scene construction, pass order, and expected pixels inline where those values define the tested contract. No generic builder or cross-boundary test framework was introduced. All 160 release Rust tests and 9 benchmark-script tests pass with formatting, warnings-denied Clippy, release checks, rustdoc, and `unreachable_pub`. No render or performance matrix was run because compiled production paths are unchanged.
 - [x] `f6aa9e1` (`document render api entry points`): documented `render` as the canonical target-5.0 programmable API in the README and crate/module rustdoc, explicitly identified `core` and `pipeline` as private implementation details, and described synchronous device/queue/typed-command/readback ownership without presenting application or benchmark tooling as alternate rendering paths. Added a packaged, runnable custom-shader example that uses only public `render` and `scene` paths, records and submits one typed pass, and reads its completed target; `cargo run --release --example custom_shader` produces the expected interpolated center color, and `cargo package --list --allow-dirty` includes the example. The manifest remains at 4.0.0 until release packaging, which the README now states rather than implying that the version has already been published. All 160 release Rust tests plus the example target and 9 benchmark-script tests pass with formatting, warnings-denied Clippy, release checks, rustdoc, and `unreachable_pub`. The API decision record and benchmark documentation still require their separate historical/current-state rewrite before the documentation checklist item closes. No performance matrix was run because production rendering code is unchanged.
+- [x] `1e1b889` (`update render api implementation guide`): rewrote `docs/render-api-5.md` from a prospective Phase 11.0 decision into an implementation guide while isolating the former 4.0 inventory in an explicitly historical section. The document now matches the actual typed encoder signatures, backend-owning queue, one-pass command family, ordered phase sealing, binding/cache IDs, attachment/background behavior, depth-only masked fragments, readback boundary, built-in bindings, timing ownership, and transparent total order. A final rustdoc/public-item audit confirms that the rendering façade hides `core`, `pipeline`, framebuffer storage, `Rasterizer`, `SoftwareRasterBackend`, `RenderPhase`, and `DrawPacket`, with no old execution aliases. The audit also found that `app`, `benchmark`, `error`, and `ui` remain publicly reachable for the bundled binary; the guide records this as a semver-relevant release decision rather than claiming complete surface closure. Added the guide itself to the Cargo package so the README link remains valid after publishing. All 160 release Rust tests plus the example target and 9 benchmark-script tests pass with formatting, warnings-denied Clippy, release checks, rustdoc, `unreachable_pub`, and package-content verification. No performance matrix was run because production rendering code is unchanged.
 
 ### Production code and API cleanup
 
@@ -622,6 +625,7 @@ Completed slices:
 - [x] Remove transitional immediate-pass helpers that are no longer used by command submission. Keep the backend execution primitive used by `GraphicsQueue`; do not preserve a second public entry point.
 - [x] Remove dead state, duplicated validation, redundant resource ownership, stale profiling fields, and unused feature scaffolding. Do not add placeholder abstractions merely to make the cleanup look architecturally complete.
 - [x] Run a final `unsafe`, `UnsafeCell`, atomics, locks, and manual `Sync` audit around framebuffer mutation and preserve exclusive-band writes.
+- [ ] Resolve the final 5.0 release boundary for the publicly reachable `app`, `benchmark`, `error`, and `ui` tooling modules: move them behind a non-library boundary, narrow them to an explicitly supported entry point, or deliberately accept them as versioned public API. Do not use `#[doc(hidden)]` as a substitute for the decision.
 
 ### Test cleanup and migration
 
