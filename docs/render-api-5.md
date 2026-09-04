@@ -233,6 +233,6 @@ During Phases 11.1–11.5:
 
 - [x] add compile-time integration coverage for a minimal external custom shader through `render`;
 - [x] migrate existing rendering integration tests away from private module paths;
-- [ ] make command/resource fields private and validate construction;
+- [x] make command/resource fields private and validate construction;
 - [x] remove obsolete public execution paths after their replacements pass validation;
 - [ ] audit the final rustdoc/public item list against this record.
