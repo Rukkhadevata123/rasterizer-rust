@@ -1035,7 +1035,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn background_cache_reuses_matching_path_and_mip_policy() {
+    fn background_cache_reuses_binding_for_matching_path_and_mip_policy() {
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock should follow the Unix epoch")
@@ -1055,6 +1055,8 @@ mod tests {
         let second = resources
             .background_texture(&path, false)
             .expect("cached test background should load");
+        // Pointer identity observes the cache contract: an unchanged request must not reload the
+        // image or allocate a replacement binding on every frame.
         assert!(Arc::ptr_eq(&first, &second));
 
         let mipmapped = resources
@@ -1066,7 +1068,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_resources_reuse_shadow_storage_across_target_rebuilds() {
+    fn released_shadow_snapshot_allows_storage_reuse_across_target_rebuilds() {
         let mut resources = FrameResources::new();
         let target = RenderTarget::new(2, 2, 1).expect("test dimensions should be valid");
         let first = resources.shadow_depth_snapshot(&target);
@@ -1076,6 +1078,8 @@ mod tests {
         let target = RenderTarget::new(2, 2, 1).expect("rebuilt dimensions should be valid");
         let second = resources.shadow_depth_snapshot(&target);
 
+        // Once consumers release the previous snapshot, `Arc::make_mut` must recover the existing
+        // allocation instead of allocating a new depth vector for the next frame.
         assert_eq!(Arc::as_ptr(&second), allocation);
         assert_eq!(second.len(), 4);
     }
