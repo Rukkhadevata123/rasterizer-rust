@@ -1,2 +1,2 @@
-pub mod pbr;
-pub mod shadow;
+pub(crate) mod pbr;
+pub(crate) mod shadow;

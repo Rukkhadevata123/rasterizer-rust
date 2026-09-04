@@ -1,3 +1,3 @@
-pub mod passes;
-pub mod renderer;
-pub mod shaders;
+pub(crate) mod passes;
+pub(crate) mod renderer;
+pub(crate) mod shaders;

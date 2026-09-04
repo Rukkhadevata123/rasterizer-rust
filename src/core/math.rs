@@ -1,2 +1,2 @@
-pub mod interpolation;
-pub mod transform;
+pub(crate) mod interpolation;
+pub(crate) mod transform;

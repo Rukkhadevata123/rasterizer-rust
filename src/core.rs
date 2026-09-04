@@ -1,7 +1,7 @@
-pub mod color;
-pub mod framebuffer;
-pub mod geometry;
-pub mod math;
-pub mod pipeline_state;
-pub mod rasterizer;
-pub mod shader;
+pub(crate) mod color;
+pub(crate) mod framebuffer;
+pub(crate) mod geometry;
+pub(crate) mod math;
+pub(crate) mod pipeline_state;
+pub(crate) mod rasterizer;
+pub(crate) mod shader;
