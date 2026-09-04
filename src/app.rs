@@ -1,3 +1,8 @@
+//! Application loops for the package's headless renderer and interactive viewer.
+//!
+//! These entry points are executable tooling built on [`crate::render`], not an alternate library
+//! rendering API.
+
 use crate::core::framebuffer::FrameBuffer;
 use crate::core::pipeline_state::{CullMode, GraphicsPipelineState, PolygonMode, PrimitiveState};
 use crate::error::{ApplicationError, WindowError};

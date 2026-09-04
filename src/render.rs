@@ -1,4 +1,14 @@
-//! Stable rendering API for programmable shaders, command recording, and synchronous submission.
+//! Canonical rendering API for programmable shaders, typed commands, and synchronous submission.
+//!
+//! A [`RenderDevice`] creates immutable [`GraphicsPipeline`] values, typed [`CommandEncoder`]s,
+//! and a backend-owning [`GraphicsQueue`]. Each command buffer records one concrete shader/context
+//! family and one render pass, which may contain multiple ordered phases. [`GraphicsQueue::submit`]
+//! completes attachment processing, vertex preparation, and rasterization before it returns.
+//!
+//! Implement [`Shader`] and [`Interpolatable`] to use custom statically dispatched shaders. The
+//! [`builtin`] module exposes PBR and shadow shaders through the same pipeline and command model.
+//! Completed targets are inspected through [`RenderTargetReadback`]; framebuffer storage and the
+//! software backend remain private.
 
 pub use crate::core::geometry::{SUPPORTED_TEXCOORD_SETS, Vertex};
 pub use crate::core::pipeline_state::{

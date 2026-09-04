@@ -1,3 +1,10 @@
+//! Benchmark tooling used by the bundled CLI and repository scenario runner.
+//!
+//! New reports use CSV schema v2. Timing classes separate pass setup, command recording,
+//! attachment processing, backend preparation, rasterization, inclusive synchronous submission,
+//! post-processing, and complete-frame duration. This tooling module is not an alternate render
+//! submission API; measured frames use [`crate::render`] internally.
+
 use crate::core::pipeline_state::{CullMode, GraphicsPipelineState, PolygonMode, PrimitiveState};
 use crate::error::{ApplicationError, BenchmarkError};
 use crate::io::config::{Config, CullModeConfig};

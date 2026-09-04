@@ -50,12 +50,13 @@ The project follows a clean, modular architecture separating core engine logic f
 
 ```text
 src
-├── core               # The Engine Kernel
+├── render.rs          # Canonical programmable rendering API
+├── core               # Private engine kernel
 │   ├── rasterizer.rs  # Banded rasterization & clipping logic
 │   ├── framebuffer.rs # Safe HDR color/depth sample storage
 │   ├── geometry.rs    # Vertex layout & geometric primitives
 │   └── math           # Transform factories & interpolation helpers
-├── pipeline           # The Rendering Pipeline
+├── pipeline           # Private pass and backend implementation
 │   ├── passes.rs      # Shadow, main, and fused resolve-tonemap passes
 │   ├── renderer.rs    # Software backend, render targets, and frame resources
 │   └── shaders        # Programmable PBR & Shadow shaders
@@ -110,6 +111,26 @@ node scripts/run-benchmarks.mjs
 Color triplets in TOML configuration, including backgrounds, ambient light, ground albedo, and light colors, are linear RGB values. Color images used for base color, emissive, and image backgrounds are decoded from sRGB before filtering and shading. Mip generation averages color in linear space, preserves metallic-roughness and occlusion values as raw data, and renormalizes normal maps.
 
 Image decoding is limited to PNG and JPEG, matching the core glTF 2.0 image formats; rendered frames are written as PNG.
+
+## Library Rendering API
+
+The refactor branch implements the breaking 5.0 rendering boundary, while `Cargo.toml` remains at version 4.0.0 until the release is packaged. New library code should import programmable rendering types from `rasterizer_rust::render`; the former `core` and `pipeline` module paths are private implementation details and have no compatibility aliases.
+
+The public command lifecycle is explicit and synchronous:
+
+1. Create a `RenderDevice`, a backend-owning `GraphicsQueue`, and a `RenderTarget`.
+2. Build an immutable `GraphicsPipeline` from a shader and `GraphicsPipelineState`.
+3. Record one typed render pass with a `CommandEncoder`, selecting the pipeline and typed draw bindings before each draw.
+4. End the pass, finish the command buffer, and call `GraphicsQueue::submit`. Submission performs all attachment, preparation, and rasterization work before returning.
+5. Read completed HDR color or depth through `RenderTargetReadback`.
+
+User-defined Rust shaders use the same typed path as the built-in PBR and shadow shaders; no dynamic shader trait object or backend command type is required. Run the complete custom-shader example with:
+
+```bash
+cargo run --release --example custom_shader
+```
+
+See [the Render API 5.0 boundary](docs/render-api-5.md) for supported surface area, ordering guarantees, and the explicitly internal backend types.
 
 ## Third-Party Assets
 
