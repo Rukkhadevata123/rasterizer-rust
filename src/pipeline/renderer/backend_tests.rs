@@ -264,17 +264,53 @@ fn triangle(z: f32, color: Vector4<f32>) -> Mesh {
     Mesh::new(vertices, vec![0, 1, 2], 0)
 }
 
-fn full_screen_quad(color: Vector4<f32>) -> Mesh {
+fn indexed_quad(half_extent: Vector2<f32>, color: Vector4<f32>) -> Mesh {
     let mut vertices = vec![
-        Vertex::new(Point3::new(-1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(1.0, -1.0, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(-1.0, 1.0, 0.0), Vector3::z(), Vector2::zeros()),
+        Vertex::new(
+            Point3::new(-half_extent.x, -half_extent.y, 0.0),
+            Vector3::z(),
+            Vector2::zeros(),
+        ),
+        Vertex::new(
+            Point3::new(half_extent.x, -half_extent.y, 0.0),
+            Vector3::z(),
+            Vector2::zeros(),
+        ),
+        Vertex::new(
+            Point3::new(half_extent.x, half_extent.y, 0.0),
+            Vector3::z(),
+            Vector2::zeros(),
+        ),
+        Vertex::new(
+            Point3::new(-half_extent.x, half_extent.y, 0.0),
+            Vector3::z(),
+            Vector2::zeros(),
+        ),
     ];
     for vertex in &mut vertices {
         vertex.tangent = color;
     }
     Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0)
+}
+
+fn repeated_index_triangle(half_width: f32) -> Mesh {
+    Mesh::new(
+        vec![
+            Vertex::new(
+                Point3::new(-half_width, -0.8, 0.0),
+                Vector3::z(),
+                Vector2::zeros(),
+            ),
+            Vertex::new(
+                Point3::new(half_width, -0.8, 0.0),
+                Vector3::z(),
+                Vector2::zeros(),
+            ),
+            Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        ],
+        vec![0, 1, 2, 0, 2, 1],
+        0,
+    )
 }
 
 fn assert_vec3_approx(actual: Vector3<f32>, expected: Vector3<f32>) {
@@ -339,7 +375,7 @@ fn triangle_crossing_near_plane_is_clipped_and_rendered() {
 #[test]
 fn triangle_rasterization_crosses_band_boundaries() {
     let color = Vector4::new(0.2, 0.4, 0.8, 1.0);
-    let mesh = full_screen_quad(color);
+    let mesh = indexed_quad(Vector2::repeat(1.0), color);
     let mut renderer = BackendTestHarness::new(48, 70);
 
     execute_mesh(&mut renderer, &mesh, ClipSpaceShader, test_pipeline_state());
@@ -356,7 +392,7 @@ fn triangle_rasterization_crosses_band_boundaries() {
 fn top_left_rule_covers_shared_edge_once_without_cracks() {
     let color = Vector4::new(1.0, 0.0, 0.0, 0.5);
     let size = 257;
-    let mesh = full_screen_quad(color);
+    let mesh = indexed_quad(Vector2::repeat(1.0), color);
     let mut renderer = BackendTestHarness::new(size, size);
 
     execute_mesh(
@@ -392,13 +428,7 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
     let shader = CountingShader {
         vertex_calls: &calls,
     };
-    let vertices = vec![
-        Vertex::new(Point3::new(-0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(-0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-    ];
-    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
+    let mesh = indexed_quad(Vector2::repeat(0.8), Vector4::zeros());
     let mut renderer = BackendTestHarness::new(32, 32);
     let pipeline = GraphicsPipeline::new(
         shader,
@@ -429,19 +459,7 @@ fn vertex_cache_is_scoped_to_each_camera_submission() {
         test_pipeline_state(),
         VertexProgramId::from_pass_index(0),
     );
-    let mesh = Mesh::new(
-        vec![
-            Vertex::new(
-                Point3::new(-0.25, -0.8, 0.0),
-                Vector3::z(),
-                Vector2::zeros(),
-            ),
-            Vertex::new(Point3::new(0.25, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-            Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        ],
-        vec![0, 1, 2, 0, 2, 1],
-        0,
-    );
+    let mesh = repeated_index_triangle(0.25);
     let object_transform = Matrix4::identity();
     let left_camera = Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0));
     let right_camera = Matrix4::new_translation(&Vector3::new(0.5, 0.0, 0.0));
@@ -488,19 +506,7 @@ fn vertex_cache_isolates_distinct_tangent_frame_bindings() {
         test_pipeline_state(),
         VertexProgramId::from_pass_index(0),
     );
-    let mut mesh = Mesh::new(
-        vec![
-            Vertex::new(
-                Point3::new(-0.25, -0.8, 0.0),
-                Vector3::z(),
-                Vector2::zeros(),
-            ),
-            Vertex::new(Point3::new(0.25, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-            Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        ],
-        vec![0, 1, 2, 0, 2, 1],
-        0,
-    );
+    let mut mesh = repeated_index_triangle(0.25);
     for vertex in &mut mesh.vertices {
         vertex.tangent = Vector4::new(1.0, 0.0, 0.0, 1.0);
     }
@@ -559,16 +565,7 @@ fn transparent_world_vertices_use_a_distinct_source_domain() {
         test_pipeline_state(),
         VertexProgramId::from_pass_index(0),
     );
-    let mesh = Mesh::new(
-        vec![
-            Vertex::new(Point3::new(-0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-            Vertex::new(Point3::new(0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-            Vertex::new(Point3::new(0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-            Vertex::new(Point3::new(-0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        ],
-        vec![0, 1, 2, 0, 2, 3],
-        0,
-    );
+    let mesh = indexed_quad(Vector2::repeat(0.8), Vector4::zeros());
     let world_vertices = mesh.vertices.clone();
     let object_binding_id = ObjectBindingId::from_pass_index(0);
     let mut phase = RenderPhase::with_capacity(2);
@@ -608,16 +605,7 @@ fn vertex_cache_reuses_across_raster_only_pipeline_variants() {
     let shader = CountingShader {
         vertex_calls: &calls,
     };
-    let mesh = Mesh::new(
-        vec![
-            Vertex::new(Point3::new(-0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-            Vertex::new(Point3::new(0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-            Vertex::new(Point3::new(0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-            Vertex::new(Point3::new(-0.8, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        ],
-        vec![0, 1, 2, 0, 2, 3],
-        0,
-    );
+    let mesh = indexed_quad(Vector2::repeat(0.8), Vector4::zeros());
     let vertex_program_id = VertexProgramId::from_pass_index(0);
     let fill_pipeline = GraphicsPipeline::new(shader, test_pipeline_state(), vertex_program_id);
     let line_pipeline = GraphicsPipeline::new(
@@ -664,13 +652,7 @@ fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
         test_pipeline_state(),
         VertexProgramId::from_pass_index(0),
     );
-    let vertices = vec![
-        Vertex::new(Point3::new(-0.3, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(0.3, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(0.3, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(-0.3, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-    ];
-    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 3], 0);
+    let mesh = indexed_quad(Vector2::new(0.3, 0.8), Vector4::zeros());
     let left_transform = Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0));
     let right_transform = Matrix4::new_translation(&Vector3::new(0.5, 0.0, 0.0));
     let left = TransformDrawContext {
@@ -725,19 +707,7 @@ fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
 #[test]
 fn vertex_cache_distinguishes_vertex_program_ids() {
     let calls = AtomicUsize::new(0);
-    let mesh = Mesh::new(
-        vec![
-            Vertex::new(
-                Point3::new(-0.25, -0.8, 0.0),
-                Vector3::z(),
-                Vector2::zeros(),
-            ),
-            Vertex::new(Point3::new(0.25, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-            Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        ],
-        vec![0, 1, 2, 0, 2, 1],
-        0,
-    );
+    let mesh = repeated_index_triangle(0.25);
     let left_pipeline = GraphicsPipeline::new(
         ProgramVariantShader {
             x_offset: -0.5,

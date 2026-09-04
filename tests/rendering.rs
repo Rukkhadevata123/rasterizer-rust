@@ -233,6 +233,26 @@ fn triangle(z: f32, color: Vector4<f32>) -> Mesh {
     Mesh::new(vertices, vec![0, 1, 2], 0)
 }
 
+fn repeated_index_triangle(half_width: f32) -> Mesh {
+    Mesh::new(
+        vec![
+            Vertex::new(
+                Point3::new(-half_width, -0.8, 0.0),
+                Vector3::z(),
+                Vector2::zeros(),
+            ),
+            Vertex::new(
+                Point3::new(half_width, -0.8, 0.0),
+                Vector3::z(),
+                Vector2::zeros(),
+            ),
+            Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
+        ],
+        vec![0, 1, 2, 0, 2, 1],
+        0,
+    )
+}
+
 fn assert_vec3_approx(actual: Vector3<f32>, expected: Vector3<f32>) {
     assert!(
         (actual - expected).norm() < 1e-4,

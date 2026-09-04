@@ -91,16 +91,7 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
 
 #[test]
 fn shadow_draw_context_applies_distinct_object_bindings() {
-    let vertices = vec![
-        Vertex::new(
-            Point3::new(-0.25, -0.8, 0.0),
-            Vector3::z(),
-            Vector2::zeros(),
-        ),
-        Vertex::new(Point3::new(0.25, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-    ];
-    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 1], 0);
+    let mesh = repeated_index_triangle(0.25);
     let frame = ShadowFrameBindings::new(Matrix4::identity(), Matrix4::identity());
     let object_bindings = [
         ShadowObjectBindings::new(Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0))),

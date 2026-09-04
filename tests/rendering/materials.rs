@@ -66,16 +66,7 @@ fn headless_pbr_triangle_produces_visible_output() {
 
 #[test]
 fn pbr_draw_context_applies_distinct_object_and_material_bindings() {
-    let vertices = vec![
-        Vertex::new(
-            Point3::new(-0.25, -0.8, 0.0),
-            Vector3::z(),
-            Vector2::zeros(),
-        ),
-        Vertex::new(Point3::new(0.25, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
-        Vertex::new(Point3::new(0.0, 0.8, 0.0), Vector3::z(), Vector2::zeros()),
-    ];
-    let mesh = Mesh::new(vertices, vec![0, 1, 2, 0, 2, 1], 0);
+    let mesh = repeated_index_triangle(0.25);
     let mut frame = PbrFrameBindings::new(
         Matrix4::identity(),
         Matrix4::identity(),
