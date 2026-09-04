@@ -1,8 +1,8 @@
 use nalgebra::{Point3, Vector2, Vector3, Vector4};
 use rasterizer_rust::render::{
     CullMode, FragmentInput, FragmentOutput, GraphicsPipeline, GraphicsPipelineState,
-    Interpolatable, LoadOp, ObjectBindingId, Operations, PrimitiveState, RenderDevice,
-    RenderPassDescriptor, RenderTarget, Shader, Vertex, VertexProgramId,
+    Interpolatable, LoadOp, Operations, PrimitiveState, RenderDevice, RenderPassDescriptor,
+    RenderTarget, Shader, Vertex, VertexProgramId,
 };
 use rasterizer_rust::scene::mesh::Mesh;
 use std::error::Error;
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             },
             ..Default::default()
         },
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let mut vertices = vec![
         Vertex::new(Point3::new(-0.8, -0.8, 0.0), Vector3::z(), Vector2::zeros()),
@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             None,
         )?;
         pass.set_pipeline(&pipeline);
-        pass.set_draw_bindings((), ObjectBindingId::from_pass_index(0));
+        pass.set_draw_bindings(());
         pass.draw_mesh(&mesh, 0.0)?;
         pass.end()?;
     }

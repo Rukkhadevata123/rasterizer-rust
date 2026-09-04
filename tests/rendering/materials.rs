@@ -87,11 +87,7 @@ fn pbr_draw_context_applies_distinct_object_and_material_bindings() {
             ..Default::default()
         },
     ];
-    let pipeline = GraphicsPipeline::new(
-        PbrShader,
-        test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
-    );
+    let pipeline = GraphicsPipeline::new(PbrShader, test_pipeline_state(), VertexProgramId::new());
     let draws = [0, 1].map(|index| {
         (
             &mesh,
@@ -100,7 +96,6 @@ fn pbr_draw_context_applies_distinct_object_and_material_bindings() {
                 &object_bindings[index],
                 PbrMaterialBindings::from_pbr(&materials[index]),
             ),
-            ObjectBindingId::from_pass_index(index),
             0.0,
         )
     });
@@ -311,21 +306,8 @@ fn transparent_phase_sorts_back_to_front_and_preserves_band_order() {
         }),
         ..test_pipeline_state()
     };
-    let pipeline = GraphicsPipeline::new(shader, state, VertexProgramId::from_pass_index(0));
-    let draws = [
-        (
-            &near,
-            Some(&material),
-            ObjectBindingId::from_pass_index(0),
-            0.5,
-        ),
-        (
-            &far,
-            Some(&material),
-            ObjectBindingId::from_pass_index(0),
-            -0.5,
-        ),
-    ];
+    let pipeline = GraphicsPipeline::new(shader, state, VertexProgramId::new());
+    let draws = [(&near, Some(&material), 0.5), (&far, Some(&material), -0.5)];
     submit_test_draws(
         &mut renderer.queue,
         renderer.target.render_target_mut(),
@@ -364,8 +346,7 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                     }),
                     ..test_pipeline_state()
                 };
-                let pipeline =
-                    GraphicsPipeline::new(shader, state, VertexProgramId::from_pass_index(0));
+                let pipeline = GraphicsPipeline::new(shader, state, VertexProgramId::new());
                 let mut layers = [
                     (triangle(0.6, Vector4::new(1.0, 0.0, 0.0, 0.35)), -0.8),
                     (triangle(0.2, Vector4::new(0.0, 1.0, 0.0, 0.45)), 0.0),
@@ -384,14 +365,7 @@ fn transparent_rendering_is_deterministic_across_worker_counts() {
                 let mut renderer = TestRenderHarness::new(width, height, 1);
                 let draws: Vec<_> = layers
                     .iter()
-                    .map(|(mesh, sort_depth)| {
-                        (
-                            mesh,
-                            Some(&material),
-                            ObjectBindingId::from_pass_index(0),
-                            *sort_depth,
-                        )
-                    })
+                    .map(|(mesh, sort_depth)| (mesh, Some(&material), *sort_depth))
                     .collect();
                 submit_test_draws(
                     &mut renderer.queue,

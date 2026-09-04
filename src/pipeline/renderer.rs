@@ -25,13 +25,7 @@ pub(super) enum RenderGeometry<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ObjectBindingId(usize);
-
-impl ObjectBindingId {
-    pub fn from_pass_index(index: usize) -> Self {
-        Self(index)
-    }
-}
+struct ObjectBindingId(usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum VertexSourceKey {
@@ -305,6 +299,7 @@ impl<'a, S, C> CommandEncoder<'a, S, C> {
             phase: RenderPhase::default(),
             pipeline: None,
             bindings: None,
+            next_object_binding_id: 0,
             ended: false,
         })
     }
@@ -336,6 +331,7 @@ pub struct RenderPassEncoder<'encoder, 'a, S, C> {
     phase: RenderPhase<'a, S, C>,
     pipeline: Option<&'a GraphicsPipeline<S>>,
     bindings: Option<(C, ObjectBindingId)>,
+    next_object_binding_id: usize,
     ended: bool,
 }
 
@@ -347,7 +343,12 @@ where
         self.pipeline = Some(pipeline);
     }
 
-    pub fn set_draw_bindings(&mut self, context: C, object_binding_id: ObjectBindingId) {
+    pub fn set_draw_bindings(&mut self, context: C) {
+        let object_binding_id = ObjectBindingId(self.next_object_binding_id);
+        self.next_object_binding_id = self
+            .next_object_binding_id
+            .checked_add(1)
+            .expect("render pass object binding ID space exhausted");
         self.bindings = Some((context, object_binding_id));
     }
 

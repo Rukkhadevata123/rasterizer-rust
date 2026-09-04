@@ -90,14 +90,15 @@ cargo run --release --example custom_shader
 
 ### State and pipelines
 
-`GraphicsPipeline<S>` owns an immutable shader algorithm, complete `GraphicsPipelineState`, and
-a pass-local `VertexProgramId`. Raster-only state variants may share transformed vertices; variants
-that can change vertex output must use different program IDs.
+`GraphicsPipeline<S>` owns an immutable shader algorithm, complete `GraphicsPipelineState`, and a
+process-unique `VertexProgramId`. Raster-only state variants may share one token and transformed
+vertices; variants that can change vertex output must use different tokens.
 
-`ObjectBindingId` identifies frame/object binding identity within one recorded pass. The vertex
-cache key combines the vertex-program ID, object-binding ID, and vertex-source domain instead of
-hashing floating-point matrices. Caches remain submission-local, so generation-checked persistent
-handles are not part of the required API.
+Each render pass assigns an internal identity whenever draw bindings are set. The vertex cache key
+combines the vertex-program token, this binding identity, and the vertex-source domain instead of
+hashing floating-point matrices. `VertexProgramId::new()` creates an unforgeable process-unique
+token that may be copied across pipeline variants only when their vertex output is identical.
+Caches remain submission-local, so generation-checked persistent handles are unnecessary.
 
 ### Typed recording and synchronous submission
 
@@ -127,7 +128,7 @@ let mut encoder = device.create_command_encoder("triangle");
         None,
     )?;
     pass.set_pipeline(&pipeline);
-    pass.set_draw_bindings(context, ObjectBindingId::from_pass_index(0));
+    pass.set_draw_bindings(context);
     pass.draw_mesh(&mesh, 0.0)?;
     pass.end()?;
 }

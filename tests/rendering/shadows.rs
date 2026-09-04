@@ -10,13 +10,7 @@ fn masked_shadow_fragments_respect_material_alpha() {
         ..Default::default()
     });
 
-    draw_shadow_mesh(
-        &mut renderer,
-        &mesh,
-        Some(&discarded),
-        Matrix4::identity(),
-        ObjectBindingId::from_pass_index(0),
-    );
+    draw_shadow_mesh(&mut renderer, &mesh, Some(&discarded), Matrix4::identity());
     assert!(
         renderer
             .readback()
@@ -30,13 +24,7 @@ fn masked_shadow_fragments_respect_material_alpha() {
         alpha_mode: AlphaMode::Mask(0.5),
         ..Default::default()
     });
-    draw_shadow_mesh(
-        &mut renderer,
-        &mesh,
-        Some(&visible),
-        Matrix4::identity(),
-        ObjectBindingId::from_pass_index(1),
-    );
+    draw_shadow_mesh(&mut renderer, &mesh, Some(&visible), Matrix4::identity());
     assert!((renderer.readback().sample_depth(16, 16).unwrap() - 0.5).abs() < 1e-5);
 }
 
@@ -72,13 +60,7 @@ fn masked_shadow_fragments_sample_base_color_texture_alpha() {
         vertex.texcoords[1] = Vector2::new(0.75, 0.5);
     }
 
-    draw_shadow_mesh(
-        &mut renderer,
-        &mesh,
-        Some(&material),
-        Matrix4::identity(),
-        ObjectBindingId::from_pass_index(0),
-    );
+    draw_shadow_mesh(&mut renderer, &mesh, Some(&material), Matrix4::identity());
 
     assert!(
         renderer
@@ -103,7 +85,7 @@ fn shadow_draw_context_applies_distinct_object_bindings() {
             color_target: None,
             ..test_pipeline_state()
         },
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let draws = [
         (
@@ -113,7 +95,6 @@ fn shadow_draw_context_applies_distinct_object_bindings() {
                 &object_bindings[0],
                 ShadowMaterialBindings::new(None),
             ),
-            ObjectBindingId::from_pass_index(0),
             0.0,
         ),
         (
@@ -123,7 +104,6 @@ fn shadow_draw_context_applies_distinct_object_bindings() {
                 &object_bindings[1],
                 ShadowMaterialBindings::new(None),
             ),
-            ObjectBindingId::from_pass_index(1),
             0.0,
         ),
     ];

@@ -25,9 +25,9 @@ pub use crate::pipeline::passes::{
 };
 pub use crate::pipeline::renderer::{
     BackgroundPass, BackgroundSource, CommandBuffer, CommandEncoder, CommandError, FrameResources,
-    GraphicsQueue, LoadOp, MainHdrTarget, ObjectBindingId, Operations, PhaseSubmissionReport,
-    PresentBuffer, RenderDevice, RenderError, RenderPassDescriptor, RenderPassEncoder,
-    RenderTarget, RenderTargetReadback, SubmissionReport,
+    GraphicsQueue, LoadOp, MainHdrTarget, Operations, PhaseSubmissionReport, PresentBuffer,
+    RenderDevice, RenderError, RenderPassDescriptor, RenderPassEncoder, RenderTarget,
+    RenderTargetReadback, SubmissionReport,
 };
 
 /// Built-in shader implementations and their typed binding groups.

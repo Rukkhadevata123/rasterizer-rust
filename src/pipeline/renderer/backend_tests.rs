@@ -338,13 +338,13 @@ fn execute_mesh<S>(
 ) where
     S: Shader<()>,
 {
-    let pipeline = GraphicsPipeline::new(shader, state, VertexProgramId::from_pass_index(0));
+    let pipeline = GraphicsPipeline::new(shader, state, VertexProgramId::new());
     let mut phase = RenderPhase::default();
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(mesh),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         0.0,
     );
     renderer
@@ -430,17 +430,13 @@ fn indexed_mesh_shades_each_vertex_once_per_draw() {
     };
     let mesh = indexed_quad(Vector2::repeat(0.8), Vector4::zeros());
     let mut renderer = BackendTestHarness::new(32, 32);
-    let pipeline = GraphicsPipeline::new(
-        shader,
-        test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
-    );
+    let pipeline = GraphicsPipeline::new(shader, test_pipeline_state(), VertexProgramId::new());
     let mut phase = RenderPhase::default();
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(&mesh),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         0.0,
     );
 
@@ -457,7 +453,7 @@ fn vertex_cache_is_scoped_to_each_camera_submission() {
     let pipeline = GraphicsPipeline::new(
         FrameObjectContextShader,
         test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let mesh = repeated_index_triangle(0.25);
     let object_transform = Matrix4::identity();
@@ -479,7 +475,7 @@ fn vertex_cache_is_scoped_to_each_camera_submission() {
                 color,
                 vertex_calls: &calls,
             },
-            ObjectBindingId::from_pass_index(0),
+            ObjectBindingId(0),
             0.0,
         );
         renderer
@@ -504,7 +500,7 @@ fn vertex_cache_isolates_distinct_tangent_frame_bindings() {
     let pipeline = GraphicsPipeline::new(
         TangentContextShader,
         test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let mut mesh = repeated_index_triangle(0.25);
     for vertex in &mut mesh.vertices {
@@ -534,7 +530,7 @@ fn vertex_cache_isolates_distinct_tangent_frame_bindings() {
             &pipeline,
             RenderGeometry::Mesh(&mesh),
             context,
-            ObjectBindingId::from_pass_index(index),
+            ObjectBindingId(index),
             0.0,
         );
     }
@@ -563,11 +559,11 @@ fn transparent_world_vertices_use_a_distinct_source_domain() {
             vertex_calls: &calls,
         },
         test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let mesh = indexed_quad(Vector2::repeat(0.8), Vector4::zeros());
     let world_vertices = mesh.vertices.clone();
-    let object_binding_id = ObjectBindingId::from_pass_index(0);
+    let object_binding_id = ObjectBindingId(0);
     let mut phase = RenderPhase::with_capacity(2);
     phase.push(
         &pipeline,
@@ -606,7 +602,7 @@ fn vertex_cache_reuses_across_raster_only_pipeline_variants() {
         vertex_calls: &calls,
     };
     let mesh = indexed_quad(Vector2::repeat(0.8), Vector4::zeros());
-    let vertex_program_id = VertexProgramId::from_pass_index(0);
+    let vertex_program_id = VertexProgramId::new();
     let fill_pipeline = GraphicsPipeline::new(shader, test_pipeline_state(), vertex_program_id);
     let line_pipeline = GraphicsPipeline::new(
         shader,
@@ -619,7 +615,7 @@ fn vertex_cache_reuses_across_raster_only_pipeline_variants() {
         },
         vertex_program_id,
     );
-    let object_binding_id = ObjectBindingId::from_pass_index(0);
+    let object_binding_id = ObjectBindingId(0);
     let mut phase = RenderPhase::with_capacity(2);
     phase.push(
         &fill_pipeline,
@@ -650,7 +646,7 @@ fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
     let pipeline = GraphicsPipeline::new(
         TransformContextShader,
         test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let mesh = indexed_quad(Vector2::new(0.3, 0.8), Vector4::zeros());
     let left_transform = Matrix4::new_translation(&Vector3::new(-0.5, 0.0, 0.0));
@@ -670,21 +666,21 @@ fn vertex_cache_reuses_matching_context_and_isolates_distinct_contexts() {
         &pipeline,
         RenderGeometry::Mesh(&mesh),
         left,
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         0.0,
     );
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(&mesh),
         left,
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         0.0,
     );
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(&mesh),
         right,
-        ObjectBindingId::from_pass_index(1),
+        ObjectBindingId(1),
         0.0,
     );
     let mut renderer = BackendTestHarness::new(64, 32);
@@ -715,7 +711,7 @@ fn vertex_cache_distinguishes_vertex_program_ids() {
             vertex_calls: &calls,
         },
         test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let right_pipeline = GraphicsPipeline::new(
         ProgramVariantShader {
@@ -724,21 +720,21 @@ fn vertex_cache_distinguishes_vertex_program_ids() {
             vertex_calls: &calls,
         },
         test_pipeline_state(),
-        VertexProgramId::from_pass_index(1),
+        VertexProgramId::new(),
     );
     let mut phase = RenderPhase::with_capacity(2);
     phase.push(
         &left_pipeline,
         RenderGeometry::Mesh(&mesh),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         0.0,
     );
     phase.push(
         &right_pipeline,
         RenderGeometry::Mesh(&mesh),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         0.0,
     );
     let mut renderer = BackendTestHarness::new(64, 32);
@@ -764,14 +760,14 @@ fn one_backend_executes_different_sized_targets_sequentially() {
     let pipeline = GraphicsPipeline::new(
         ClipSpaceShader,
         test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let mut phase = RenderPhase::default();
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(&mesh),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         0.0,
     );
     let mut backend = SoftwareRasterBackend::new();
@@ -799,21 +795,21 @@ fn phase_preparation_skips_empty_mesh_commands() {
     let pipeline = GraphicsPipeline::new(
         ClipSpaceShader,
         test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let mut phase = RenderPhase::default();
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(&empty),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         0.0,
     );
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(&visible),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         0.0,
     );
     let mut renderer = BackendTestHarness::new(32, 32);
@@ -836,28 +832,28 @@ fn transparent_phase_uses_insertion_id_to_break_depth_ties() {
     let pipeline = GraphicsPipeline::new(
         ClipSpaceShader,
         test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     let mut phase = RenderPhase::default();
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(&first),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         1.0,
     );
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(&second),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         -1.0,
     );
     phase.push(
         &pipeline,
         RenderGeometry::Mesh(&third),
         (),
-        ObjectBindingId::from_pass_index(0),
+        ObjectBindingId(0),
         1.0,
     );
 

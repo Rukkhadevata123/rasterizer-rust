@@ -14,11 +14,7 @@ fn command_descriptor(target: &mut RenderTarget) -> RenderPassDescriptor<'_> {
 }
 
 fn command_pipeline(shader: ClipSpaceShader) -> GraphicsPipeline<ClipSpaceShader> {
-    GraphicsPipeline::new(
-        shader,
-        test_pipeline_state(),
-        VertexProgramId::from_pass_index(0),
-    )
+    GraphicsPipeline::new(shader, test_pipeline_state(), VertexProgramId::new())
 }
 
 #[test]
@@ -43,7 +39,7 @@ fn render_pass_requires_pipeline_before_draw() {
     let mut pass = encoder
         .begin_render_pass(command_descriptor(&mut target), None)
         .expect("descriptor should be valid");
-    pass.set_draw_bindings(None, ObjectBindingId::from_pass_index(0));
+    pass.set_draw_bindings(None);
 
     assert_eq!(
         pass.draw_mesh(&mesh, 0.0).unwrap_err(),
@@ -145,7 +141,6 @@ fn recording_does_not_execute_attachment_or_draw_work() {
         &initial_pipeline,
         &initial_mesh,
         None,
-        ObjectBindingId::from_pass_index(0),
     );
     assert_vec3_approx(target.readback().color(8, 8).unwrap(), Vector3::x());
 
@@ -158,7 +153,7 @@ fn recording_does_not_execute_attachment_or_draw_work() {
             .begin_render_pass(command_descriptor(&mut target), None)
             .expect("descriptor should be valid");
         pass.set_pipeline(&recorded_pipeline);
-        pass.set_draw_bindings(None, ObjectBindingId::from_pass_index(0));
+        pass.set_draw_bindings(None);
         pass.draw_mesh(&recorded_mesh, 0.0)
             .expect("draw should record");
         pass.end().expect("pass should end");
@@ -190,15 +185,14 @@ fn queue_submission_is_synchronous_and_preserves_ordered_phase_boundaries() {
         }),
         ..test_pipeline_state()
     };
-    let pipeline =
-        GraphicsPipeline::new(ClipSpaceShader, state, VertexProgramId::from_pass_index(0));
+    let pipeline = GraphicsPipeline::new(ClipSpaceShader, state, VertexProgramId::new());
     let mut encoder = device.create_command_encoder("ordered");
     {
         let mut pass = encoder
             .begin_render_pass(command_descriptor(&mut target), None)
             .expect("descriptor should be valid");
         pass.set_pipeline(&pipeline);
-        pass.set_draw_bindings(Some(&material), ObjectBindingId::from_pass_index(0));
+        pass.set_draw_bindings(Some(&material));
         pass.draw_mesh(&first, 1.0)
             .expect("first draw should record");
         pass.draw_mesh(&second, -1.0)

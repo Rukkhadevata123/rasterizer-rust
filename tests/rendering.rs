@@ -11,11 +11,10 @@ use rasterizer_rust::render::builtin::shadow::{
 use rasterizer_rust::render::{
     BlendState, ColorTargetState, CommandEncoder, CommandError, CompareFunction, CullMode,
     DepthStencilState, FragmentInput, FragmentOutput, FrameResources, FrontFace, GraphicsPipeline,
-    GraphicsPipelineState, GraphicsQueue, Interpolatable, LoadOp, MainHdrTarget, ObjectBindingId,
-    Operations, PolygonMode, PresentBuffer, PrimitiveState, RenderDevice, RenderPassDescriptor,
-    RenderTarget, RenderTargetReadback, ResolveTonemapPassDescriptor, Shader, ShadowPassOutput,
-    TonemapOperator, Vertex, VertexProgramId, execute_resolve_tonemap_pass, render_main_pass,
-    render_shadow_pass,
+    GraphicsPipelineState, GraphicsQueue, Interpolatable, LoadOp, MainHdrTarget, Operations,
+    PolygonMode, PresentBuffer, PrimitiveState, RenderDevice, RenderPassDescriptor, RenderTarget,
+    RenderTargetReadback, ResolveTonemapPassDescriptor, Shader, ShadowPassOutput, TonemapOperator,
+    Vertex, VertexProgramId, execute_resolve_tonemap_pass, render_main_pass, render_shadow_pass,
 };
 use rasterizer_rust::scene::camera::Camera;
 use rasterizer_rust::scene::context::{RenderScene, ShadowLight};
@@ -295,7 +294,7 @@ fn submit_test_draws<'a, S, C>(
     queue: &mut GraphicsQueue,
     target: &'a mut RenderTarget,
     pipeline: &'a GraphicsPipeline<S>,
-    draws: &[(&'a Mesh, C, ObjectBindingId, f32)],
+    draws: &[(&'a Mesh, C, f32)],
     sort_transparent: bool,
 ) where
     S: Shader<C>,
@@ -317,8 +316,8 @@ fn submit_test_draws<'a, S, C>(
             .expect("the test render pass should be valid");
         pass.set_pipeline(pipeline);
         pass.reserve_draws(draws.len());
-        for &(mesh, context, object_binding_id, sort_depth) in draws {
-            pass.set_draw_bindings(context, object_binding_id);
+        for &(mesh, context, sort_depth) in draws {
+            pass.set_draw_bindings(context);
             pass.draw_mesh(mesh, sort_depth)
                 .expect("the test draw should record");
         }
@@ -342,18 +341,11 @@ fn submit_test_mesh<'a, S, C>(
     pipeline: &'a GraphicsPipeline<S>,
     mesh: &'a Mesh,
     context: C,
-    object_binding_id: ObjectBindingId,
 ) where
     S: Shader<C>,
     C: Copy + Send + Sync,
 {
-    submit_test_draws(
-        queue,
-        target,
-        pipeline,
-        &[(mesh, context, object_binding_id, 0.0)],
-        false,
-    );
+    submit_test_draws(queue, target, pipeline, &[(mesh, context, 0.0)], false);
 }
 
 fn draw_mesh<'a, S>(
@@ -365,14 +357,13 @@ fn draw_mesh<'a, S>(
 ) where
     S: Shader<Option<&'a Material>> + Copy,
 {
-    let pipeline = GraphicsPipeline::new(*shader, state, VertexProgramId::from_pass_index(0));
+    let pipeline = GraphicsPipeline::new(*shader, state, VertexProgramId::new());
     submit_test_mesh(
         &mut renderer.queue,
         renderer.target.render_target_mut(),
         &pipeline,
         mesh,
         material,
-        ObjectBindingId::from_pass_index(0),
     );
 }
 
@@ -395,14 +386,13 @@ fn draw_pbr_mesh(
         &object,
         PbrMaterialBindings::new(material, &fallback),
     );
-    let pipeline = GraphicsPipeline::new(PbrShader, state, VertexProgramId::from_pass_index(0));
+    let pipeline = GraphicsPipeline::new(PbrShader, state, VertexProgramId::new());
     submit_test_mesh(
         &mut renderer.queue,
         renderer.target.render_target_mut(),
         &pipeline,
         mesh,
         context,
-        ObjectBindingId::from_pass_index(0),
     );
 }
 
@@ -411,7 +401,6 @@ fn draw_shadow_mesh(
     mesh: &Mesh,
     material: Option<&Material>,
     model: Matrix4<f32>,
-    object_binding_id: ObjectBindingId,
 ) {
     let frame = ShadowFrameBindings::new(Matrix4::identity(), Matrix4::identity());
     let object = ShadowObjectBindings::new(model);
@@ -422,7 +411,7 @@ fn draw_shadow_mesh(
             color_target: None,
             ..test_pipeline_state()
         },
-        VertexProgramId::from_pass_index(0),
+        VertexProgramId::new(),
     );
     submit_test_mesh(
         &mut renderer.queue,
@@ -430,7 +419,6 @@ fn draw_shadow_mesh(
         &pipeline,
         mesh,
         context,
-        object_binding_id,
     );
 }
 fn shadow_test_camera() -> Camera {

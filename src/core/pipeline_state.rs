@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum CullMode {
     Back,
@@ -113,13 +115,25 @@ impl Default for GraphicsPipelineState {
     }
 }
 
-/// Pass-local identity for shader variants that can change vertex output.
+/// Unique identity shared by pipeline variants with identical vertex output.
 #[derive(PartialEq, Eq, Copy, Clone, Debug, Hash)]
 pub struct VertexProgramId(usize);
 
+static NEXT_VERTEX_PROGRAM_ID: AtomicUsize = AtomicUsize::new(0);
+
 impl VertexProgramId {
-    pub fn from_pass_index(index: usize) -> Self {
-        Self(index)
+    /// Allocates a new identity for one vertex-output contract.
+    pub fn new() -> Self {
+        let id = NEXT_VERTEX_PROGRAM_ID
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .expect("vertex program ID space exhausted");
+        Self(id)
+    }
+}
+
+impl Default for VertexProgramId {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -168,12 +182,13 @@ mod pipeline_tests {
             },
             ..Default::default()
         };
-        let vertex_program_id = VertexProgramId::from_pass_index(3);
+        let vertex_program_id = VertexProgramId::new();
         let pipeline = GraphicsPipeline::new("shader", state, vertex_program_id);
 
         assert_eq!(pipeline.shader(), &"shader");
         assert_eq!(pipeline.state(), state);
         assert_eq!(pipeline.vertex_program_id(), vertex_program_id);
+        assert_ne!(pipeline.vertex_program_id(), VertexProgramId::new());
     }
 }
 #[cfg(test)]

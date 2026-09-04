@@ -8,8 +8,7 @@ use crate::error::{AssetError, ResolveTonemapError};
 use crate::io::config::Config;
 use crate::pipeline::renderer::{
     BackgroundPass, BackgroundSource, FrameResources, GraphicsQueue, LoadOp, MainHdrTarget,
-    ObjectBindingId, Operations, PresentBuffer, RenderDevice, RenderGeometry, RenderPassDescriptor,
-    RenderTarget,
+    Operations, PresentBuffer, RenderDevice, RenderGeometry, RenderPassDescriptor, RenderTarget,
 };
 use crate::pipeline::shaders::pbr::{
     PbrDrawContext, PbrFrameBindings, PbrMaterialBindings, PbrObjectBindings, PbrShader,
@@ -267,26 +266,27 @@ pub fn render_shadow_pass_profiled(
         .iter()
         .map(|object| ShadowObjectBindings::new(object.transform()))
         .collect();
+    let shadow_vertex_program_id = VertexProgramId::new();
     let shadow_pipelines = [
         GraphicsPipeline::new(
             shadow_shader,
             pipeline_state_for_material(shadow_state, FrontFace::CounterClockwise, false),
-            VertexProgramId::from_pass_index(0),
+            shadow_vertex_program_id,
         ),
         GraphicsPipeline::new(
             shadow_shader,
             pipeline_state_for_material(shadow_state, FrontFace::Clockwise, false),
-            VertexProgramId::from_pass_index(0),
+            shadow_vertex_program_id,
         ),
         GraphicsPipeline::new(
             shadow_shader,
             pipeline_state_for_material(shadow_state, FrontFace::CounterClockwise, true),
-            VertexProgramId::from_pass_index(0),
+            shadow_vertex_program_id,
         ),
         GraphicsPipeline::new(
             shadow_shader,
             pipeline_state_for_material(shadow_state, FrontFace::Clockwise, true),
-            VertexProgramId::from_pass_index(0),
+            shadow_vertex_program_id,
         ),
     ];
     let pass_setup = initial_setup + setup_started.elapsed();
@@ -328,14 +328,11 @@ pub fn render_shadow_pass_profiled(
                     usize::from(command_state.primitive.front_face == FrontFace::Clockwise)
                         + 2 * usize::from(command_state.primitive.cull_mode == CullMode::None);
                 pass.set_pipeline(&shadow_pipelines[pipeline_index]);
-                pass.set_draw_bindings(
-                    ShadowDrawContext::new(
-                        &frame_bindings,
-                        &object_bindings[object_binding_index],
-                        ShadowMaterialBindings::new(material),
-                    ),
-                    ObjectBindingId::from_pass_index(object_binding_index),
-                );
+                pass.set_draw_bindings(ShadowDrawContext::new(
+                    &frame_bindings,
+                    &object_bindings[object_binding_index],
+                    ShadowMaterialBindings::new(material),
+                ));
                 pass.draw_mesh(mesh, 0.0)
                     .expect("the built-in shadow draw must remain valid");
             }
@@ -486,15 +483,15 @@ pub fn render_main_pass_profiled(
         })
         .collect();
     let transparent_object_binding = PbrObjectBindings::new(Matrix4::identity());
-    let transparent_object_binding_id = ObjectBindingId::from_pass_index(object_bindings.len());
     let fallback_material = PbrMaterial::default();
+    let pbr_vertex_program_id = VertexProgramId::new();
     let pbr_pipelines = [opaque_state, transparent_state].map(|base_state| {
         [FrontFace::CounterClockwise, FrontFace::Clockwise].map(|front_face| {
             [false, true].map(|double_sided| {
                 GraphicsPipeline::new(
                     pbr_shader,
                     pipeline_state_for_material(base_state, front_face, double_sided),
-                    VertexProgramId::from_pass_index(0),
+                    pbr_vertex_program_id,
                 )
             })
         })
@@ -543,7 +540,6 @@ pub fn render_main_pass_profiled(
 
         for record_masked in [false, true] {
             for (object_binding_index, obj) in context.scene_objects.iter().enumerate() {
-                let object_binding_id = ObjectBindingId::from_pass_index(object_binding_index);
                 for mesh in &obj.model.meshes {
                     let material = obj.model.materials.get(mesh.material_id);
                     let pbr_material = material.map(|material| match material {
@@ -568,14 +564,11 @@ pub fn render_main_pass_profiled(
                         pipeline_state_for_material(opaque_state, obj.front_face(), double_sided)
                     );
                     pass.set_pipeline(pipeline);
-                    pass.set_draw_bindings(
-                        PbrDrawContext::new(
-                            &frame_bindings,
-                            &object_bindings[object_binding_index],
-                            PbrMaterialBindings::new(material, &fallback_material),
-                        ),
-                        object_binding_id,
-                    );
+                    pass.set_draw_bindings(PbrDrawContext::new(
+                        &frame_bindings,
+                        &object_bindings[object_binding_index],
+                        PbrMaterialBindings::new(material, &fallback_material),
+                    ));
                     pass.draw_mesh(mesh, 0.0)
                         .expect("the built-in opaque or masked draw must remain valid");
                 }
@@ -607,14 +600,11 @@ pub fn render_main_pass_profiled(
                     )
                 );
                 pass.set_pipeline(pipeline);
-                pass.set_draw_bindings(
-                    PbrDrawContext::new(
-                        &frame_bindings,
-                        &transparent_object_binding,
-                        PbrMaterialBindings::new(Some(material), &fallback_material),
-                    ),
-                    transparent_object_binding_id,
-                );
+                pass.set_draw_bindings(PbrDrawContext::new(
+                    &frame_bindings,
+                    &transparent_object_binding,
+                    PbrMaterialBindings::new(Some(material), &fallback_material),
+                ));
 
                 let world_vertices = obj
                     .transparent_world_vertices(mesh_index)
