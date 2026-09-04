@@ -210,9 +210,7 @@ fn queue_submission_is_synchronous_and_preserves_ordered_phase_boundaries() {
     assert_eq!(command_buffer.label(), "ordered");
 
     let mut queue = device.create_queue();
-    let report = queue
-        .submit(command_buffer)
-        .expect("submission should succeed");
+    let report = queue.submit(command_buffer);
 
     assert_vec3_approx(
         target.readback().color(16, 16).unwrap(),

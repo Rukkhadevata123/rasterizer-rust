@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         pass.end()?;
     }
 
-    let report = queue.submit(encoder.finish()?)?;
+    let report = queue.submit(encoder.finish()?);
     let center = target
         .readback()
         .color(128, 128)

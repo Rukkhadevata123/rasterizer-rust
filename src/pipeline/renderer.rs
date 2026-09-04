@@ -200,12 +200,6 @@ pub enum CommandError {
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
-pub enum RenderError {
-    #[error(transparent)]
-    Command(#[from] CommandError),
-}
-
-#[derive(Debug, Error, PartialEq, Eq)]
 pub enum PresentBufferError {
     #[error("present dimensions {width}x{height} must be greater than zero")]
     ZeroDimensions { width: usize, height: usize },
@@ -456,10 +450,7 @@ pub struct GraphicsQueue {
 
 impl GraphicsQueue {
     /// Executes all recorded work synchronously and returns only after rasterization completes.
-    pub fn submit<'a, S, C>(
-        &mut self,
-        command_buffer: CommandBuffer<'a, S, C>,
-    ) -> Result<SubmissionReport, RenderError>
+    pub fn submit<'a, S, C>(&mut self, command_buffer: CommandBuffer<'a, S, C>) -> SubmissionReport
     where
         S: Shader<C>,
         C: Copy + Send + Sync,
@@ -490,13 +481,13 @@ impl GraphicsQueue {
                 execution_total: timings.submission_total,
             });
         }
-        Ok(SubmissionReport {
+        SubmissionReport {
             attachment_processing,
             backend_preparation,
             rasterization,
             submission_total: submission_started.elapsed(),
             phases: phase_reports,
-        })
+        }
     }
 }
 pub enum BackgroundSource<'a> {

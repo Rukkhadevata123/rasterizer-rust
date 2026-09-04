@@ -132,7 +132,7 @@ let mut encoder = device.create_command_encoder("triangle");
 }
 
 let command_buffer = encoder.finish()?;
-let report = queue.submit(command_buffer)?;
+let report = queue.submit(command_buffer);
 ```
 
 `begin_render_pass` validates the descriptor before recording. Drawing without a pipeline or typed

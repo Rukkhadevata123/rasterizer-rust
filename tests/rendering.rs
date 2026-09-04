@@ -326,13 +326,11 @@ fn submit_test_draws<'a, S, C>(
         }
         pass.end().expect("the test render pass should end");
     }
-    queue
-        .submit(
-            encoder
-                .finish()
-                .expect("the test command buffer should finish"),
-        )
-        .expect("the test command buffer should submit");
+    queue.submit(
+        encoder
+            .finish()
+            .expect("the test command buffer should finish"),
+    );
 }
 
 fn submit_test_mesh<'a, S, C>(

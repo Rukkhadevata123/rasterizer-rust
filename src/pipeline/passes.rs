@@ -345,9 +345,7 @@ pub fn render_shadow_pass_profiled(
         .finish()
         .expect("the built-in shadow command buffer must be complete");
     let recording = recording_started.elapsed();
-    let submission = queue
-        .submit(command_buffer)
-        .expect("the built-in shadow submission must succeed");
+    let submission = queue.submit(command_buffer);
     let output = ShadowPassOutput::enabled(
         resources.shadow_depth_snapshot(shadow_target),
         shadow_target.readback().width(),
@@ -644,9 +642,7 @@ pub fn render_main_pass_profiled(
         .finish()
         .expect("the built-in main command buffer must be complete");
     let recording = recording_started.elapsed();
-    let submission = queue
-        .submit(command_buffer)
-        .expect("the built-in main submission must succeed");
+    let submission = queue.submit(command_buffer);
     let opaque_masked = submission
         .phase("opaque-masked")
         .expect("the main submission must report its opaque/masked phase");
