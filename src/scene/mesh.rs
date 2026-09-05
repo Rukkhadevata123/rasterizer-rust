@@ -1,9 +1,8 @@
 use crate::core::geometry::Vertex;
 use nalgebra::{Point3, Vector2, Vector3};
 
-/// A collection of vertices and indices representing a 3D object.
+/// Indexed triangle geometry with a material reference.
 pub struct Mesh {
-    /// List of vertices.
     pub vertices: Vec<Vertex>,
     /// List of indices defining triangles (3 indices per triangle).
     pub indices: Vec<u32>,
@@ -42,27 +41,23 @@ impl Mesh {
         let half_size = size / 2.0;
         let y = 0.0;
 
-        // 4 Vertices
+        // Ground UVs tile the texture ten times across each axis.
         let vertices = vec![
-            // 0: Bottom-Left (Min X, Min Z)
             Vertex::new(
                 Point3::new(-half_size, y, -half_size),
-                Vector3::new(0.0, 1.0, 0.0), // Up
+                Vector3::new(0.0, 1.0, 0.0),
                 Vector2::new(0.0, 0.0),
             ),
-            // 1: Top-Left (Min X, Max Z)
             Vertex::new(
                 Point3::new(-half_size, y, half_size),
                 Vector3::new(0.0, 1.0, 0.0),
-                Vector2::new(0.0, 10.0), // Repeat texture 10 times
+                Vector2::new(0.0, 10.0),
             ),
-            // 2: Top-Right (Max X, Max Z)
             Vertex::new(
                 Point3::new(half_size, y, half_size),
                 Vector3::new(0.0, 1.0, 0.0),
                 Vector2::new(10.0, 10.0),
             ),
-            // 3: Bottom-Right (Max X, Min Z)
             Vertex::new(
                 Point3::new(half_size, y, -half_size),
                 Vector3::new(0.0, 1.0, 0.0),
@@ -70,11 +65,8 @@ impl Mesh {
             ),
         ];
 
-        // 2 Triangles (CCW)
-        let indices = vec![
-            0, 1, 2, // First triangle
-            0, 2, 3, // Second triangle
-        ];
+        // Counter-clockwise when viewed from above the ground plane.
+        let indices = vec![0, 1, 2, 0, 2, 3];
 
         Self::new(vertices, indices, material_id)
     }

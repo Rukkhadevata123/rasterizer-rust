@@ -1,6 +1,4 @@
-//! Application loops for the package's headless renderer and interactive viewer.
-//!
-//! These entry points are executable tooling built on [`rasterizer_rust::render`].
+//! Headless and interactive loops for the bundled executable.
 
 use crate::error::{ApplicationError, WindowError};
 use crate::ui::input::CameraController;
@@ -142,7 +140,6 @@ fn apply_hot_reload_render_settings(
         shadow_map_size_rejected,
     }
 }
-/// Runs the application in GUI mode with real-time rendering and interactivity.
 pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationError> {
     config
         .validate()
@@ -350,7 +347,6 @@ pub fn run_gui(mut config: Config, config_path: &str) -> Result<(), ApplicationE
     Ok(())
 }
 
-/// Runs the application in CLI mode (headless) for a single high-quality render.
 pub fn run_cli(config: Config) -> Result<(), ApplicationError> {
     config
         .validate()

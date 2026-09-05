@@ -1,6 +1,6 @@
 use nalgebra::{Point3, Vector3};
 
-/// Represents a light source in the scene.
+/// Directional or point illumination used by PBR shading.
 #[derive(Debug, Clone)]
 pub enum Light {
     /// A light source that is infinitely far away (e.g., Sun).
@@ -21,7 +21,7 @@ pub enum Light {
 }
 
 impl Light {
-    /// Creates a simple directional light.
+    /// Creates a directional light and normalizes its travel direction.
     pub fn new_directional(direction: Vector3<f32>, color: Vector3<f32>, intensity: f32) -> Self {
         Self::Directional {
             direction: direction.normalize(),
@@ -30,20 +30,20 @@ impl Light {
         }
     }
 
-    /// Creates a simple point light.
+    /// Creates a point light with `(1.0, 0.09, 0.032)` distance attenuation.
     pub fn new_point(position: Point3<f32>, color: Vector3<f32>, intensity: f32) -> Self {
         Self::Point {
             position,
             color,
             intensity,
-            attenuation: (1.0, 0.09, 0.032), // Default attenuation values
+            attenuation: (1.0, 0.09, 0.032),
         }
     }
 
-    /// Calculates the direction vector FROM the surface point TO the light source.
+    /// Returns the normalized direction from a surface point toward the light.
     pub fn get_direction_to_light(&self, surface_point: &Point3<f32>) -> Vector3<f32> {
         match self {
-            Light::Directional { direction, .. } => -direction, // Direction is usually defined as "direction the light travels"
+            Light::Directional { direction, .. } => -direction,
             Light::Point { position, .. } => (position - surface_point).normalize(),
         }
     }

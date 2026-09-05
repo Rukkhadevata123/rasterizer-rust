@@ -2,16 +2,16 @@ use nalgebra::{Point3, Vector2, Vector3, Vector4};
 
 pub const SUPPORTED_TEXCOORD_SETS: usize = 2;
 
-/// Represents a single vertex in 3D space.
+/// Vertex attributes consumed by programmable vertex shaders.
 #[derive(Debug, Clone, Copy)]
 pub struct Vertex {
     /// Position in local object space.
     pub position: Point3<f32>,
-    /// Normal vector for lighting calculations.
+    /// Normal in local object space.
     pub normal: Vector3<f32>,
     /// Texture coordinates for `TEXCOORD_0` and `TEXCOORD_1`.
     pub texcoords: [Vector2<f32>; SUPPORTED_TEXCOORD_SETS],
-    /// Changed from Vector3 to Vector4 to store the Sign (w component) required by glTF/PBR.
+    /// Tangent direction in XYZ and glTF bitangent handedness in W.
     pub tangent: Vector4<f32>,
 }
 

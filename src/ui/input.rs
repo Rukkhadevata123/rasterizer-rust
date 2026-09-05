@@ -17,7 +17,6 @@ pub struct CameraController {
 }
 
 impl CameraController {
-    /// Creates a new camera controller.
     pub fn new(
         speed: f32,
         sensitivity: f32,

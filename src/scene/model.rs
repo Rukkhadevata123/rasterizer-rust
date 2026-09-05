@@ -1,8 +1,7 @@
 use crate::scene::material::Material;
 use crate::scene::mesh::Mesh;
 
-/// A Model represents a complete 3D object.
-/// It consists of one or more Meshes and a list of Materials.
+/// Meshes and their shared material table for one imported model.
 pub struct Model {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,

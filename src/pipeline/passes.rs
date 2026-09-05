@@ -364,7 +364,6 @@ pub fn render_shadow_pass_profiled(
         },
     )
 }
-/// Executes the Main Rendering Pass.
 pub fn render_main_pass(
     config: &Config,
     context: &RenderScene,

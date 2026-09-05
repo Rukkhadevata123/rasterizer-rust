@@ -1,12 +1,10 @@
 use nalgebra::{Matrix3, Matrix4, Point2, Point3, Vector3, Vector4};
 
-/// Factory for creating various transformation matrices.
-/// These explicit matrices keep the renderer's right-handed coordinate conventions visible.
+/// Constructs matrices using the renderer's right-handed coordinate conventions.
 pub(crate) struct TransformFactory;
 
 #[rustfmt::skip]
 impl TransformFactory {
-    /// Creates a rotation matrix around the X-axis.
     pub(crate) fn rotation_x(angle_rad: f32) -> Matrix4<f32> {
         let c = angle_rad.cos();
         let s = angle_rad.sin();
@@ -18,7 +16,6 @@ impl TransformFactory {
         )
     }
 
-    /// Creates a rotation matrix around the Y-axis.
     pub(crate) fn rotation_y(angle_rad: f32) -> Matrix4<f32> {
         let c = angle_rad.cos();
         let s = angle_rad.sin();
@@ -30,7 +27,6 @@ impl TransformFactory {
         )
     }
 
-    /// Creates a rotation matrix around the Z-axis.
     pub(crate) fn rotation_z(angle_rad: f32) -> Matrix4<f32> {
         let c = angle_rad.cos();
         let s = angle_rad.sin();
@@ -42,7 +38,6 @@ impl TransformFactory {
         )
     }
 
-    /// Creates a translation matrix.
     pub(crate) fn translation(translation: &Vector3<f32>) -> Matrix4<f32> {
         Matrix4::new(
             1.0, 0.0, 0.0, translation.x,
@@ -52,7 +47,6 @@ impl TransformFactory {
         )
     }
 
-    /// Creates a non-uniform scaling matrix.
     pub(crate) fn scaling_nonuniform(scale: &Vector3<f32>) -> Matrix4<f32> {
         Matrix4::new(
             scale.x, 0.0,     0.0,     0.0,
@@ -62,15 +56,12 @@ impl TransformFactory {
         )
     }
 
-    /// Creates a View matrix (Look-At, Right-Handed).
-    /// Transforms world space coordinates to camera/view space.
+    /// Builds a view matrix with camera forward along negative Z.
     pub(crate) fn view(eye: &Point3<f32>, target: &Point3<f32>, up: &Vector3<f32>) -> Matrix4<f32> {
-        // In RHS, camera looks down -Z
         let z_axis = (eye - target).normalize(); 
         let x_axis = up.cross(&z_axis).normalize();
         let y_axis = z_axis.cross(&x_axis);
 
-        // Rotation matrix from world to view
         let rotation = Matrix4::new(
             x_axis.x, x_axis.y, x_axis.z, 0.0,
             y_axis.x, y_axis.y, y_axis.z, 0.0,
@@ -78,14 +69,12 @@ impl TransformFactory {
             0.0,      0.0,      0.0,      1.0,
         );
 
-        // Translation matrix to move camera to origin
         let translation = Self::translation(&-eye.coords);
 
         rotation * translation
     }
 
-    /// Creates a Perspective Projection matrix (Right-Handed).
-    /// Maps view frustum to NDC [-1, 1].
+    /// Builds a right-handed perspective projection with depth mapped to NDC `[-1, 1]`.
     pub(crate) fn perspective(aspect_ratio: f32, fov_y_rad: f32, near: f32, far: f32) -> Matrix4<f32> {
         let f = 1.0 / (fov_y_rad / 2.0).tan();
         let nf = 1.0 / (near - far);
@@ -98,7 +87,7 @@ impl TransformFactory {
         )
     }
 
-    /// Creates an Orthographic Projection matrix (Right-Handed).
+    /// Builds a right-handed orthographic projection with depth mapped to NDC `[-1, 1]`.
     pub(crate) fn orthographic(
         left: f32,
         right: f32,
@@ -120,7 +109,7 @@ impl TransformFactory {
     }
 }
 
-/// Performs perspective division from clip space to NDC.
+/// Divides clip-space XYZ by W, returning the origin when W is too close to zero.
 #[inline]
 pub(crate) fn apply_perspective_division(clip: &Vector4<f32>) -> Point3<f32> {
     let w = clip.w;

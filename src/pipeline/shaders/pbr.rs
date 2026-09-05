@@ -48,7 +48,7 @@ fn tangent_space_normal(texel: Vector4<f32>, scale: f32) -> Vector3<f32> {
     )
 }
 
-/// Data passed from Vertex Shader to Fragment Shader.
+/// Interpolated world-space PBR vertex output.
 #[derive(Clone, Copy, Debug)]
 pub struct PbrVarying {
     pub world_pos: Point3<f32>,

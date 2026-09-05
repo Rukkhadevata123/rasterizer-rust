@@ -11,7 +11,7 @@ pub enum SceneObjectKind {
     Model { config_index: usize },
 }
 
-/// Represents an instance of a model in the scene with its own transformation.
+/// Model instance with a stable scene role and object transform.
 pub struct SceneObject {
     pub kind: SceneObjectKind,
     pub model: Model,

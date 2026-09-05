@@ -7,7 +7,7 @@ pub enum ProjectionType {
     Orthographic { height: f32, aspect_ratio: f32 },
 }
 
-/// Manages the View and Projection matrices.
+/// Camera parameters and cached right-handed view/projection matrices.
 #[derive(Debug, Clone)]
 pub struct Camera {
     pub position: Point3<f32>,

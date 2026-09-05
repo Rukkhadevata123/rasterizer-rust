@@ -890,7 +890,6 @@ fn process_gltf_image(
     let format = data.format;
 
     let dyn_img = match format {
-        // RGB
         gltf::image::Format::R8G8B8 => DynamicImage::ImageRgb8(image_buffer(
             path,
             image_index,
@@ -899,7 +898,6 @@ fn process_gltf_image(
             height,
             data.pixels,
         )?),
-        // RGBA
         gltf::image::Format::R8G8B8A8 => DynamicImage::ImageRgba8(image_buffer(
             path,
             image_index,
@@ -908,7 +906,7 @@ fn process_gltf_image(
             height,
             data.pixels,
         )?),
-        // Grayscale -> RGB
+        // Replicate luminance into RGB.
         gltf::image::Format::R8 => {
             let pixels: Vec<u8> = data.pixels.iter().flat_map(|&b| [b, b, b]).collect();
             DynamicImage::ImageRgb8(image_buffer(
@@ -920,7 +918,7 @@ fn process_gltf_image(
                 pixels,
             )?)
         }
-        // RG -> RGBA (Roughness/Metallic sometimes?)
+        // Expand two-channel input to opaque RGBA with zero blue.
         gltf::image::Format::R8G8 => {
             let pixels: Vec<u8> = data
                 .pixels

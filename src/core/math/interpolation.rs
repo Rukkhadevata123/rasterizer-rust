@@ -16,7 +16,7 @@ pub(crate) fn perspective_correct_barycentric(
     w2: f32,
     w3: f32,
 ) -> Option<Vector3<f32>> {
-    // Avoid division by extremely small w values: clamp behavior promotes robustness
+    // Treat near-zero W as neutral to prevent unbounded interpolation weights.
     let inv_w1 = if w1.abs() > EPSILON { 1.0 / w1 } else { 1.0 };
     let inv_w2 = if w2.abs() > EPSILON { 1.0 / w2 } else { 1.0 };
     let inv_w3 = if w3.abs() > EPSILON { 1.0 / w3 } else { 1.0 };

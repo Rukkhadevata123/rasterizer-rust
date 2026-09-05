@@ -12,8 +12,7 @@ pub enum AlphaMode {
     Blend,
 }
 
-/// Defines how an object interacts with light.
-/// Unified to PBR workflow.
+/// PBR surface material supported by the renderer.
 #[derive(Debug, Clone)]
 pub enum Material {
     Pbr(PbrMaterial),
@@ -28,7 +27,7 @@ impl Default for Material {
 /// Parameters for Physically Based Rendering (Metallic-Roughness workflow).
 #[derive(Debug, Clone)]
 pub struct PbrMaterial {
-    /// Albedo (Base Color).
+    /// Linear base-color factor.
     pub albedo: Vector3<f32>,
     /// Base Alpha factor (0.0 = transparent, 1.0 = opaque).
     pub alpha: f32,
@@ -42,7 +41,7 @@ pub struct PbrMaterial {
     pub occlusion_strength: f32,
     /// Emissive color (light emitted by the surface).
     pub emissive: Vector3<f32>,
-    /// Alpha Mode
+    /// Controls opaque, masked, or blended rendering.
     pub alpha_mode: AlphaMode,
     /// Render both sides of each primitive.
     pub double_sided: bool,
@@ -61,8 +60,8 @@ impl Default for PbrMaterial {
         Self {
             albedo: Vector3::new(1.0, 1.0, 1.0),
             alpha: 1.0,
-            metallic: 0.0,  // Non-metal
-            roughness: 0.5, // Medium roughness
+            metallic: 0.0,
+            roughness: 0.5,
             normal_scale: 1.0,
             occlusion_strength: 1.0,
             emissive: Vector3::zeros(),
