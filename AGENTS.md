@@ -36,7 +36,7 @@ Unit tests live in nearby `#[cfg(test)]` modules, and cross-module rendering tes
 
 ## Concurrency & Safety
 
-Rayon drives parallel rendering through exclusive horizontal framebuffer bands. `FrameBuffer` stores ordinary color/depth samples without locks, atomics, `UnsafeCell`, or manual `Sync`; keep rasterization writes inside disjoint mutable bands. Transparent triangles are globally sorted back-to-front and must retain that order within every band. Phase 8 benchmarks retained 8-row bands because the tested 2D tile variants did not improve the full scenario matrix consistently.
+Rayon drives parallel rendering through exclusive horizontal framebuffer bands. `FrameBuffer` stores ordinary color/depth samples without locks, atomics, `UnsafeCell`, or manual `Sync`; keep rasterization writes inside disjoint mutable bands. Transparent triangles are globally sorted back-to-front and must retain that order within every band. Rasterization uses 8-row bands because tested 2D tile variants did not improve the full scenario matrix consistently.
 
 ## Commit & Pull Request Guidelines
 
