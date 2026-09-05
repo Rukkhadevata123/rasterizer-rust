@@ -105,7 +105,7 @@ cargo run --release -- --config benchmarks/fixtures/package-scene.toml
 ```
 
 **3. Performance Benchmarking**
-Measure a configured scene without saving a PNG, or run the complete Phase 8A scenario matrix documented in `benchmarks/README.md`.
+Measure a configured scene without saving a PNG, or run the complete scenario matrix documented in `benchmarks/README.md`.
 
 ```bash
 cargo run --release -- --config car-scene.toml --benchmark --benchmark-scenario default-car
@@ -118,7 +118,9 @@ Image decoding is limited to PNG and JPEG, matching the core glTF 2.0 image form
 
 ## Library Rendering API
 
-The refactor branch implements the breaking 5.0 rendering boundary, while `Cargo.toml` remains at version 4.0.0 until the release is packaged. New library code should import programmable rendering types from `rasterizer_rust::render`; the former `core` and `pipeline` module paths are private implementation details and have no compatibility aliases.
+Programmable rendering types are exposed through `rasterizer_rust::render`. The `core` and
+`pipeline` modules are private implementation details; application, benchmark, and GUI tooling
+remain binary-local.
 
 The public command lifecycle is explicit and synchronous:
 
@@ -134,7 +136,8 @@ User-defined Rust shaders use the same typed path as the built-in PBR and shadow
 cargo run --release --example custom_shader
 ```
 
-See [the Render API 5.0 boundary](docs/render-api-5.md) for supported surface area, ordering guarantees, and the explicitly internal backend types.
+See [the rendering API guide](docs/rendering-api.md) for the supported surface, ownership model,
+and ordering guarantees.
 
 ## Third-Party Assets
 

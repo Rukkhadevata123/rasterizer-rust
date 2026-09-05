@@ -1,26 +1,12 @@
-# Render API 5.0 Boundary
+# Rendering API
 
-## Status
-
-The required Phase 11.1–11.5 implementation and cleanup are present on the current branch. This
-document describes the implemented target-5.0 rendering API and retains the pre-refactor 4.0
-inventory only in the explicitly historical section below.
-
-`Cargo.toml` still declares version 4.0.0. The version changes only when the release is packaged;
-the API described here is therefore the implemented 5.0 target, not a claim that 5.0.0 has already
-been published.
-
-The bundled application, benchmark runner, window input, and combined CLI errors are binary-local
-modules. They consume the same public library surface as external users and are not part of the
-versioned library API.
-
-## Implemented Decision
+## Crate Boundaries
 
 The canonical rendering surface is `rasterizer_rust::render`. It supports statically dispatched
 user shaders, immutable graphics pipelines, typed command recording, synchronous queue submission,
 safe render targets, built-in PBR/shadow passes, and read-only output access.
 
-The intended stable library capability roots remain:
+The library exposes three capability roots:
 
 ```rust
 pub mod render;
@@ -28,34 +14,10 @@ pub mod scene;
 pub mod io;
 ```
 
-`core` and `pipeline` are crate-private. `Rasterizer`, `SoftwareRasterBackend`, `RenderPhase`,
-`DrawPacket`, framebuffer storage, preparation scratch, and band bins cannot be named or
-constructed by external users. There are no compatibility aliases for the former immediate
-renderer.
-
-## Historical 4.0 Inventory
-
-This section describes the API before Phase 11 and is not current usage guidance.
-
-The 4.0 module tree exposed programmable shader types through `core::shader`, raster state and
-`Rasterizer` through `core::rasterizer`, framebuffer storage through `core`, and the coupled
-`Renderer`, immediate `RenderQueue`, `RenderCommand`, and `RenderState` model through
-`pipeline::renderer`. Draw packets selected per-object shaders through parallel shader indexes,
-and integration tests imported those implementation layers directly.
-
-That broad visibility was incidental rather than a stability boundary. Phase 11 replaced it instead
-of retaining adapters:
-
-- `render::*` is the canonical programmable and submission API;
-- `RenderDevice` and its backend-owning `GraphicsQueue` replace coupled renderer ownership;
-- typed `CommandEncoder`, `RenderPassEncoder`, and `CommandBuffer` replace immediate draw lists;
-- `GraphicsPipelineState` replaces the old combined render state;
-- typed draw contexts replace shader-index coupling;
-- `RenderTargetReadback` replaces public framebuffer/sample access;
-- `RenderScene` is scene data and is not a graphics device or submission context.
-
-Historical names may still appear in the migration plan and commit records. They do not occur as
-compiled compatibility paths.
+`core` and `pipeline` are crate-private. The rasterizer, software backend, recorded draw packets,
+framebuffer storage, preparation scratch, and band bins cannot be named or constructed by external
+users. The bundled application, benchmark runner, window input, and combined CLI errors are
+binary-local modules built against the same public library surface.
 
 ## User-Defined Shaders
 
@@ -75,7 +37,7 @@ bands, or backend caches.
 
 Dispatch remains static. Callers do not implement `dyn Shader` and do not select a closed
 Shadow/PBR command enum. The public API continues to use `nalgebra` vectors, points, and matrices;
-those dependency types are part of the source-level API compatibility surface.
+those dependency types appear directly in public signatures.
 
 A complete, compiled custom-shader program lives in
 [`examples/custom_shader.rs`](../examples/custom_shader.rs) and runs with:
@@ -96,7 +58,7 @@ Each render pass assigns an internal identity whenever draw bindings are set. Th
 combines the vertex-program token, this binding identity, and the vertex-source domain instead of
 hashing floating-point matrices. `VertexProgramId::new()` creates an unforgeable process-unique
 token that may be copied across pipeline variants only when their vertex output is identical.
-Caches remain submission-local, so generation-checked persistent handles are unnecessary.
+Caches remain submission-local.
 
 ### Typed recording and synchronous submission
 
@@ -177,7 +139,7 @@ non-finite transforms, and invalid bias or PCF settings before fragment executio
 
 `render::builtin::pbr` exports `PbrShader` and its typed frame, object, material, draw, and shadow
 bindings. `render::builtin::shadow` exports the equivalent depth-only shader and bindings. Both use
-ordinary `GraphicsPipeline` values and typed commands rather than privileged backend variants.
+ordinary `GraphicsPipeline` values and typed commands.
 
 `render_shadow_pass` and `render_main_pass` are convenience builders for the repository's scene
 and configuration types. Their profiled variants report pass setup, recording, attachment
@@ -185,7 +147,7 @@ processing, backend preparation, rasterization, and inclusive submission time.
 `execute_resolve_tonemap_pass` performs SSAA resolve, exposure, optional ACES, linear-to-sRGB
 conversion, and packed presentation output in one CPU pass.
 
-## Public `scene` and `io` Surfaces
+## `scene` and `io` Surfaces
 
 `scene` remains the authoring surface for cameras, lights, materials, meshes, models, scene objects,
 transforms, texture images, samplers, texture bindings, UV selection, and `RenderScene`. Backend
@@ -219,32 +181,6 @@ Transparent alpha blending has one observable total order:
 - parallel preparation and collection retain encoded primitive order;
 - each framebuffer band visits its binned primitives sequentially in that order.
 
-The result is identical across worker counts. Pipeline/material sorting is not allowed to violate the
+The result is identical across worker counts. Pipeline/material sorting must not violate the
 depth-plus-insertion order. This contract applies equally to built-in and user-defined pipelines
 using order-dependent blending.
-
-## Compatibility and Release Audit
-
-- The target is 5.0.0 and is intentionally incompatible with the 4.x module layout.
-- Old `core::*`, `pipeline::*`, `Renderer`, `RenderQueue`, `RenderCommand`, and
-  `RenderState` paths have no forwarding aliases.
-- Public integration tests and the packaged example use the canonical `render` façade.
-- Backend-only invariants live in private unit tests.
-- `cargo rustc --release --lib -- -D unreachable-pub` passes.
-- Rustdoc builds without warnings, and framebuffer/backend implementation types are absent from the
-  public rendering surface.
-
-Final audit state:
-
-- [x] custom shaders compile and submit through `render`;
-- [x] built-in PBR and shadow shaders use the same typed pipeline/command model;
-- [x] `core`, `pipeline`, `Rasterizer`, `SoftwareRasterBackend`, `RenderPhase`, and
-  `DrawPacket` are private;
-- [x] command/resource invariants are protected by private fields or validated construction;
-- [x] synchronous submission, readback, transparent ordering, and timing ownership are documented;
-- [x] the final rustdoc/public item audit was run against the Phase 11.0 decision;
-- [x] application, benchmark, error aggregation, and window-input tooling are binary-local modules.
-
-Optional direct shadow views, persistent generation-checked resources, heterogeneous frame-wide
-command streams, output polymorphism, and a frame graph remain outside the required 5.0
-modernization. They require separate use cases and measurements.
