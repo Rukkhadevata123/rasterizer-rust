@@ -1,6 +1,6 @@
 [package]
 name = "rasterizer-rust"
-version = "4.0.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Rukkhadevata123 <rukkhadevata@foxmail.com>"]
