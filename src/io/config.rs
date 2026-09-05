@@ -660,7 +660,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_legacy_samples_field() {
+    fn rejects_unknown_samples_field() {
         assert!(toml::from_str::<Config>("[render]\nsamples = 4").is_err());
     }
 
