@@ -495,18 +495,6 @@ mod tests {
     }
 
     #[test]
-    fn square_texture_generates_complete_mip_chain() {
-        let texture = TextureImage::from_image(DynamicImage::new_rgba8(4, 4), true);
-        let dimensions: Vec<_> = texture
-            .mips(TextureUsage::Data)
-            .iter()
-            .map(|image| (image.width, image.height))
-            .collect();
-
-        assert_eq!(dimensions, vec![(4, 4), (2, 2), (1, 1)]);
-    }
-
-    #[test]
     fn density_selects_generated_mip_levels() {
         let texture = binding_with_sampler(
             mip_selection_image(),
@@ -662,6 +650,7 @@ mod tests {
     #[test]
     fn non_square_and_single_axis_images_generate_complete_mip_chains() {
         for (width, height, expected) in [
+            (4, 4, vec![(4, 4), (2, 2), (1, 1)]),
             (4, 2, vec![(4, 2), (2, 1), (1, 1)]),
             (3, 2, vec![(3, 2), (2, 1), (1, 1)]),
             (1, 4, vec![(1, 4), (1, 2), (1, 1)]),

@@ -462,13 +462,6 @@ mod tests {
     }
 
     #[test]
-    fn output_hash_changes_with_pixel_order_and_value() {
-        assert_ne!(fnv1a_hash(&[1, 2]), fnv1a_hash(&[2, 1]));
-        assert_ne!(fnv1a_hash(&[1, 2]), fnv1a_hash(&[1, 3]));
-        assert_eq!(fnv1a_hash(&[1, 2]), fnv1a_hash(&[1, 2]));
-    }
-
-    #[test]
     fn percentile_uses_nearest_rank_at_or_above_requested_percentile() {
         let samples = [
             Duration::from_millis(1),

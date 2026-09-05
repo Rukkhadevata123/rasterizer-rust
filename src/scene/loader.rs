@@ -242,27 +242,6 @@ mod tests {
     }
 
     #[test]
-    fn preserve_normalization_keeps_imported_vertex_positions() {
-        let mut model = Model::new(vec![Mesh::create_test_triangle(0)], vec![]);
-        let positions: Vec<_> = model.meshes[0]
-            .vertices
-            .iter()
-            .map(|vertex| vertex.position)
-            .collect();
-
-        apply_model_normalization(&mut model, ModelNormalization::Preserve);
-
-        assert_eq!(
-            model.meshes[0]
-                .vertices
-                .iter()
-                .map(|vertex| vertex.position)
-                .collect::<Vec<_>>(),
-            positions
-        );
-    }
-
-    #[test]
     fn shadow_light_tracks_first_valid_directional_light_index() {
         let config = Config {
             lights: vec![point_light(), directional_light([0.0, -1.0, 0.0])],

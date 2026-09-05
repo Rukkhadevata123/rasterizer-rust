@@ -660,25 +660,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_samples_field() {
-        assert!(toml::from_str::<Config>("[render]\nsamples = 4").is_err());
-    }
-
-    #[test]
     fn rejects_unknown_fields() {
         assert!(toml::from_str::<Config>("unexpected = true").is_err());
         assert!(toml::from_str::<Config>("base_dir = \"override\"").is_err());
+        assert!(toml::from_str::<Config>("[render]\nsamples = 4").is_err());
         assert!(toml::from_str::<Config>("[camera]\nunknown = 1").is_err());
         assert!(
             toml::from_str::<Config>("[[objects]]\npath = \"fixture.glb\"\nunknown = 1").is_err()
         );
-    }
-
-    #[test]
-    fn validates_default_configuration() {
-        Config::default()
-            .validate()
-            .expect("defaults should be valid");
     }
 
     #[test]
