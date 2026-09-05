@@ -2,9 +2,11 @@
 
 ## Status
 
-Status: required Phase 11.1–11.5 implementation complete; final product cleanup, release documentation, and validation in progress
+Status: required modernization, cleanup, documentation, correctness, performance, and package validation complete.
 
-Target release: **5.0.0**. The branch now implements the breaking `render` façade and no longer exposes the former `core`, `pipeline`, `Renderer`, `RenderQueue`, `RenderCommand`, or `RenderState` paths. `Cargo.toml` remains at 4.0.0 until release packaging. The still-public binary/tooling modules require one final boundary decision before that version bump.
+Release: **5.0.0**. The library exposes the supported `render`, `scene`, and `io` roots; executable tooling and rendering internals remain outside that public boundary. The required implementation has one typed command/submission path with no compatibility aliases.
+
+Optional Phases 11.6–11.8 were reviewed at completion and deliberately not selected. Their implementation notes are archived for future evidence or feature triggers, not outstanding 5.0 work.
 
 This document replaces the completed pre-4.0 roadmap and records both the original decisions and their implementation. Sections describing the old renderer or proposing work are historical planning context unless their checklist remains open. The goal is a small, accurate, explicit rendering API that retains the safe synchronous CPU backend and its performance properties.
 
@@ -630,6 +632,7 @@ Completed slices:
 - [x] `a344249` (`record final performance validation`): captured a fresh final comparison between baseline source `f306e62` and candidate source `951ff28` on the same i5-13500H machine with rustc 1.98.0, the current seven-workload harness, 1/12 workers, 3 warmups, and 10 measured frames per scenario. A baseline-first matrix and an immediate candidate-first reverse matrix both preserved all 14 hashes and passed every 5% full-frame mean gate without exceptions. The largest mean regression was +4.03% in the first order and +3.26% in the reverse order. The committed release-validation directory retains both pairs of aggregate schema-v2 CSVs, complete metadata, reproduction commands, and a comparison summary; temporary worktrees and duplicate ignored outputs were removed after verification.
 - [x] `08c2a92` (`remove obsolete benchmark history`): removed the four phase-numbered benchmark comparisons, the original phase baseline, and the superseded pre-modernization schema-v2 baseline from the active repository after the final validation was committed. Git history remains the recovery path; the active benchmark tree now contains only the current contract, runner inputs, exception policy, and the reproducible two-order release-validation artifact. Reworded the repository concurrency guidance to retain the measured 8-row-band decision without a development-phase label. Negative scans for numeric phase labels, the old render-guide path, and superseded render API names pass outside this temporary plan. All 160 release Rust tests, 9 benchmark-script tests, formatting, warnings-denied Clippy, release checks, rustdoc, `unreachable_pub`, and a replay of the retained performance comparison pass. No new performance matrix was required because the immediately preceding committed validation covers unchanged production code.
 - [x] `0ca74e5` (`set package version to 5.0.0`): updated the manifest and root lockfile package entry to 5.0.0 after correctness and performance gates passed. The generated crate contains 80 files, is 1.6 MiB uncompressed and about 1.0 MiB compressed, and recompiles successfully from Cargo's extracted package directory. A package audit confirms that the version-neutral rendering guide, custom-shader example, images, and licenses are present; all seven local links across the two packaged Markdown files resolve; the temporary Plan, old guide path, benchmark history, and repository-only validation evidence are absent. All 160 release Rust tests, 9 benchmark-script tests, formatting, warnings-denied Clippy, release checks, rustdoc, `unreachable_pub`, and the release custom-shader example pass. No performance matrix was repeated because the version metadata does not change compiled rendering behavior and the final same-machine matrix immediately precedes it.
+- [x] `76f9e8c` (`name samples test by behavior`): completed the final shipping-source and test terminology scan by renaming the only remaining migration-labeled test after its observable unknown-field rejection. Outside this archived plan and the explicit release-validation evidence, scans find no migration/refactor labels, numeric development phases, old render-guide path, compatibility terminology, or superseded `RenderQueue`, `RenderCommand`, and `RenderState` names. All 160 release Rust tests, formatting, and warnings-denied Clippy pass; production behavior is unchanged.
 
 ### Production code and API cleanup
 
@@ -662,7 +665,7 @@ Completed slices:
 - [x] Rewrite `benchmarks/README.md` as the current benchmark contract, removing development-progress language while retaining schema-v2 timing definitions, same-machine comparison requirements, hash validation, noise handling, and the 5% gate. Repository-stored measurements from another machine are explicitly excluded as a denominator.
 - [x] After the final adjacent benchmark comparison, remove phase-numbered benchmark narratives and superseded baselines from the active repository. The retained release-validation artifact contains both run orders, complete environment metadata, raw schema-v2 samples, and reproduction commands.
 - [ ] Complete the remaining release housekeeping by moving the tracked `Plan.md` to the user-designated external archive and removing it from the repository in an explicit commit. Package version 5.0.0, packaged files, and documentation links are verified; license version strings such as `CC-BY-4.0` remain intact.
-- [ ] Finish with negative repository scans. Outside the externalized plan or an explicitly retained release-validation artifact, shipping source, tests, examples, README, rustdoc, and active benchmark documentation must contain no migration terminology, development phase labels, or superseded API names.
+- [x] Finish with negative repository scans. Outside this externalized plan and the explicit release-validation artifact, shipping source, tests, examples, README, rustdoc, and active benchmark documentation contain no migration terminology, development phase labels, old guide path, compatibility narrative, or superseded API names.
 
 ### Documentation and validation
 
@@ -681,6 +684,10 @@ Completed slices:
 
 ## Phase 11.6: Optional Direct Shadow View and Persistent Resources
 
+Completion decision: not selected. The current contiguous reusable shadow snapshot has measured
+coverage, no command buffer needs to outlive its frame-local borrows, and no replay or stale-handle
+use case justifies a registry. Reopen only with new evidence.
+
 Priority: optional, evidence-driven
 
 Difficulty: medium to high
@@ -689,12 +696,12 @@ Goal: remove avoidable resource copies or borrowed-command lifetime limits where
 
 ### Direct shadow sampling
 
-- [ ] After shadow submission, expose a read-only `DepthTextureView<'a>` over the completed shadow target.
-- [ ] Let the main command buffer borrow that view immutably while borrowing the distinct main target mutably.
-- [ ] Make the view sample interleaved `Sample` storage without exposing mutable aliases.
-- [ ] Compare direct strided/interleaved access with the current contiguous `Arc<Vec<f32>>` snapshot. The avoided copy may be offset by worse PCF cache behavior.
-- [ ] Retain the snapshot path if it is faster, simpler, or required by consumers that outlive the producing target borrow.
-- [ ] Test large shadow maps, PCF on/off, and one/all workers.
+- After shadow submission, expose a read-only `DepthTextureView<'a>` over the completed shadow target.
+- Let the main command buffer borrow that view immutably while borrowing the distinct main target mutably.
+- Make the view sample interleaved `Sample` storage without exposing mutable aliases.
+- Compare direct strided/interleaved access with the current contiguous `Arc<Vec<f32>>` snapshot. The avoided copy may be offset by worse PCF cache behavior.
+- Retain the snapshot path if it is faster, simpler, or required by consumers that outlive the producing target borrow.
+- Test large shadow maps, PCF on/off, and one/all workers.
 
 ### Persistent handles
 
@@ -707,13 +714,13 @@ PipelineHandle<P>
 BindGroupHandle<B>
 ```
 
-- [ ] Use typed generation-checked handles backed by a centralized arena/registry.
-- [ ] Return structured stale-handle, usage, dimension, and missing-resource errors.
-- [ ] Define hot-reload invalidation and replacement semantics before storing handles in commands.
-- [ ] Add resource usage flags only when validation consumes them.
-- [ ] Preserve `Mesh` as the scene-level vertex/index/material grouping.
-- [ ] Preserve texture image sharing already provided by `Arc`; do not duplicate it merely for terminology.
-- [ ] Design frame-wide command buffers only after the handle lifetime and heterogeneous dispatch policy are settled.
+- Use typed generation-checked handles backed by a centralized arena/registry.
+- Return structured stale-handle, usage, dimension, and missing-resource errors.
+- Define hot-reload invalidation and replacement semantics before storing handles in commands.
+- Add resource usage flags only when validation consumes them.
+- Preserve `Mesh` as the scene-level vertex/index/material grouping.
+- Preserve texture image sharing already provided by `Arc`; do not duplicate it merely for terminology.
+- Design frame-wide command buffers only after the handle lifetime and heterogeneous dispatch policy are settled.
 
 ### Exit Criteria
 
@@ -723,17 +730,22 @@ BindGroupHandle<B>
 
 ## Phase 11.7: Shared Frame Execution and Optional Output Abstraction
 
+Completion decision: not selected. GUI hot reload, single-frame output, and benchmark profiling have
+different lifecycle and timing ownership despite sharing the same explicit pass primitives. A
+wrapper would add ownership and public-surface policy without a new consumer; the small orchestration
+sequences remain intentionally local. Reopen if another output path creates material duplication.
+
 Priority: recommended cleanup after Phase 11.5; generic surfaces remain optional
 
 Difficulty: medium
 
 Goal: remove duplicated GUI/CLI/benchmark frame orchestration before generalizing presentation.
 
-- [ ] Introduce one high-level `FrameRenderer::render_frame` or equivalent that records/submits shadow and main passes and runs resolve/tonemap.
-- [ ] Return a present buffer plus structured frame/submission timings.
-- [ ] Route GUI, CLI, and benchmark through this function.
-- [ ] Preserve GUI hot reload and its distinct target/resource/window rebuild policies.
-- [ ] Keep output side effects outside render passes: GUI presents, CLI saves PNG, benchmark hashes.
+- Introduce one high-level `FrameRenderer::render_frame` or equivalent that records/submits shadow and main passes and runs resolve/tonemap.
+- Return a present buffer plus structured frame/submission timings.
+- Route GUI, CLI, and benchmark through this function.
+- Preserve GUI hot reload and its distinct target/resource/window rebuild policies.
+- Keep output side effects outside render passes: GUI presents, CLI saves PNG, benchmark hashes.
 
 Only add a trait if multiple output implementations benefit from the same lifecycle:
 
@@ -756,6 +768,10 @@ Possible implementations are `WindowSurface`, `ImageSurface`, and `BenchmarkSurf
 
 ## Phase 11.8: Optional Minimal Frame Graph
 
+Completion decision: not selected. The shipping pass sequence remains fixed and sequential, with no
+optional branches, multiple shadow maps, transient target reuse, capture/replay, or other graph
+trigger.
+
 Priority: defer until the pass/resource model has nontrivial dependencies
 
 Difficulty: high
@@ -774,13 +790,13 @@ MainPass ----reads-------+----writes--> MainHdr
 ResolveTonemapPass ----------------------reads----writes--> PresentBuffer
 ```
 
-- [ ] Record typed resource reads/writes and pass labels.
-- [ ] Reject transient read-before-write and incompatible same-pass access.
-- [ ] Preserve declared order initially.
-- [ ] Compile nodes into the established command-buffer/submission model.
-- [ ] Export a readable graph or DOT file for education/debugging.
-- [ ] Add topological sorting, pass culling, and transient reuse only when real graphs benefit.
-- [ ] Do not add automatic parallel pass execution without a proven safe resource model and benchmark evidence.
+- Record typed resource reads/writes and pass labels.
+- Reject transient read-before-write and incompatible same-pass access.
+- Preserve declared order initially.
+- Compile nodes into the established command-buffer/submission model.
+- Export a readable graph or DOT file for education/debugging.
+- Add topological sorting, pass culling, and transient reuse only when real graphs benefit.
+- Do not add automatic parallel pass execution without a proven safe resource model and benchmark evidence.
 
 ## Error and Validation Model
 
